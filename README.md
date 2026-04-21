@@ -29,13 +29,13 @@ Run 'spec do' to resume SPEC-042. 12 specs in pipeline.
 Requires Go 1.22+.
 
 ```bash
-go install github.com/nexl/spec-cli@latest
+go install github.com/aaronl1011/spec-cli@latest
 ```
 
 ### Build from this repo
 
 ```bash
-git clone https://github.com/nexl/spec-cli.git
+git clone https://github.com/aaronl1011/spec-cli.git
 cd spec-cli
 make build
 # Binary is at ./bin/spec
@@ -43,12 +43,12 @@ make build
 
 ### Prebuilt binaries
 
-Download from [GitHub Releases](https://github.com/nexl/spec-cli/releases) for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64.
+Download from [GitHub Releases](https://github.com/aaronl1011/spec-cli/releases) for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64.
 
 ### Homebrew
 
 ```bash
-brew install nexl/tap/spec
+brew install aaronl1011/tap/spec
 ```
 
 ## Quick Start
