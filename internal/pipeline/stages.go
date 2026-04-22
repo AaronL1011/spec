@@ -18,7 +18,7 @@ func StageOwner(pipeline config.PipelineConfig, stageName string) string {
 	if s == nil {
 		return ""
 	}
-	return s.OwnerRole
+	return s.GetOwner()
 }
 
 // NextStage returns the next non-optional stage, or the next stage if includeOptional.
