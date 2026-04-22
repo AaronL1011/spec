@@ -124,6 +124,18 @@ func ctx() context.Context {
 
 // warnf prints a warning to stderr. Use for non-fatal adapter errors
 // that should not block the command but should be visible to the user.
+// invalidateDashboard clears the cached dashboard data so the next
+// `spec` invocation rebuilds it from live state. Call this after any
+// command that changes pipeline state (advance, revert, eject, etc.).
+func invalidateDashboard() {
+	db, err := openDB()
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	_ = db.CacheDelete("dashboard:data")
+}
+
 func warnf(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, "warning: "+format+"\n", args...)
 }

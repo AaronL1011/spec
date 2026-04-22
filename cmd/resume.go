@@ -35,6 +35,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	defer invalidateDashboard()
 	return gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {

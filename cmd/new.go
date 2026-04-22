@@ -57,6 +57,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 	content := markdown.ScaffoldSpec(specID, title, author, cycle, "direct")
 
 	// Write to specs repo via WithSpecsRepo
+	defer invalidateDashboard()
 	err = gitpkg.WithSpecsRepo(ctx(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
 		specPath := filepath.Join(repoPath, specID+".md")
 		if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {
