@@ -4,7 +4,6 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 	"github.com/nexl/spec-cli/internal/config"
 	"github.com/nexl/spec-cli/internal/markdown"
 	"github.com/nexl/spec-cli/internal/pipeline"
-	"github.com/nexl/spec-cli/internal/store"
 )
 
 // DashboardItem represents a single item in a dashboard section.
@@ -34,7 +32,7 @@ type DashboardData struct {
 	Incoming []DashboardItem `json:"incoming"`
 	Blocked  []DashboardItem `json:"blocked"`
 	FYI      []DashboardItem `json:"fyi"`
-	Cached   bool            `json:"-"`
+
 }
 
 // Render outputs the dashboard to the terminal.
@@ -51,10 +49,6 @@ func Render(data *DashboardData, userName, role, cycle string) {
 		fmt.Printf("                           %s", strings.Join(parts, " · "))
 	}
 	fmt.Println()
-
-	if data.Cached {
-		fmt.Println("                                                     (cached)")
-	}
 
 	anyOutput := false
 
@@ -115,30 +109,12 @@ func Render(data *DashboardData, userName, role, cycle string) {
 }
 
 // Aggregate collects data for the dashboard from all sources.
-func Aggregate(ctx context.Context, rc *config.ResolvedConfig, db *store.DB, reg *adapter.Registry, role string) (*DashboardData, error) {
+func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Registry, role string) (*DashboardData, error) {
 	data := &DashboardData{}
 
-	ttl := 300
-	if rc.Team != nil {
-		ttl = rc.Team.Dashboard.RefreshTTL
-	}
-
-	// Try cache first — but only if spec files haven't been modified since
-	// the cache was written. This catches manual edits, MCP tool writes,
-	// and any mutation path that doesn't explicitly invalidate the cache.
-	if db != nil {
-		entry, err := db.CacheGetEntry("dashboard:data")
-		if err == nil && entry.Value != "" && entry.Fresh {
-			if !specsModifiedSince(rc.SpecsRepoDir, entry.FetchedAt) {
-				if err := json.Unmarshal([]byte(entry.Value), data); err == nil {
-					data.Cached = true
-					return data, nil
-				}
-			}
-		}
-	}
-
-	// Aggregate live data
+	// Aggregate live data — no caching. The dashboard reads local files
+	// (fast) and at most one API call for PR reviews. Caching added more
+	// complexity (TTL, invalidation, mtime checks) than it saved.
 	pl := rc.Pipeline()
 
 	// DO section: specs where stage owner_role matches user
@@ -187,12 +163,6 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, db *store.DB, reg
 				})
 			}
 		}
-	}
-
-	// Cache the results
-	if db != nil {
-		jsonData, _ := json.Marshal(data)
-		_ = db.CacheSet("dashboard:data", string(jsonData), ttl)
 	}
 
 	return data, nil
@@ -266,35 +236,6 @@ func loadTriageItems(rc *config.ResolvedConfig) ([]triageInfo, error) {
 
 func countCompletedSpecs(data *DashboardData) int {
 	return len(data.FYI)
-}
-
-// specsModifiedSince returns true if any spec or triage file in the specs
-// repo directory has been modified after the given time.
-func specsModifiedSince(specsDir string, since time.Time) bool {
-	if specsDir == "" {
-		return false
-	}
-
-	dirs := []string{specsDir, filepath.Join(specsDir, "triage")}
-	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-				continue
-			}
-			info, err := e.Info()
-			if err != nil {
-				continue
-			}
-			if info.ModTime().After(since) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func truncStr(s string, max int) string {

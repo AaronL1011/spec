@@ -45,7 +45,6 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 	reg := buildRegistry(rc)
 
 	// Work within specs repo
-	defer invalidateDashboard()
 	return gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {

@@ -6,44 +6,55 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nexl/spec-cli/internal/store"
+	"github.com/nexl/spec-cli/internal/config"
 )
 
-func TestPendingCount_NilDB(t *testing.T) {
-	count := PendingCount(nil)
+func TestPendingCount_NilConfig(t *testing.T) {
+	count := PendingCount(nil, "engineer")
 	if count != 0 {
 		t.Errorf("expected 0, got %d", count)
 	}
 }
 
-func TestPendingCount_EmptyCache(t *testing.T) {
-	db, err := store.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	count := PendingCount(db)
+func TestPendingCount_EmptyDir(t *testing.T) {
+	rc := &config.ResolvedConfig{SpecsRepoDir: t.TempDir()}
+	count := PendingCount(rc, "engineer")
 	if count != 0 {
 		t.Errorf("expected 0, got %d", count)
 	}
 }
 
-func TestPendingCount_WithCachedData(t *testing.T) {
-	db, err := store.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+func TestPendingCount_MatchesRole(t *testing.T) {
+	dir := t.TempDir()
 
-	data := `{"do":[{"spec_id":"SPEC-001"},{"spec_id":"SPEC-002"}],"review":[{"spec_id":"PR #10"}]}`
-	if err := db.CacheSet("dashboard:data", data, 300); err != nil {
-		t.Fatal(err)
+	// engineer-owned stage
+	os.WriteFile(filepath.Join(dir, "SPEC-001.md"), []byte(
+		"---\nid: SPEC-001\ntitle: Test\nstatus: build\n---\n",
+	), 0o644)
+
+	// pm-owned stage
+	os.WriteFile(filepath.Join(dir, "SPEC-002.md"), []byte(
+		"---\nid: SPEC-002\ntitle: Other\nstatus: draft\n---\n",
+	), 0o644)
+
+	rc := &config.ResolvedConfig{
+		SpecsRepoDir: dir,
+		Team:         defaultTeamConfig(),
 	}
 
-	count := PendingCount(db)
-	if count != 3 {
-		t.Errorf("expected 3 (2 do + 1 review), got %d", count)
+	if count := PendingCount(rc, "engineer"); count != 1 {
+		t.Errorf("engineer: expected 1, got %d", count)
+	}
+	if count := PendingCount(rc, "pm"); count != 1 {
+		t.Errorf("pm: expected 1, got %d", count)
+	}
+}
+
+func TestPendingCount_EmptyRole(t *testing.T) {
+	rc := &config.ResolvedConfig{SpecsRepoDir: t.TempDir()}
+	count := PendingCount(rc, "")
+	if count != 0 {
+		t.Errorf("expected 0, got %d", count)
 	}
 }
 
@@ -65,50 +76,6 @@ func TestTimeAgo(t *testing.T) {
 	}
 }
 
-func TestSpecsModifiedSince_NoChanges(t *testing.T) {
-	dir := t.TempDir()
-	spec := filepath.Join(dir, "SPEC-001.md")
-	os.WriteFile(spec, []byte("---\nstatus: draft\n---"), 0o644)
-
-	// Set mtime to the past
-	past := time.Now().Add(-1 * time.Hour)
-	os.Chtimes(spec, past, past)
-
-	if specsModifiedSince(dir, time.Now().Add(-30*time.Minute)) {
-		t.Error("expected no modification detected")
-	}
-}
-
-func TestSpecsModifiedSince_WithChanges(t *testing.T) {
-	dir := t.TempDir()
-	spec := filepath.Join(dir, "SPEC-001.md")
-	os.WriteFile(spec, []byte("---\nstatus: draft\n---"), 0o644)
-
-	if !specsModifiedSince(dir, time.Now().Add(-1*time.Second)) {
-		t.Error("expected modification detected")
-	}
-}
-
-func TestSpecsModifiedSince_TriageDir(t *testing.T) {
-	dir := t.TempDir()
-	triageDir := filepath.Join(dir, "triage")
-	os.MkdirAll(triageDir, 0o755)
-	os.WriteFile(filepath.Join(triageDir, "TRIAGE-001.md"), []byte("---\n---"), 0o644)
-
-	if !specsModifiedSince(dir, time.Now().Add(-1*time.Second)) {
-		t.Error("expected triage modification detected")
-	}
-}
-
-func TestSpecsModifiedSince_EmptyDir(t *testing.T) {
-	if specsModifiedSince("", time.Now()) {
-		t.Error("empty dir should return false")
-	}
-	if specsModifiedSince(t.TempDir(), time.Now().Add(-1*time.Hour)) {
-		t.Error("empty dir should return false")
-	}
-}
-
 func TestTruncStr(t *testing.T) {
 	tests := []struct {
 		input string
@@ -124,5 +91,25 @@ func TestTruncStr(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("truncStr(%q, %d) = %q, want %q", tt.input, tt.max, got, tt.want)
 		}
+	}
+}
+
+// defaultTeamConfig returns a minimal team config with the default pipeline.
+func defaultTeamConfig() *config.TeamConfig {
+	return &config.TeamConfig{
+		Pipeline: config.PipelineConfig{
+			Stages: []config.StageConfig{
+				{Name: "triage", OwnerRole: "pm"},
+				{Name: "draft", OwnerRole: "pm"},
+				{Name: "tl-review", OwnerRole: "tl"},
+				{Name: "design", OwnerRole: "designer"},
+				{Name: "qa-expectations", OwnerRole: "qa"},
+				{Name: "engineering", OwnerRole: "engineer"},
+				{Name: "build", OwnerRole: "engineer"},
+				{Name: "pr-review", OwnerRole: "engineer"},
+				{Name: "qa-validation", OwnerRole: "qa"},
+				{Name: "done", OwnerRole: "tl"},
+			},
+		},
 	}
 }

@@ -71,7 +71,6 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	// Transition spec to 'deploying' if post-merge stages are configured
 	pl := rc.Pipeline()
 	if pl.StageByName("deploying") != nil && meta.Status == "done" {
-		defer invalidateDashboard()
 		err = gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
 			specPath, err := specPathIn(repoPath, rc, specID)
 			if err != nil {

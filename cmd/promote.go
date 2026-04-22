@@ -72,7 +72,6 @@ func runPromote(cmd *cobra.Command, args []string) error {
 
 	var newSpecID string
 
-	defer invalidateDashboard()
 	err = gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
 		// Write the new spec
 		specPath := filepath.Join(repoPath, specID+".md")

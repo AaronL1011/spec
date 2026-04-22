@@ -52,7 +52,6 @@ func runRevert(cmd *cobra.Command, args []string) error {
 	pl := rc.Pipeline()
 	reg := buildRegistry(rc)
 
-	defer invalidateDashboard()
 	return gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
