@@ -9,6 +9,7 @@ import (
 	gitpkg "github.com/nexl/spec-cli/internal/git"
 	"github.com/nexl/spec-cli/internal/markdown"
 	"github.com/nexl/spec-cli/internal/pipeline"
+	"github.com/nexl/spec-cli/internal/pipeline/effects"
 	"github.com/spf13/cobra"
 )
 
@@ -21,12 +22,14 @@ var advanceCmd = &cobra.Command{
 
 func init() {
 	advanceCmd.Flags().String("to", "", "skip to a specific stage (TL fast-track only)")
+	advanceCmd.Flags().Bool("dry-run", false, "show what would happen without making changes")
 	rootCmd.AddCommand(advanceCmd)
 }
 
 func runAdvance(cmd *cobra.Command, args []string) error {
 	specID := strings.ToUpper(args[0])
 	targetStage, _ := cmd.Flags().GetString("to")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 	rc, err := resolveConfig()
 	if err != nil {
@@ -95,6 +98,37 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 
 		previousStage := meta.Status
 
+		// Dry-run: show what would happen
+		if dryRun {
+			fmt.Printf("Dry-run: %s would advance %s → %s\n", specID, previousStage, target)
+			if len(skipped) > 0 {
+				fmt.Printf("  Skipped stages: %s\n", strings.Join(skipped, ", "))
+			}
+
+			// Show effects that would run
+			resolvedPipeline, _ := pipeline.Resolve(rc.Team.Pipeline)
+			if stage := resolvedPipeline.StageByName(previousStage); stage != nil {
+				if len(stage.Transitions.Advance.Effects) > 0 {
+					fmt.Println("  Effects:")
+					executor := effects.NewExecutor(true)
+					execCtx := effects.ExecutionContext{
+						SpecID:         specID,
+						SpecTitle:      meta.Title,
+						FromStage:      previousStage,
+						ToStage:        target,
+						TransitionType: effects.TransitionAdvance,
+						User:           rc.UserName(),
+						UserRole:       role,
+					}
+					results := executor.Execute(context.Background(), stage.Transitions.Advance.Effects, execCtx)
+					for _, r := range results {
+						fmt.Printf("    → %s\n", r.Message)
+					}
+				}
+			}
+			return "", nil
+		}
+
 		// Advance
 		_, err = pipeline.Advance(path, meta, target)
 		if err != nil {
@@ -107,7 +141,42 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 			markdown.AppendDecision(path, msg, rc.UserName())
 		}
 
-		// Notify — non-fatal, warn on failure
+		// Execute transition effects from pipeline config
+		resolvedPipeline, _ := pipeline.Resolve(rc.Team.Pipeline)
+		if stage := resolvedPipeline.StageByName(previousStage); stage != nil {
+			if len(stage.Transitions.Advance.Effects) > 0 {
+				executor := effects.NewExecutor(false)
+				execCtx := effects.ExecutionContext{
+					SpecID:         specID,
+					SpecTitle:      meta.Title,
+					FromStage:      previousStage,
+					ToStage:        target,
+					TransitionType: effects.TransitionAdvance,
+					User:           rc.UserName(),
+					UserRole:       role,
+				}
+
+				results := executor.Execute(context.Background(), stage.Transitions.Advance.Effects, execCtx)
+				for _, r := range results {
+					if r.Error != nil {
+						warnf("effect failed: %v", r.Error)
+					} else if r.Skipped {
+						// Silent skip
+					} else if r.Message != "" {
+						fmt.Printf("  → %s\n", r.Message)
+					}
+				}
+
+				// Handle archive effect
+				if effects.ShouldArchive(results) {
+					// Archive will be handled by separate archive command
+					fmt.Printf("  → spec marked for archiving\n")
+				}
+			}
+		}
+
+		// Legacy: Notify — non-fatal, warn on failure
+		// TODO: migrate to effects system
 		if rc.HasIntegration("comms") {
 			nextOwner := pipeline.StageOwner(pl, target)
 			if err := reg.Comms().Notify(ctx(), adapter.Notification{
@@ -119,7 +188,8 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Sync status to PM — non-fatal, warn on failure
+		// Legacy: Sync status to PM — non-fatal, warn on failure
+		// TODO: migrate to effects system
 		if rc.HasIntegration("pm") && meta.EpicKey != "" {
 			if err := reg.PM().UpdateStatus(ctx(), meta.EpicKey, target); err != nil {
 				warnf("could not sync status to PM: %v", err)

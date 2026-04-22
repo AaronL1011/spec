@@ -1,11 +1,7 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/nexl/spec-cli/internal/dashboard"
-	"github.com/nexl/spec-cli/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -39,16 +35,8 @@ personal dashboard.`,
 			return nil
 		}
 
-		db, err := openDB()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not open database: %v\n", err)
-		}
-		if db != nil {
-			defer db.Close()
-		}
-
 		reg := buildRegistry(rc)
-		data, err := dashboard.Aggregate(ctx(), rc, db, reg, role)
+		data, err := dashboard.Aggregate(ctx(), rc, reg, role)
 		if err != nil {
 			return err
 		}
@@ -76,14 +64,11 @@ func init() {
 			}
 		}
 		// Only print for subcommands, not the root dashboard itself.
-		// Awareness is best-effort — DB open failure is not fatal.
+		// Awareness is best-effort — config resolution failure is not fatal.
 		if cmd != rootCmd {
-			db, err := store.Open(store.DefaultDBPath())
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: could not open database for awareness check: %v\n", err)
-			} else {
-				dashboard.PrintAwarenessLine(db)
-				db.Close()
+			if rc, err := resolveConfig(); err == nil {
+				role := rc.OwnerRole("")
+				dashboard.PrintAwarenessLine(rc, role)
 			}
 		}
 		return nil

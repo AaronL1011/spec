@@ -131,51 +131,8 @@ type DashboardConfig struct {
 	RefreshTTL     int    `yaml:"refresh_ttl"`
 }
 
-// PipelineConfig defines the configurable pipeline stages.
-type PipelineConfig struct {
-	Stages []StageConfig `yaml:"stages"`
-}
-
-// StageConfig defines a single pipeline stage.
-type StageConfig struct {
-	Name        string      `yaml:"name"`
-	OwnerRole   string      `yaml:"owner_role"`
-	Optional    bool        `yaml:"optional,omitempty"`
-	AutoArchive bool        `yaml:"auto_archive,omitempty"`
-	Gates       []GateConfig `yaml:"gates,omitempty"`
-}
-
-// GateConfig defines a single gate condition.
-type GateConfig struct {
-	raw map[string]interface{}
-}
-
-// UnmarshalYAML captures gate condition key-value pairs.
-func (g *GateConfig) UnmarshalYAML(value *yaml.Node) error {
-	g.raw = make(map[string]interface{})
-	return value.Decode(&g.raw)
-}
-
-// NewGate creates a GateConfig programmatically.
-func NewGate(key, value string) GateConfig {
-	return GateConfig{raw: map[string]interface{}{key: value}}
-}
-
-// Type returns the gate condition type (e.g., "section_complete", "pr_stack_exists").
-func (g GateConfig) Type() string {
-	for k := range g.raw {
-		return k
-	}
-	return ""
-}
-
-// Value returns the gate condition value as a string.
-func (g GateConfig) Value() string {
-	for _, v := range g.raw {
-		return fmt.Sprintf("%v", v)
-	}
-	return ""
-}
+// NOTE: PipelineConfig, StageConfig, GateConfig and related types are defined
+// in pipeline.go to keep pipeline configuration concerns together.
 
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
 
@@ -224,22 +181,36 @@ func LoadTeamConfig(path string) (*TeamConfig, error) {
 }
 
 // DefaultPipeline returns the default pipeline configuration when none is specified.
+// This is the "product" preset - a full lifecycle pipeline.
 func DefaultPipeline() PipelineConfig {
+	t := true
 	return PipelineConfig{
 		Stages: []StageConfig{
-			{Name: "triage", OwnerRole: "pm"},
-			{Name: "draft", OwnerRole: "pm"},
-			{Name: "tl-review", OwnerRole: "tl", Gates: []GateConfig{NewGate("section_complete", "problem_statement")}},
-			{Name: "design", OwnerRole: "designer", Gates: []GateConfig{NewGate("section_complete", "user_stories")}},
-			{Name: "qa-expectations", OwnerRole: "qa", Gates: []GateConfig{NewGate("section_complete", "design_inputs")}},
-			{Name: "engineering", OwnerRole: "engineer", Gates: []GateConfig{NewGate("section_complete", "acceptance_criteria")}},
-			{Name: "build", OwnerRole: "engineer"},
-			{Name: "pr-review", OwnerRole: "engineer", Gates: []GateConfig{NewGate("pr_stack_exists", "true")}},
-			{Name: "qa-validation", OwnerRole: "qa", Gates: []GateConfig{NewGate("prs_approved", "true")}},
-			{Name: "done", OwnerRole: "tl"},
-			{Name: "deploying", OwnerRole: "engineer", Optional: true},
-			{Name: "monitoring", OwnerRole: "engineer", Optional: true},
-			{Name: "closed", OwnerRole: "tl", Optional: true, AutoArchive: true},
+			{Name: "triage", Owner: "pm", Icon: "📥"},
+			{Name: "draft", Owner: "pm", Icon: "📝"},
+			{Name: "tl-review", Owner: "tl", Icon: "👀", Gates: []GateConfig{
+				{SectionNotEmpty: "problem_statement"},
+			}},
+			{Name: "design", Owner: "designer", Icon: "🎨", Gates: []GateConfig{
+				{SectionNotEmpty: "user_stories"},
+			}},
+			{Name: "qa-expectations", Owner: "qa", Icon: "📋", Gates: []GateConfig{
+				{SectionNotEmpty: "design_inputs"},
+			}},
+			{Name: "engineering", Owner: "engineer", Icon: "🔧", Gates: []GateConfig{
+				{SectionNotEmpty: "acceptance_criteria"},
+			}},
+			{Name: "build", Owner: "engineer", Icon: "🏗️"},
+			{Name: "pr-review", Owner: "engineer", Icon: "👁️", Gates: []GateConfig{
+				{PRStackExists: &t},
+			}},
+			{Name: "qa-validation", Owner: "qa", Icon: "✅", Gates: []GateConfig{
+				{PRsApproved: &t},
+			}},
+			{Name: "done", Owner: "tl", Icon: "🎉"},
+			{Name: "deploying", Owner: "engineer", Icon: "🚀", Optional: true},
+			{Name: "monitoring", Owner: "engineer", Icon: "📊", Optional: true},
+			{Name: "closed", Owner: "tl", Icon: "📦", Optional: true, AutoArchive: true},
 		},
 	}
 }
@@ -268,35 +239,6 @@ func FindTeamConfigPath(startDir string) (string, error) {
 	return "", fmt.Errorf("spec.config.yaml not found — run 'spec config init' to set up")
 }
 
-// StageByName returns the stage config by name, or nil if not found.
-func (p PipelineConfig) StageByName(name string) *StageConfig {
-	for i := range p.Stages {
-		if p.Stages[i].Name == name {
-			return &p.Stages[i]
-		}
-	}
-	return nil
-}
-
-// StageIndex returns the index of a stage by name, or -1.
-func (p PipelineConfig) StageIndex(name string) int {
-	for i, s := range p.Stages {
-		if s.Name == name {
-			return i
-		}
-	}
-	return -1
-}
-
-// StageNames returns all stage names in order.
-func (p PipelineConfig) StageNames() []string {
-	names := make([]string, len(p.Stages))
-	for i, s := range p.Stages {
-		names[i] = s.Name
-	}
-	return names
-}
-
 // RequiredStages returns non-optional stages.
 func (p PipelineConfig) RequiredStages() []StageConfig {
 	var stages []StageConfig
@@ -308,28 +250,13 @@ func (p PipelineConfig) RequiredStages() []StageConfig {
 	return stages
 }
 
-// NextStage returns the next stage after the given one, skipping optional stages
-// unless they are explicitly enabled (caller must handle optional logic).
+// NextStage returns the next stage after the given one.
 func (p PipelineConfig) NextStage(current string) (string, bool) {
 	idx := p.StageIndex(current)
 	if idx < 0 || idx >= len(p.Stages)-1 {
 		return "", false
 	}
 	return p.Stages[idx+1].Name, true
-}
-
-// IsValidTransition checks if moving from 'from' to 'to' is a valid forward transition.
-func (p PipelineConfig) IsValidTransition(from, to string) bool {
-	fromIdx := p.StageIndex(from)
-	toIdx := p.StageIndex(to)
-	return fromIdx >= 0 && toIdx > fromIdx
-}
-
-// IsValidReversion checks if moving from 'from' to 'to' is a valid backward transition.
-func (p PipelineConfig) IsValidReversion(from, to string) bool {
-	fromIdx := p.StageIndex(from)
-	toIdx := p.StageIndex(to)
-	return fromIdx > 0 && toIdx >= 0 && toIdx < fromIdx
 }
 
 // EffectivePipeline returns the pipeline from team config, or default if empty.

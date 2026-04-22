@@ -1,36 +1,49 @@
 package dashboard
 
 import (
-	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
-	"github.com/nexl/spec-cli/internal/store"
+	"github.com/nexl/spec-cli/internal/config"
+	"github.com/nexl/spec-cli/internal/markdown"
 )
 
-// PendingCount returns the number of items awaiting user attention.
-// Reads from cache only — never blocks on network.
-func PendingCount(db *store.DB) int {
-	if db == nil {
+// PendingCount returns the number of specs awaiting action from the
+// current user's role. Reads local files only — never blocks on network.
+func PendingCount(rc *config.ResolvedConfig, role string) int {
+	if rc == nil || rc.SpecsRepoDir == "" || role == "" {
 		return 0
 	}
 
-	cached, _, err := db.CacheGet("dashboard:data")
-	if err != nil || cached == "" {
+	pl := rc.Pipeline()
+	count := 0
+
+	entries, err := os.ReadDir(rc.SpecsRepoDir)
+	if err != nil {
 		return 0
 	}
-
-	var data DashboardData
-	if err := json.Unmarshal([]byte(cached), &data); err != nil {
-		return 0
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
+			continue
+		}
+		meta, err := markdown.ReadMeta(filepath.Join(rc.SpecsRepoDir, e.Name()))
+		if err != nil || !strings.HasPrefix(meta.ID, "SPEC-") {
+			continue
+		}
+		stage := pl.StageByName(meta.Status)
+		if stage != nil && stage.OwnerRole == role {
+			count++
+		}
 	}
-
-	return len(data.Do) + len(data.Review)
+	return count
 }
 
 // PrintAwarenessLine prints the passive "you have mail" indicator.
 // Returns true if something was printed.
-func PrintAwarenessLine(db *store.DB) bool {
-	count := PendingCount(db)
+func PrintAwarenessLine(rc *config.ResolvedConfig, role string) bool {
+	count := PendingCount(rc, role)
 	if count == 0 {
 		return false
 	}

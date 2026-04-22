@@ -64,6 +64,11 @@ func EnsureSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig) (string, 
 		return dir, nil
 	}
 
+	// Guard against nuking unpushed local edits
+	if err := guardUnpushedChanges(ctx, dir); err != nil {
+		return dir, err
+	}
+
 	// Ensure the remote URL has the current token
 	if err := ensureRemoteURL(ctx, dir, cfg); err != nil {
 		return dir, fmt.Errorf("updating remote URL: %w", err)
@@ -89,6 +94,11 @@ func WithSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig, mutate func
 	// Ensure the remote URL has the current token
 	if err := ensureRemoteURL(ctx, dir, cfg); err != nil {
 		return fmt.Errorf("updating remote URL: %w", err)
+	}
+
+	// Guard against nuking unpushed local edits (checked once before first attempt)
+	if err := guardUnpushedChanges(ctx, dir); err != nil {
+		return err
 	}
 
 	for attempt := 0; attempt <= maxPushRetries; attempt++ {
@@ -242,6 +252,47 @@ func SpecFilePath(cfg *config.SpecsRepoConfig, filename string) string {
 // TriageFilePath returns the absolute path to a triage file.
 func TriageFilePath(cfg *config.SpecsRepoConfig, filename string) string {
 	return filepath.Join(SpecsRepoDir(cfg), "triage", filename)
+}
+
+// guardUnpushedChanges checks for uncommitted changes in the specs repo
+// and returns an actionable error if any are found. This prevents
+// hard-reset operations from silently discarding local edits.
+func guardUnpushedChanges(ctx context.Context, dir string) error {
+	if os.Getenv("SPEC_FORCE") != "" {
+		return nil
+	}
+
+	has, err := HasChanges(ctx, dir)
+	if err != nil {
+		// If we can't check, don't block — the reset will proceed.
+		return nil
+	}
+	if !has {
+		return nil
+	}
+
+	// List the changed files for a helpful message.
+	status, _ := Status(ctx, dir)
+	return fmt.Errorf(
+		"specs repo has unpushed local changes that would be overwritten:\n%s\n\n"+
+			"Run 'spec push' to save them, or discard with 'git -C %s checkout .'\n"+
+			"To force this operation, set SPEC_FORCE=1",
+		indentStatus(status), dir,
+	)
+}
+
+// indentStatus prefixes each line of git status output for readability.
+func indentStatus(status string) string {
+	if status == "" {
+		return ""
+	}
+	var sb strings.Builder
+	for _, line := range strings.Split(strings.TrimRight(status, "\n"), "\n") {
+		sb.WriteString("  ")
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // validateToken checks that the specs repo token is usable.

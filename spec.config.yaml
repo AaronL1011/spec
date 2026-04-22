@@ -1,0 +1,90 @@
+version: "1"
+
+team:
+  name: "AI"
+  cycle_label: "Cycle 0"
+
+specs_repo:
+  provider: github
+  owner: AaronL1011
+  repo: specs-archive
+  branch: main
+  token: ${GITHUB_TOKEN}
+
+integrations:
+  comms:
+    provider: none
+  pm:
+    provider: none
+  docs:
+    provider: none
+  repo:
+    provider: github
+    owner: AaronL1011
+    token: ${GITHUB_TOKEN}
+  agent:
+    provider: none
+  ai:
+    provider: none
+  design:
+    provider: none
+  deploy:
+    provider: none
+
+sync:
+  outbound_on_advance: true
+  conflict_strategy: warn
+
+archive:
+  directory: archive
+
+dashboard:
+  stale_threshold: 48h
+  refresh_ttl: 300
+
+pipeline:
+  stages:
+    - name: triage
+      owner_role: pm
+    - name: draft
+      owner_role: pm
+    - name: tl-review
+      owner_role: tl
+      gates:
+        - section_complete: problem_statement
+    - name: design
+      owner_role: designer
+      gates:
+        - section_complete: user_stories
+    - name: qa-expectations
+      owner_role: qa
+      gates:
+        - section_complete: design_inputs
+    - name: engineering
+      owner_role: engineer
+      gates:
+        - section_complete: acceptance_criteria
+    - name: build
+      owner_role: engineer
+    - name: pr-review
+      owner_role: engineer
+      gates:
+        - pr_stack_exists: true
+    - name: qa-validation
+      owner_role: qa
+      gates:
+        - prs_approved: true
+    - name: done
+      owner_role: tl
+    - name: deploying
+      owner_role: engineer
+      optional: true
+    - name: monitoring
+      owner_role: engineer
+      optional: true
+      gates:
+        - duration: 24h
+    - name: closed
+      owner_role: tl
+      optional: true
+      auto_archive: true

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/nexl/spec-cli/internal/dashboard"
@@ -33,14 +32,6 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	db, err := openDB()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not open database: %v\n", err)
-	}
-	if db != nil {
-		defer db.Close()
-	}
-
 	reg := buildRegistry(rc)
 
 	fmt.Println("Pipeline watch mode. Ctrl+C to exit.")
@@ -50,7 +41,7 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		// Clear screen (ANSI escape)
 		fmt.Print("\033[2J\033[H")
 
-		data, err := dashboard.Aggregate(ctx(), rc, db, reg, role)
+		data, err := dashboard.Aggregate(ctx(), rc, reg, role)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 		} else {

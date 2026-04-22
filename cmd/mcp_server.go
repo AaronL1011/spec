@@ -1,17 +1,30 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/nexl/spec-cli/internal/build"
+	"github.com/nexl/spec-cli/internal/mcp"
 	"github.com/spf13/cobra"
 )
 
 var mcpServerCmd = &cobra.Command{
 	Use:   "mcp-server",
 	Short: "Run spec as a standalone MCP server (stdio transport)",
-	RunE:  runMCPServer,
+	Long: `Starts an MCP (Model Context Protocol) server on stdio, serving spec
+context and tools to any MCP-compatible agent. Configure your agent to
+connect by adding to .mcp.json:
+
+  {"mcpServers": {"spec": {"command": "spec", "args": ["mcp-server"]}}}
+
+The server requires an active build session (run 'spec build <id>' first)
+or an explicit --spec flag.`,
+	RunE:          runMCPServer,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 func init() {
@@ -24,74 +37,98 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 
 	rc, err := resolveConfig()
 	if err != nil {
-		return err
+		return fmt.Errorf("config error: %w", err)
 	}
 
 	db, err := openDB()
 	if err != nil {
-		return err
+		return fmt.Errorf("database error: %w", err)
 	}
 	defer db.Close()
 
-	var specID string
-	if specIDFlag != "" {
-		specID = strings.ToUpper(specIDFlag)
-	} else {
-		recent, err := db.SessionMostRecent()
-		if err != nil || recent == "" {
-			return fmt.Errorf("no active session — use --spec to specify a spec ID")
-		}
-		specID = recent
-	}
-
-	// Load session
-	session, err := build.LoadSession(db, specID)
+	specID, err := resolveSpecID(specIDFlag, db)
 	if err != nil {
 		return err
 	}
+
+	session, err := build.LoadSession(db, specID)
+	if err != nil {
+		return fmt.Errorf("loading session: %w", err)
+	}
 	if session == nil {
-		return fmt.Errorf("no session found for %s — start a build with 'spec build %s'", specID, specID)
+		return fmt.Errorf("no build session for %s — run 'spec build %s' first", specID, specID)
 	}
 
-	// Find spec
 	specPath, err := resolveLocalSpecPath(specID)
 	if err != nil {
 		specPath, err = resolveSpecPath(rc, specID)
 		if err != nil {
-			return err
+			return fmt.Errorf("spec %s not found locally or in specs repo — run 'spec pull %s'", specID, specID)
 		}
 	}
 
-	// Assemble context
 	buildCtx, err := build.AssembleContext(specPath, session, "")
 	if err != nil {
-		return err
+		return fmt.Errorf("assembling build context: %w", err)
 	}
 
-	// Create MCP server
-	server := build.NewMCPServer(session, buildCtx, db, specPath)
+	buildServer := build.NewMCPServer(session, buildCtx, db, specPath)
+	handler := &buildHandler{server: buildServer}
 
-	// For now, print the available resources and tools (full stdio MCP transport
-	// will use the mcp-go SDK in a future iteration)
-	fmt.Println("MCP Server ready (spec context provider)")
-	fmt.Printf("Spec: %s\n", specID)
-	fmt.Println()
-	fmt.Println("Resources:")
-	for _, r := range server.ListResources() {
-		fmt.Printf("  %s — %s\n", r.URI, r.Name)
+	return mcp.Serve(ctx(), handler, os.Stdin, os.Stdout, os.Stderr)
+}
+
+// resolveSpecID determines the spec ID from a flag or the most recent session.
+func resolveSpecID(flag string, db interface{ SessionMostRecent() (string, error) }) (string, error) {
+	if flag != "" {
+		return strings.ToUpper(flag), nil
 	}
-	fmt.Println()
-	fmt.Println("Tools:")
-	for _, t := range build.ToolDefinitions() {
-		fmt.Printf("  %s — %s\n", t["name"], t["description"])
+	recent, err := db.SessionMostRecent()
+	if err != nil || recent == "" {
+		return "", fmt.Errorf("no active session — use --spec to specify a spec ID")
 	}
+	return recent, nil
+}
 
-	// TODO: Full stdio JSON-RPC transport via mcp-go SDK
-	// This will be a blocking loop reading JSON-RPC messages from stdin
-	// and writing responses to stdout.
-	fmt.Println()
-	fmt.Println("Standalone MCP server mode is not yet fully implemented.")
-	fmt.Println("Use 'spec build' which starts the MCP server automatically.")
+// buildHandler adapts build.MCPServer to the mcp.Handler interface.
+type buildHandler struct {
+	server *build.MCPServer
+}
 
-	return nil
+func (h *buildHandler) ListResources() []mcp.Resource {
+	brs := h.server.ListResources()
+	out := make([]mcp.Resource, len(brs))
+	for i, r := range brs {
+		out[i] = mcp.Resource{URI: r.URI, Name: r.Name, Content: r.Content}
+	}
+	return out
+}
+
+func (h *buildHandler) GetResource(uri string) (*mcp.Resource, error) {
+	r, err := h.server.GetResource(uri)
+	if err != nil {
+		return nil, err
+	}
+	return &mcp.Resource{URI: r.URI, Name: r.Name, Content: r.Content}, nil
+}
+
+func (h *buildHandler) ListTools() []mcp.Tool {
+	defs := build.ToolDefinitions()
+	out := make([]mcp.Tool, len(defs))
+	for i, d := range defs {
+		out[i] = mcp.Tool{
+			Name:        d["name"].(string),
+			Description: d["description"].(string),
+			InputSchema: d["inputSchema"].(map[string]interface{}),
+		}
+	}
+	return out
+}
+
+func (h *buildHandler) CallTool(name string, args json.RawMessage) (*mcp.ToolResult, error) {
+	r, err := h.server.CallTool(name, args)
+	if err != nil {
+		return nil, err
+	}
+	return &mcp.ToolResult{Success: r.Success, Message: r.Message}, nil
 }

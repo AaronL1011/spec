@@ -136,17 +136,53 @@ The `<!-- owner: role -->` markers define who can write to each section. This po
 
 ### The Pipeline
 
-Specs flow through configurable stages. Each stage has an owner role and optional gate conditions:
+Specs flow through configurable stages. Each stage has an owner role, gates, and transition effects.
 
-```
-triage → draft → tl-review → design → qa-expectations → engineering →
-build → pr-review → qa-validation → done → deploying → monitoring → closed
+**Start with a preset:**
+
+```bash
+spec config init --preset startup
 ```
 
-- **Forward transitions** (`spec advance`) validate gates before proceeding.
-- **Backward transitions** (`spec revert --to <stage> --reason "..."`) require a reason and notify both stage owners.
-- **Escape hatch** (`spec eject --reason "..."`) moves to `blocked`; `spec resume` returns to the pre-block stage.
-- **Fast-track** (`spec advance <id> --to engineering`) lets TLs skip stages for urgent fixes.
+**Or customize your pipeline:**
+
+```yaml
+pipeline:
+  preset: startup
+  skip: [design]           # Remove stages you don't need
+  stages:
+    - name: security_review
+      owner: security
+      skip_when: "'internal' in spec.labels"
+      gates:
+        - expr: "decisions.unresolved == 0"
+          message: "All decisions must be resolved"
+      transitions:
+        advance:
+          effects:
+            - notify: "@security-team"
+```
+
+**Available presets:** `minimal`, `startup`, `product`, `platform`, `kanban`
+
+**Pipeline commands:**
+
+```bash
+spec pipeline              # View current pipeline
+spec pipeline presets      # List all presets
+spec pipeline add          # Add a stage interactively
+spec pipeline validate     # Check for errors
+spec advance SPEC-042 --dry-run  # Preview transition effects
+```
+
+📖 **[Full pipeline documentation →](docs/pipelines.md)**
+
+**Transitions:**
+
+- **Forward** (`spec advance`) — validates gates, runs effects, notifies next owner
+- **Backward** (`spec revert --to <stage> --reason "..."`) — requires reason, notifies owners
+- **Escape hatch** (`spec eject --reason "..."`) — moves to `blocked`
+- **Fast-track** (`spec advance <id> --to done`) — TL-only, skips intermediate stages
 
 ### The Dashboard
 
@@ -328,21 +364,21 @@ integrations:
   deploy:
     provider: github-actions     # github-actions | gitlab-ci | argocd | none
 
+# Pipeline: use a preset or define custom stages
 pipeline:
-  stages:
-    - name: triage
-      owner_role: pm
-    - name: draft
-      owner_role: pm
-    - name: tl-review
-      owner_role: tl
-      gates:
-        - section_complete: problem_statement
-    - name: build
-      owner_role: engineer
-    - name: done
-      owner_role: tl
-    # ... see SPEC.md §4.7 for the full default pipeline
+  preset: startup              # minimal | startup | product | platform | kanban
+  # Or define stages directly:
+  # stages:
+  #   - name: triage
+  #     owner: pm
+  #   - name: build
+  #     owner: engineer
+  #     gates:
+  #       - section_not_empty: acceptance_criteria
+  #       - expr: "decisions.unresolved == 0"
+  #   - name: done
+  #     owner: tl
+  # See docs/pipelines.md for full configuration options
 ```
 
 Every integration is optional. Set `provider: none` or omit it entirely. `spec` works fully with zero integrations — it's a local spec lifecycle manager out of the box.

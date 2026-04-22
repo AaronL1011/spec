@@ -4,7 +4,6 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 	"github.com/nexl/spec-cli/internal/config"
 	"github.com/nexl/spec-cli/internal/markdown"
 	"github.com/nexl/spec-cli/internal/pipeline"
-	"github.com/nexl/spec-cli/internal/store"
 )
 
 // DashboardItem represents a single item in a dashboard section.
@@ -34,12 +32,12 @@ type DashboardData struct {
 	Incoming []DashboardItem `json:"incoming"`
 	Blocked  []DashboardItem `json:"blocked"`
 	FYI      []DashboardItem `json:"fyi"`
-	Cached   bool            `json:"-"`
+
 }
 
 // Render outputs the dashboard to the terminal.
 func Render(data *DashboardData, userName, role, cycle string) {
-	fmt.Printf("Good morning, %s.", userName)
+	fmt.Print(greeting(time.Now(), userName))
 	parts := []string{}
 	if role != "" {
 		parts = append(parts, role)
@@ -51,10 +49,6 @@ func Render(data *DashboardData, userName, role, cycle string) {
 		fmt.Printf("                           %s", strings.Join(parts, " · "))
 	}
 	fmt.Println()
-
-	if data.Cached {
-		fmt.Println("                                                     (cached)")
-	}
 
 	anyOutput := false
 
@@ -115,26 +109,12 @@ func Render(data *DashboardData, userName, role, cycle string) {
 }
 
 // Aggregate collects data for the dashboard from all sources.
-func Aggregate(ctx context.Context, rc *config.ResolvedConfig, db *store.DB, reg *adapter.Registry, role string) (*DashboardData, error) {
+func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Registry, role string) (*DashboardData, error) {
 	data := &DashboardData{}
 
-	ttl := 300
-	if rc.Team != nil {
-		ttl = rc.Team.Dashboard.RefreshTTL
-	}
-
-	// Try cache first
-	if db != nil {
-		cached, fresh, err := db.CacheGet("dashboard:data")
-		if err == nil && cached != "" && fresh {
-			if err := json.Unmarshal([]byte(cached), data); err == nil {
-				data.Cached = true
-				return data, nil
-			}
-		}
-	}
-
-	// Aggregate live data
+	// Aggregate live data — no caching. The dashboard reads local files
+	// (fast) and at most one API call for PR reviews. Caching added more
+	// complexity (TTL, invalidation, mtime checks) than it saved.
 	pl := rc.Pipeline()
 
 	// DO section: specs where stage owner_role matches user
@@ -183,12 +163,6 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, db *store.DB, reg
 				})
 			}
 		}
-	}
-
-	// Cache the results
-	if db != nil {
-		jsonData, _ := json.Marshal(data)
-		_ = db.CacheSet("dashboard:data", string(jsonData), ttl)
 	}
 
 	return data, nil
@@ -283,4 +257,18 @@ func timeAgo(t time.Time) string {
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+}
+
+func greeting(t time.Time, name string) string {
+	hour := t.Hour()
+	switch {
+	case hour >= 5 && hour < 12:
+		return fmt.Sprintf("Good morning, %s.", name)
+	case hour >= 12 && hour < 17:
+		return fmt.Sprintf("Afternoon, %s.", name)
+	case hour >= 17 && hour < 21:
+		return fmt.Sprintf("Good evening, %s.", name)
+	default:
+		return fmt.Sprintf("Burning the midnight oil are we, %s?", name)
+	}
 }

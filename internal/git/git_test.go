@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -106,6 +107,99 @@ func TestGitOperations(t *testing.T) {
 	}
 	if IsGitRepo(t.TempDir()) {
 		t.Error("expected IsGitRepo to be false for non-repo")
+	}
+}
+
+func TestGuardUnpushedChanges_Clean(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	if _, err := Run(ctx, dir, "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(ctx, dir, "config", "user.email", "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(ctx, dir, "config", "user.name", "Test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "test.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Commit(ctx, dir, "initial"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := guardUnpushedChanges(ctx, dir); err != nil {
+		t.Errorf("clean repo should not error: %v", err)
+	}
+}
+
+func TestGuardUnpushedChanges_Dirty(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	if _, err := Run(ctx, dir, "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(ctx, dir, "config", "user.email", "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(ctx, dir, "config", "user.name", "Test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "test.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Commit(ctx, dir, "initial"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dirty the repo
+	if err := os.WriteFile(filepath.Join(dir, "test.txt"), []byte("modified"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := guardUnpushedChanges(ctx, dir)
+	if err == nil {
+		t.Fatal("dirty repo should return error")
+	}
+	if !strings.Contains(err.Error(), "unpushed local changes") {
+		t.Errorf("error should mention unpushed changes, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "spec push") {
+		t.Errorf("error should suggest 'spec push', got: %v", err)
+	}
+}
+
+func TestGuardUnpushedChanges_ForceBypass(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	if _, err := Run(ctx, dir, "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(ctx, dir, "config", "user.email", "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(ctx, dir, "config", "user.name", "Test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "test.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Commit(ctx, dir, "initial"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dirty the repo
+	if err := os.WriteFile(filepath.Join(dir, "test.txt"), []byte("modified"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SPEC_FORCE", "1")
+	if err := guardUnpushedChanges(ctx, dir); err != nil {
+		t.Errorf("SPEC_FORCE=1 should bypass guard: %v", err)
 	}
 }
 
