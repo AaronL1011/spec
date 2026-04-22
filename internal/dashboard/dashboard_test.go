@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -60,6 +62,50 @@ func TestTimeAgo(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("timeAgo(-%v) = %q, want %q", tt.d, got, tt.want)
 		}
+	}
+}
+
+func TestSpecsModifiedSince_NoChanges(t *testing.T) {
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "SPEC-001.md")
+	os.WriteFile(spec, []byte("---\nstatus: draft\n---"), 0o644)
+
+	// Set mtime to the past
+	past := time.Now().Add(-1 * time.Hour)
+	os.Chtimes(spec, past, past)
+
+	if specsModifiedSince(dir, time.Now().Add(-30*time.Minute)) {
+		t.Error("expected no modification detected")
+	}
+}
+
+func TestSpecsModifiedSince_WithChanges(t *testing.T) {
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "SPEC-001.md")
+	os.WriteFile(spec, []byte("---\nstatus: draft\n---"), 0o644)
+
+	if !specsModifiedSince(dir, time.Now().Add(-1*time.Second)) {
+		t.Error("expected modification detected")
+	}
+}
+
+func TestSpecsModifiedSince_TriageDir(t *testing.T) {
+	dir := t.TempDir()
+	triageDir := filepath.Join(dir, "triage")
+	os.MkdirAll(triageDir, 0o755)
+	os.WriteFile(filepath.Join(triageDir, "TRIAGE-001.md"), []byte("---\n---"), 0o644)
+
+	if !specsModifiedSince(dir, time.Now().Add(-1*time.Second)) {
+		t.Error("expected triage modification detected")
+	}
+}
+
+func TestSpecsModifiedSince_EmptyDir(t *testing.T) {
+	if specsModifiedSince("", time.Now()) {
+		t.Error("empty dir should return false")
+	}
+	if specsModifiedSince(t.TempDir(), time.Now().Add(-1*time.Hour)) {
+		t.Error("empty dir should return false")
 	}
 }
 

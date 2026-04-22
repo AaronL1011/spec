@@ -6,22 +6,43 @@ import (
 	"time"
 )
 
+// CacheEntry holds a cached value along with its metadata.
+type CacheEntry struct {
+	Value     string
+	Fresh     bool
+	FetchedAt time.Time
+}
+
 // CacheGet retrieves a cached value by key. Returns the value and whether
 // the cache entry is still fresh (within TTL). Returns "", false if not found.
 func (db *DB) CacheGet(key string) (value string, fresh bool, err error) {
+	e, err := db.CacheGetEntry(key)
+	if err != nil {
+		return "", false, err
+	}
+	return e.Value, e.Fresh, nil
+}
+
+// CacheGetEntry retrieves a cache entry with full metadata including fetch time.
+func (db *DB) CacheGetEntry(key string) (CacheEntry, error) {
+	var value string
 	var fetchedAt, ttl int64
-	err = db.conn.QueryRow(
+	err := db.conn.QueryRow(
 		"SELECT value, fetched_at, ttl FROM cache WHERE key = ?", key,
 	).Scan(&value, &fetchedAt, &ttl)
 	if err == sql.ErrNoRows {
-		return "", false, nil
+		return CacheEntry{}, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("cache get %q: %w", key, err)
+		return CacheEntry{}, fmt.Errorf("cache get %q: %w", key, err)
 	}
 
-	fresh = time.Now().Unix()-fetchedAt < ttl
-	return value, fresh, nil
+	fresh := time.Now().Unix()-fetchedAt < ttl
+	return CacheEntry{
+		Value:     value,
+		Fresh:     fresh,
+		FetchedAt: time.Unix(fetchedAt, 0),
+	}, nil
 }
 
 // CacheSet stores a value in the cache with the given TTL in seconds.

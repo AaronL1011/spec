@@ -123,13 +123,17 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, db *store.DB, reg
 		ttl = rc.Team.Dashboard.RefreshTTL
 	}
 
-	// Try cache first
+	// Try cache first — but only if spec files haven't been modified since
+	// the cache was written. This catches manual edits, MCP tool writes,
+	// and any mutation path that doesn't explicitly invalidate the cache.
 	if db != nil {
-		cached, fresh, err := db.CacheGet("dashboard:data")
-		if err == nil && cached != "" && fresh {
-			if err := json.Unmarshal([]byte(cached), data); err == nil {
-				data.Cached = true
-				return data, nil
+		entry, err := db.CacheGetEntry("dashboard:data")
+		if err == nil && entry.Value != "" && entry.Fresh {
+			if !specsModifiedSince(rc.SpecsRepoDir, entry.FetchedAt) {
+				if err := json.Unmarshal([]byte(entry.Value), data); err == nil {
+					data.Cached = true
+					return data, nil
+				}
 			}
 		}
 	}
@@ -262,6 +266,35 @@ func loadTriageItems(rc *config.ResolvedConfig) ([]triageInfo, error) {
 
 func countCompletedSpecs(data *DashboardData) int {
 	return len(data.FYI)
+}
+
+// specsModifiedSince returns true if any spec or triage file in the specs
+// repo directory has been modified after the given time.
+func specsModifiedSince(specsDir string, since time.Time) bool {
+	if specsDir == "" {
+		return false
+	}
+
+	dirs := []string{specsDir, filepath.Join(specsDir, "triage")}
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			if info.ModTime().After(since) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func truncStr(s string, max int) string {
