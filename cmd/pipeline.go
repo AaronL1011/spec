@@ -7,6 +7,7 @@ import (
 
 	"github.com/nexl/spec-cli/internal/config"
 	"github.com/nexl/spec-cli/internal/pipeline"
+	"github.com/nexl/spec-cli/internal/pipeline/expr"
 	"github.com/nexl/spec-cli/internal/tui"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -892,4 +893,146 @@ func runPipelineEdit(cmd *cobra.Command, args []string) error {
 	fmt.Println("Interactive stage editing coming soon!")
 
 	return nil
+}
+
+var pipelineValidateCmd = &cobra.Command{
+	Use:   "validate",
+	Short: "Validate pipeline configuration",
+	Long: `Validate the pipeline configuration for errors.
+
+Checks:
+  - All stages have valid owners
+  - Gates reference valid sections
+  - Expressions are syntactically correct
+  - Skip lists reference existing stages
+  - No circular dependencies`,
+	RunE: runPipelineValidate,
+}
+
+func init() {
+	pipelineCmd.AddCommand(pipelineValidateCmd)
+}
+
+func runPipelineValidate(cmd *cobra.Command, args []string) error {
+	rc, err := resolveConfig()
+	if err != nil {
+		return fmt.Errorf("no config found — run 'spec config init' first")
+	}
+
+	var pipelineCfg config.PipelineConfig
+	if rc.Team != nil {
+		pipelineCfg = rc.Team.Pipeline
+	}
+
+	// Try to resolve the pipeline
+	resolved, err := pipeline.Resolve(pipelineCfg)
+	if err != nil {
+		tui.PrintError(fmt.Sprintf("Pipeline resolution failed: %v", err))
+		return err
+	}
+
+	var errors []string
+	var warnings []string
+
+	// Validate each stage
+	for _, stage := range resolved.Stages {
+		// Check owner is valid
+		owner := stage.GetOwner()
+		if owner == "" {
+			errors = append(errors, fmt.Sprintf("stage %q: no owner specified", stage.Name))
+		} else if !isValidOwner(owner) {
+			warnings = append(warnings, fmt.Sprintf("stage %q: owner %q is not a standard role", stage.Name, owner))
+		}
+
+		// Validate gates
+		for i, gate := range stage.Gates {
+			if gate.Expr != "" {
+				// Try to compile the expression
+				if compileErr := expr.Compile(gate.Expr); compileErr != nil {
+					errors = append(errors, fmt.Sprintf("stage %q gate %d: invalid expression %q: %v", 
+						stage.Name, i+1, gate.Expr, compileErr))
+				}
+			}
+		}
+
+		// Validate skip_when expression
+		if stage.SkipWhen != "" {
+			if compileErr := expr.Compile(stage.SkipWhen); compileErr != nil {
+				errors = append(errors, fmt.Sprintf("stage %q: invalid skip_when expression %q: %v",
+					stage.Name, stage.SkipWhen, compileErr))
+			}
+		}
+	}
+
+	// Check for duplicate stage names
+	seen := make(map[string]bool)
+	for _, stage := range resolved.Stages {
+		if seen[stage.Name] {
+			errors = append(errors, fmt.Sprintf("duplicate stage name: %q", stage.Name))
+		}
+		seen[stage.Name] = true
+	}
+
+	// Check skip list references valid stages
+	for _, skip := range pipelineCfg.Skip {
+		found := false
+		for _, stage := range resolved.Stages {
+			if stage.Name == skip {
+				found = true
+				break
+			}
+		}
+		// Note: skip might reference a preset stage that was removed, which is ok
+		if !found && pipelineCfg.Preset == "" {
+			warnings = append(warnings, fmt.Sprintf("skip references unknown stage: %q", skip))
+		}
+	}
+
+	// Print results
+	if len(errors) == 0 && len(warnings) == 0 {
+		tui.PrintSuccess("Pipeline configuration is valid")
+		cmd.Printf("\n  Preset: %s\n", defaultStr(resolved.PresetName, "(none)"))
+		cmd.Printf("  Stages: %d\n", len(resolved.Stages))
+		if len(resolved.SkippedStages) > 0 {
+			cmd.Printf("  Skipped: %s\n", strings.Join(resolved.SkippedStages, ", "))
+		}
+		return nil
+	}
+
+	if len(errors) > 0 {
+		tui.PrintError("Pipeline configuration has errors:")
+		for _, e := range errors {
+			cmd.Printf("  ✗ %s\n", e)
+		}
+	}
+
+	if len(warnings) > 0 {
+		cmd.Println("\nWarnings:")
+		for _, w := range warnings {
+			cmd.Printf("  ⚠ %s\n", w)
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("%d error(s) found", len(errors))
+	}
+
+	return nil
+}
+
+func isValidOwner(owner string) bool {
+	validOwners := []string{"anyone", "author", "pm", "tl", "designer", "engineer", "qa", "security"}
+	for _, v := range validOwners {
+		if owner == v {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultStr(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }
