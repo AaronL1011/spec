@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/nexl/spec-cli/internal/config"
+	"github.com/nexl/spec-cli/internal/pipeline"
+	"github.com/nexl/spec-cli/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -29,6 +31,7 @@ var configTestCmd = &cobra.Command{
 
 func init() {
 	configInitCmd.Flags().Bool("user", false, "initialise personal user config (~/.spec/config.yaml)")
+	configInitCmd.Flags().String("preset", "", "pipeline preset (minimal, startup, product, platform, kanban)")
 	configCmd.AddCommand(configInitCmd)
 	configCmd.AddCommand(configTestCmd)
 	rootCmd.AddCommand(configCmd)
@@ -40,7 +43,7 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 	if isUser {
 		return runUserConfigInit()
 	}
-	return runTeamConfigInit()
+	return runTeamConfigInit(cmd)
 }
 
 func runUserConfigInit() error {
@@ -93,10 +96,57 @@ func runUserConfigInit() error {
 	return nil
 }
 
-func runTeamConfigInit() error {
+func runTeamConfigInit(cmd *cobra.Command) error {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Println("Setting up team spec configuration (spec.config.yaml)")
+	tui.PrintTitle("Welcome to spec")
+	fmt.Println()
+	fmt.Println("Setting up team configuration (spec.config.yaml)")
+	fmt.Println()
+
+	// Select pipeline preset
+	var presetName string
+	presetFlag, _ := cmd.Flags().GetString("preset")
+	if presetFlag != "" {
+		presetName = presetFlag
+	} else if tui.IsInteractive() {
+		// Build preset options from available presets
+		var presetOptions []tui.PresetOption
+		for _, name := range pipeline.PresetNames() {
+			desc, features, stages, _ := pipeline.PresetInfo(name)
+			presetOptions = append(presetOptions, tui.PresetOption{
+				Name:        name,
+				Description: desc,
+				Stages:      stages,
+				Features:    features,
+			})
+		}
+
+		selected, err := tui.SelectPreset(presetOptions)
+		if err != nil {
+			return err
+		}
+		presetName = selected
+
+		// Show preview and confirm
+		for _, p := range presetOptions {
+			if p.Name == selected {
+				confirmed, err := tui.ConfirmPreset(p)
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					return fmt.Errorf("cancelled")
+				}
+				break
+			}
+		}
+	} else {
+		// Non-interactive: use minimal preset
+		presetName = "minimal"
+		fmt.Printf("Using preset: %s (use --preset to specify)\n", presetName)
+	}
+
 	fmt.Println()
 
 	// Team name
@@ -110,7 +160,7 @@ func runTeamConfigInit() error {
 	cycleLabel = strings.TrimSpace(cycleLabel)
 
 	// Specs repo provider
-	fmt.Print("Specs repo provider (github | gitlab | bitbucket): ")
+	fmt.Print("Specs repo provider (github | gitlab | bitbucket) [github]: ")
 	repoProvider, _ := reader.ReadString('\n')
 	repoProvider = strings.TrimSpace(strings.ToLower(repoProvider))
 	if repoProvider == "" {
@@ -175,61 +225,19 @@ dashboard:
   refresh_ttl: 300
 
 pipeline:
-  stages:
-    - name: triage
-      owner_role: pm
-    - name: draft
-      owner_role: pm
-    - name: tl-review
-      owner_role: tl
-      gates:
-        - section_complete: problem_statement
-    - name: design
-      owner_role: designer
-      gates:
-        - section_complete: user_stories
-    - name: qa-expectations
-      owner_role: qa
-      gates:
-        - section_complete: design_inputs
-    - name: engineering
-      owner_role: engineer
-      gates:
-        - section_complete: acceptance_criteria
-    - name: build
-      owner_role: engineer
-    - name: pr-review
-      owner_role: engineer
-      gates:
-        - pr_stack_exists: true
-    - name: qa-validation
-      owner_role: qa
-      gates:
-        - prs_approved: true
-    - name: done
-      owner_role: tl
-    - name: deploying
-      owner_role: engineer
-      optional: true
-    - name: monitoring
-      owner_role: engineer
-      optional: true
-      gates:
-        - duration: 24h
-    - name: closed
-      owner_role: tl
-      optional: true
-      auto_archive: true
-`, teamName, cycleLabel, repoProvider, repoOwner, repoName, repoProvider, repoOwner)
+  preset: %s
+`, teamName, cycleLabel, repoProvider, repoOwner, repoName, repoProvider, repoOwner, presetName)
 
 	path := "spec.config.yaml"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("writing team config: %w", err)
 	}
 
-	fmt.Printf("\n✓ Team config written to %s\n", path)
+	fmt.Println()
+	tui.PrintSuccess(fmt.Sprintf("Team config written to %s", path))
 	fmt.Println("  Edit the integrations section to connect your tools.")
-	fmt.Println("  Commit this file to your specs repo.")
+	fmt.Println("  Run 'spec pipeline' to see your pipeline.")
+	fmt.Println("  Run 'spec pipeline add/edit' to customise stages.")
 	return nil
 }
 
