@@ -9,12 +9,12 @@ import (
 func SectionDraftPrompt(sectionSlug string, existingContext map[string]string) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("Draft the %q section for a software specification.\n\n", humanizeSlug(sectionSlug)))
+	fmt.Fprintf(&sb, "Draft the %q section for a software specification.\n\n", humanizeSlug(sectionSlug))
 	sb.WriteString("Use the following existing context from the spec:\n\n")
 
 	for section, content := range existingContext {
 		if content != "" {
-			sb.WriteString(fmt.Sprintf("### %s\n%s\n\n", humanizeSlug(section), content))
+			fmt.Fprintf(&sb, "### %s\n%s\n\n", humanizeSlug(section), content)
 		}
 	}
 

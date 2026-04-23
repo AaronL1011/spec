@@ -66,7 +66,7 @@ func (s *MCPServer) ListResources() []MCPResource {
 	if len(s.ctx.PriorDiffs) > 0 {
 		var diffs strings.Builder
 		for i, diff := range s.ctx.PriorDiffs {
-			diffs.WriteString(fmt.Sprintf("## Step %d\n\n```diff\n%s\n```\n\n", i+1, diff))
+			fmt.Fprintf(&diffs, "## Step %d\n\n```diff\n%s\n```\n\n", i+1, diff)
 		}
 		resources = append(resources, MCPResource{
 			URI:     "spec://current/prior-diffs",

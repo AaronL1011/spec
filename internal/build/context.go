@@ -121,8 +121,8 @@ func WriteContextFile(ctx *BuildContext, outputPath string) error {
 
 	// Current step
 	if ctx.CurrentStep.Number > 0 {
-		sb.WriteString(fmt.Sprintf("## Current Step: %d. [%s] %s\n\n",
-			ctx.CurrentStep.Number, ctx.CurrentStep.Repo, ctx.CurrentStep.Description))
+		fmt.Fprintf(&sb, "## Current Step: %d. [%s] %s\n\n",
+			ctx.CurrentStep.Number, ctx.CurrentStep.Repo, ctx.CurrentStep.Description)
 	}
 
 	// Full spec
@@ -141,7 +141,7 @@ func WriteContextFile(ctx *BuildContext, outputPath string) error {
 	if len(ctx.PriorDiffs) > 0 {
 		sb.WriteString("## Prior Step Diffs\n\n")
 		for i, diff := range ctx.PriorDiffs {
-			sb.WriteString(fmt.Sprintf("### Step %d\n\n```diff\n%s\n```\n\n", i+1, diff))
+			fmt.Fprintf(&sb, "### Step %d\n\n```diff\n%s\n```\n\n", i+1, diff)
 		}
 	}
 
@@ -156,8 +156,8 @@ func buildSystemPrompt(ctx *BuildContext) string {
 	var sb strings.Builder
 	sb.WriteString("You are implementing a feature based on the spec above. ")
 	if ctx.CurrentStep.Number > 0 {
-		sb.WriteString(fmt.Sprintf("You are on step %d: [%s] %s. ",
-			ctx.CurrentStep.Number, ctx.CurrentStep.Repo, ctx.CurrentStep.Description))
+		fmt.Fprintf(&sb, "You are on step %d: [%s] %s. ",
+			ctx.CurrentStep.Number, ctx.CurrentStep.Repo, ctx.CurrentStep.Description)
 	}
 	sb.WriteString("Follow the acceptance criteria in §6. ")
 	sb.WriteString("Record any decisions using the spec_decide tool. ")

@@ -307,7 +307,7 @@ func (h *GenericHandler) getDashboardResource() (*Resource, error) {
 	}
 
 	for status, items := range byStatus {
-		sb.WriteString(fmt.Sprintf("## %s\n\n", status))
+		fmt.Fprintf(&sb, "## %s\n\n", status)
 		for _, item := range items {
 			sb.WriteString(item + "\n")
 		}
@@ -449,21 +449,21 @@ func (h *GenericHandler) toolStatus(args json.RawMessage) (*ToolResult, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Spec: %s\n", params.ID))
-	sb.WriteString(fmt.Sprintf("Title: %s\n", meta.Title))
-	sb.WriteString(fmt.Sprintf("Status: %s\n", meta.Status))
-	sb.WriteString(fmt.Sprintf("Author: %s\n", meta.Author))
+	fmt.Fprintf(&sb, "Spec: %s\n", params.ID)
+	fmt.Fprintf(&sb, "Title: %s\n", meta.Title)
+	fmt.Fprintf(&sb, "Status: %s\n", meta.Status)
+	fmt.Fprintf(&sb, "Author: %s\n", meta.Author)
 	if meta.Cycle != "" {
-		sb.WriteString(fmt.Sprintf("Cycle: %s\n", meta.Cycle))
+		fmt.Fprintf(&sb, "Cycle: %s\n", meta.Cycle)
 	}
 	if len(meta.Repos) > 0 {
-		sb.WriteString(fmt.Sprintf("Repos: %s\n", strings.Join(meta.Repos, ", ")))
+		fmt.Fprintf(&sb, "Repos: %s\n", strings.Join(meta.Repos, ", "))
 	}
 
 	// Get stage owner from pipeline
 	if h.config != nil && h.config.Team != nil {
 		owner := pipeline.StageOwner(h.config.Team.Pipeline, meta.Status)
-		sb.WriteString(fmt.Sprintf("Stage Owner: %s\n", owner))
+		fmt.Fprintf(&sb, "Stage Owner: %s\n", owner)
 	}
 
 	return &ToolResult{Success: true, Message: sb.String()}, nil
@@ -567,18 +567,18 @@ func (h *GenericHandler) toolPipeline() (*ToolResult, error) {
 
 	var sb strings.Builder
 	if resolved.PresetName != "" {
-		sb.WriteString(fmt.Sprintf("Preset: %s\n\n", resolved.PresetName))
+		fmt.Fprintf(&sb, "Preset: %s\n\n", resolved.PresetName)
 	}
 	sb.WriteString("Stages:\n")
 	for i, stage := range resolved.Stages {
-		sb.WriteString(fmt.Sprintf("  %d. %s (owner: %s)", i+1, stage.Name, stage.GetOwner()))
+		fmt.Fprintf(&sb, "  %d. %s (owner: %s)", i+1, stage.Name, stage.GetOwner())
 		if stage.Optional {
 			sb.WriteString(" [optional]")
 		}
 		sb.WriteString("\n")
 		if len(stage.Gates) > 0 {
 			for _, g := range stage.Gates {
-				sb.WriteString(fmt.Sprintf("     gate: %s = %s\n", g.Type(), g.Value()))
+				fmt.Fprintf(&sb, "     gate: %s = %s\n", g.Type(), g.Value())
 			}
 		}
 	}
@@ -622,14 +622,14 @@ func (h *GenericHandler) toolValidate(args json.RawMessage) (*ToolResult, error)
 	results := pipeline.EvaluateGates(h.config.Team.Pipeline, next, sections, hasPRStack, false)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Validating %s: %s → %s\n\n", specID, meta.Status, next))
+	fmt.Fprintf(&sb, "Validating %s: %s → %s\n\n", specID, meta.Status, next)
 
 	allPassed := true
 	for _, r := range results {
 		if r.Passed {
-			sb.WriteString(fmt.Sprintf("✓ %s\n", r.Gate))
+			fmt.Fprintf(&sb, "✓ %s\n", r.Gate)
 		} else {
-			sb.WriteString(fmt.Sprintf("✗ %s: %s\n", r.Gate, r.Reason))
+			fmt.Fprintf(&sb, "✗ %s: %s\n", r.Gate, r.Reason)
 			allPassed = false
 		}
 	}
