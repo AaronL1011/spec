@@ -1,0 +1,39 @@
+version: 2
+updates:
+  # Keep Go dependencies updated
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps):"
+    labels:
+      - dependencies
+      - go
+    groups:
+      # Group minor/patch updates to reduce PR noise
+      go-minor:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # Keep GitHub Actions updated
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps):"
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      actions:
+        patterns:
+          - "*"

@@ -3,7 +3,7 @@ version: 2
 before:
   hooks:
     - go mod tidy
-    - go generate ./...
+    - go mod verify
 
 builds:
   - env:
@@ -17,6 +17,9 @@ builds:
       - arm64
     ldflags:
       - -s -w -X github.com/aaronl1011/spec-cli/cmd.Version={{.Version}}
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - format: tar.gz
@@ -25,25 +28,85 @@ archives:
       - goos: windows
         format: zip
     files:
-      - docs/man/spec.1
+      - README.md
+      - LICENSE*
+      - docs/man/*
 
 brews:
   - repository:
       owner: aaronl1011
       name: homebrew-tap
+      # Uses GITHUB_TOKEN by default, or HOMEBREW_TAP_GITHUB_TOKEN if set
     homepage: "https://github.com/aaronl1011/spec-cli"
     description: "Developer control plane CLI"
     license: "MIT"
-    extra_install: |
-      man1.install "spec.1"
+    directory: Formula
+    install: |
+      bin.install "spec"
+      man1.install Dir["docs/man/*.1"] if Dir.exist?("docs/man")
+    test: |
+      system "#{bin}/spec", "version"
 
+# Generate checksums file for verification
 checksum:
   name_template: "checksums.txt"
+  algorithm: sha256
 
+# Changelog from conventional commits (supplementary to release-please)
 changelog:
   sort: asc
+  use: github
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Others
+      order: 999
   filters:
     exclude:
       - "^docs:"
       - "^chore:"
       - "^test:"
+      - "^ci:"
+      - "^style:"
+
+# Release configuration
+release:
+  github:
+    owner: aaronl1011
+    name: spec-cli
+  draft: false
+  prerelease: auto
+  mode: replace
+  footer: |
+    ## Installation
+
+    **Homebrew:**
+    ```bash
+    brew install aaronl1011/tap/spec
+    ```
+
+    **Go install:**
+    ```bash
+    go install github.com/aaronl1011/spec-cli@{{ .Tag }}
+    ```
+
+    **Binary download:**
+    Download the appropriate archive for your platform, extract, and add to your PATH.
+
+    **Verify checksums:**
+    ```bash
+    sha256sum -c checksums.txt
+    ```
+
+# Announce new releases (optional - uncomment if desired)
+# announce:
+#   slack:
+#     enabled: true
+#     channel: "#releases"
