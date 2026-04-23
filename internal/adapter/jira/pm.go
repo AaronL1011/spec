@@ -181,7 +181,7 @@ func (c *Client) findTransition(ctx context.Context, issueKey, targetStatus stri
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Jira API error fetching transitions (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
+		return "", fmt.Errorf("jira API error fetching transitions (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
 	}
 
 	var result transitionsResponse

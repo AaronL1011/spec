@@ -190,7 +190,7 @@ func printPipelineCompact(cmd *cobra.Command, resolved *pipeline.ResolvedPipelin
 		if i > 0 {
 			stagesLine.WriteString(" → ")
 		}
-		stagesLine.WriteString(fmt.Sprintf("%-*s", widths[i], name))
+		fmt.Fprintf(&stagesLine, "%-*s", widths[i], name)
 	}
 	cmd.Println("  " + stagesLine.String())
 
@@ -200,7 +200,7 @@ func printPipelineCompact(cmd *cobra.Command, resolved *pipeline.ResolvedPipelin
 		if i > 0 {
 			iconsLine.WriteString("   ") // align with " → "
 		}
-		iconsLine.WriteString(fmt.Sprintf("%-*s", widths[i], icon))
+		fmt.Fprintf(&iconsLine, "%-*s", widths[i], icon)
 	}
 	cmd.Println("  " + iconsLine.String())
 
@@ -210,7 +210,7 @@ func printPipelineCompact(cmd *cobra.Command, resolved *pipeline.ResolvedPipelin
 		if i > 0 {
 			ownersLine.WriteString("   ")
 		}
-		ownersLine.WriteString(fmt.Sprintf("%-*s", widths[i], owner))
+		fmt.Fprintf(&ownersLine, "%-*s", widths[i], owner)
 	}
 	cmd.Println("  " + ownersLine.String())
 }
