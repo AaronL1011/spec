@@ -71,6 +71,8 @@ Test problem.
 }
 
 func TestSessionCreateAndAdvance(t *testing.T) {
+	t.Setenv("SPEC_HOME", t.TempDir())
+
 	db, err := store.OpenMemory()
 	if err != nil {
 		t.Fatal(err)
@@ -120,6 +122,8 @@ func TestSessionCreateAndAdvance(t *testing.T) {
 }
 
 func TestSessionPersistence(t *testing.T) {
+	t.Setenv("SPEC_HOME", t.TempDir())
+
 	db, err := store.OpenMemory()
 	if err != nil {
 		t.Fatal(err)

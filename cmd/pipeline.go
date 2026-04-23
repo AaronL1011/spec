@@ -96,7 +96,7 @@ func runPipelineShow(cmd *cobra.Command, args []string) error {
 		// No config - show what presets are available
 		cmd.Println("No pipeline configured.")
 		cmd.Println()
-		cmd.Println("Run 'spec init' to set up a pipeline, or choose from presets:")
+		cmd.Println("Run 'spec config init' to set up a pipeline, or choose from presets:")
 		cmd.Println()
 		for _, name := range pipeline.PresetNames() {
 			desc, _, _, _ := pipeline.PresetInfo(name)
@@ -333,7 +333,7 @@ func runPipelinePresets(cmd *cobra.Command, args []string) error {
 		cmd.Println()
 	}
 
-	cmd.Println("To use a preset, run 'spec init' and select it,")
+	cmd.Println("To use a preset, run 'spec config init' and select it,")
 	cmd.Println("or add 'pipeline: { preset: <name> }' to spec.config.yaml")
 
 	return nil
@@ -342,7 +342,7 @@ func runPipelinePresets(cmd *cobra.Command, args []string) error {
 func runPipelineExport(cmd *cobra.Command, args []string) error {
 	rc, err := resolveConfig()
 	if err != nil {
-		return fmt.Errorf("no config found — run 'spec init' first")
+		return fmt.Errorf("no config found — run 'spec config init' first")
 	}
 
 	var pipelineCfg config.PipelineConfig

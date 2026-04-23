@@ -26,7 +26,7 @@ Run 'spec do' to resume SPEC-042. 12 specs in pipeline.
 
 ### From source
 
-Requires Go 1.22+.
+Requires Go 1.25+.
 
 ```bash
 go install github.com/aaronl1011/spec-cli@latest
@@ -178,6 +178,8 @@ spec advance SPEC-042 --dry-run  # Preview transition effects
 📖 **[Full pipeline documentation →](docs/pipelines.md)**
 
 📖 **[Engineer workflow guide →](docs/engineer-workflow.md)**
+
+📖 **[Small-team pilot runbook →](docs/pilot-runbook.md)**
 
 **Transitions:**
 
@@ -473,7 +475,7 @@ To add a new provider, implement the interface in `internal/adapter/<provider>/`
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.25+
 - Git
 
 ### Build

@@ -23,11 +23,18 @@ type SessionState struct {
 
 // SessionDir returns the path to the session directory.
 func SessionDir(specID string) string {
+	return filepath.Join(specHomeDir(), "sessions", specID)
+}
+
+func specHomeDir() string {
+	if override := os.Getenv("SPEC_HOME"); override != "" {
+		return override
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		home = "."
+		return ".spec"
 	}
-	return filepath.Join(home, ".spec", "sessions", specID)
+	return filepath.Join(home, ".spec")
 }
 
 // LoadSession loads a session from the database.

@@ -222,7 +222,7 @@ preferences:
 
 ```bash
 spec list                    # See specs in your queue
-spec show SPEC-042           # Read the spec
+spec edit SPEC-042           # Read/edit the spec in your editor
 ```
 
 ### 2. Create Technical Plan
