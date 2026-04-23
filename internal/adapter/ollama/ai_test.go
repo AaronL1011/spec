@@ -39,7 +39,7 @@ func TestComplete_Success(t *testing.T) {
 			Message: chatMessage{Role: "assistant", Content: "Draft output from Ollama."},
 			Done:    true,
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -64,7 +64,7 @@ func TestComplete_NoSystem(t *testing.T) {
 			Message: chatMessage{Role: "assistant", Content: "OK"},
 			Done:    true,
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -85,7 +85,7 @@ func TestEmbed_Success(t *testing.T) {
 		}
 
 		var req embedRequest
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req.Model != "nomic-embed-text" {
 			t.Errorf("expected embed model nomic-embed-text, got %s", req.Model)
 		}
@@ -93,7 +93,7 @@ func TestEmbed_Success(t *testing.T) {
 		resp := embedResponse{
 			Embeddings: [][]float32{{0.1, 0.2, 0.3}},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -113,7 +113,7 @@ func TestEmbed_Success(t *testing.T) {
 func TestEmbed_Empty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := embedResponse{Embeddings: [][]float32{}}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -127,7 +127,7 @@ func TestEmbed_Empty(t *testing.T) {
 func TestComplete_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("model not found"))
+		_, _ = w.Write([]byte("model not found"))
 	}))
 	defer server.Close()
 

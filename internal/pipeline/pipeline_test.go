@@ -191,7 +191,7 @@ func TestEjectAndResume(t *testing.T) {
 	// Set to build stage
 	meta, _ := markdown.ReadMeta(path)
 	meta.Status = "build"
-	markdown.WriteMeta(path, meta)
+	_ = markdown.WriteMeta(path, meta)
 
 	// Eject
 	meta, _ = markdown.ReadMeta(path)
@@ -229,7 +229,7 @@ func TestRevert(t *testing.T) {
 
 	meta, _ := markdown.ReadMeta(path)
 	meta.Status = "build"
-	markdown.WriteMeta(path, meta)
+	_ = markdown.WriteMeta(path, meta)
 
 	meta, _ = markdown.ReadMeta(path)
 	if err := Revert(path, meta, "draft", "Needs more detail", "QA Lead"); err != nil {

@@ -362,7 +362,7 @@ func (h *GenericHandler) toolList(args json.RawMessage) (*ToolResult, error) {
 		Stage string `json:"stage"`
 		Owner string `json:"owner"`
 	}
-	json.Unmarshal(args, &params)
+	_ = json.Unmarshal(args, &params) // Params are optional, ignore errors
 
 	specs := h.listSpecs()
 	var results []string

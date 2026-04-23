@@ -185,7 +185,7 @@ func (c *Client) createPage(ctx context.Context, specID, storageBody string) err
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -193,7 +193,7 @@ func (c *Client) createPage(ctx context.Context, specID, storageBody string) err
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("Confluence create page error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
+		return fmt.Errorf("confluence create page error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
 	}
 
 	var page pageResponse
@@ -231,11 +231,11 @@ func (c *Client) updatePage(ctx context.Context, pageID, specID, storageBody str
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Confluence update page error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
+		return fmt.Errorf("confluence update page error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
 	}
 	return nil
 }

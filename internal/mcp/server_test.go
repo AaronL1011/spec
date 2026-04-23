@@ -291,8 +291,8 @@ func TestMultipleMessages(t *testing.T) {
 	}
 
 	var resp1, resp2 response
-	json.Unmarshal([]byte(lines[0]), &resp1)
-	json.Unmarshal([]byte(lines[1]), &resp2)
+	_ = json.Unmarshal([]byte(lines[0]), &resp1)
+	_ = json.Unmarshal([]byte(lines[1]), &resp2)
 
 	// First is initialize
 	r1 := resp1.Result.(map[string]interface{})

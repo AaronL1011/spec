@@ -135,7 +135,7 @@ func (s *MCPServer) toolDecide(args json.RawMessage) (*MCPToolResult, error) {
 		return &MCPToolResult{Success: false, Message: err.Error()}, nil
 	}
 
-	LogActivity(s.session.SpecID, fmt.Sprintf("Decision #%03d: %s", num, params.Question))
+	_ = LogActivity(s.session.SpecID, fmt.Sprintf("Decision #%03d: %s", num, params.Question))
 
 	return &MCPToolResult{
 		Success: true,
@@ -157,7 +157,7 @@ func (s *MCPServer) toolDecideResolve(args json.RawMessage) (*MCPToolResult, err
 		return &MCPToolResult{Success: false, Message: err.Error()}, nil
 	}
 
-	LogActivity(s.session.SpecID, fmt.Sprintf("Decision #%03d resolved: %s", params.Number, params.Decision))
+	_ = LogActivity(s.session.SpecID, fmt.Sprintf("Decision #%03d resolved: %s", params.Number, params.Decision))
 
 	return &MCPToolResult{
 		Success: true,
@@ -175,7 +175,7 @@ func (s *MCPServer) toolStepComplete() (*MCPToolResult, error) {
 		return &MCPToolResult{Success: false, Message: "no current step"}, nil
 	}
 
-	LogActivity(s.session.SpecID, fmt.Sprintf("Step %d completed via MCP: %s", step.Number, step.Description))
+	_ = LogActivity(s.session.SpecID, fmt.Sprintf("Step %d completed via MCP: %s", step.Number, step.Description))
 
 	if err := AdvanceStep(s.db, s.session); err != nil {
 		return &MCPToolResult{Success: false, Message: err.Error()}, nil

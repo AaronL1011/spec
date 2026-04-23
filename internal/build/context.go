@@ -65,7 +65,7 @@ func parsePRSteps(content string) ([]PRStep, error) {
 		}
 
 		num := 0
-		fmt.Sscanf(matches[1], "%d", &num)
+		_, _ = fmt.Sscanf(matches[1], "%d", &num)
 
 		steps = append(steps, PRStep{
 			Number:      num,

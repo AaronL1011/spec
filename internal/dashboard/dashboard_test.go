@@ -28,12 +28,12 @@ func TestPendingCount_MatchesRole(t *testing.T) {
 	dir := t.TempDir()
 
 	// engineer-owned stage
-	os.WriteFile(filepath.Join(dir, "SPEC-001.md"), []byte(
+	_ = os.WriteFile(filepath.Join(dir, "SPEC-001.md"), []byte(
 		"---\nid: SPEC-001\ntitle: Test\nstatus: build\n---\n",
 	), 0o644)
 
 	// pm-owned stage
-	os.WriteFile(filepath.Join(dir, "SPEC-002.md"), []byte(
+	_ = os.WriteFile(filepath.Join(dir, "SPEC-002.md"), []byte(
 		"---\nid: SPEC-002\ntitle: Other\nstatus: draft\n---\n",
 	), 0o644)
 

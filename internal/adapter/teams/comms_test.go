@@ -57,7 +57,7 @@ func TestNotify_Success(t *testing.T) {
 func TestNotify_WebhookError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("bad request"))
+		_, _ = w.Write([]byte("bad request"))
 	}))
 	defer server.Close()
 
@@ -75,7 +75,7 @@ func TestPostStandup_Success(t *testing.T) {
 	var received webhookPayload
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&received)
+		_ = json.NewDecoder(r.Body).Decode(&received)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()

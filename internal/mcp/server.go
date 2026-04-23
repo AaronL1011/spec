@@ -51,7 +51,7 @@ type server struct {
 // ctx is cancelled or in reaches EOF.
 func Serve(ctx context.Context, handler Handler, in io.Reader, out io.Writer, logOut io.Writer) error {
 	s := &server{handler: handler, out: out, log: logOut}
-	fmt.Fprintf(s.log, "spec mcp: server starting\n")
+	_, _ = fmt.Fprintf(s.log, "spec mcp: server starting\n")
 
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
@@ -225,11 +225,11 @@ func (s *server) write(resp response) {
 
 	data, err := json.Marshal(resp)
 	if err != nil {
-		fmt.Fprintf(s.log, "spec mcp: marshal error: %v\n", err)
+		_, _ = fmt.Fprintf(s.log, "spec mcp: marshal error: %v\n", err)
 		return
 	}
 	data = append(data, '\n')
 	if _, err := s.out.Write(data); err != nil {
-		fmt.Fprintf(s.log, "spec mcp: write error: %v\n", err)
+		_, _ = fmt.Fprintf(s.log, "spec mcp: write error: %v\n", err)
 	}
 }

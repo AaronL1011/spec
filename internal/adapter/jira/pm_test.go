@@ -39,7 +39,7 @@ func TestCreateEpic_Success(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createIssueResponse{
+		_ = json.NewEncoder(w).Encode(createIssueResponse{
 			ID:  "10042",
 			Key: "PLAT-123",
 		})
@@ -80,7 +80,7 @@ func TestUpdateStatus_FindsTransition(t *testing.T) {
 		calls++
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/issue/PLAT-123/transitions":
-			json.NewEncoder(w).Encode(transitionsResponse{
+			_ = json.NewEncoder(w).Encode(transitionsResponse{
 				Transitions: []transition{
 					{ID: "11", Name: "Start Build", To: transitionTo{Name: "Build"}},
 					{ID: "21", Name: "Done", To: transitionTo{Name: "Done"}},

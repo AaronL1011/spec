@@ -150,16 +150,16 @@ func buildFastTrackSpec(id, title, author, cycle string, labels []string, repo s
 
 	// Frontmatter
 	sb.WriteString("---\n")
-	sb.WriteString(fmt.Sprintf("id: %s\n", id))
-	sb.WriteString(fmt.Sprintf("title: %q\n", title))
+	fmt.Fprintf(&sb, "id: %s\n", id)
+	fmt.Fprintf(&sb, "title: %q\n", title)
 	sb.WriteString("status: build\n")
-	sb.WriteString(fmt.Sprintf("author: %s\n", author))
-	sb.WriteString(fmt.Sprintf("cycle: %s\n", cycle))
+	fmt.Fprintf(&sb, "author: %s\n", author)
+	fmt.Fprintf(&sb, "cycle: %s\n", cycle)
 	sb.WriteString("fast_track: true\n")
 	if repo != "" {
-		sb.WriteString(fmt.Sprintf("repos:\n  - %s\n", repo))
+		fmt.Fprintf(&sb, "repos:\n  - %s\n", repo)
 	}
-	sb.WriteString(fmt.Sprintf("created: %s\n", now.Format("2006-01-02")))
+	fmt.Fprintf(&sb, "created: %s\n", now.Format("2006-01-02"))
 	sb.WriteString(fmt.Sprintf("updated: %s\n", now.Format("2006-01-02")))
 	sb.WriteString("---\n\n")
 

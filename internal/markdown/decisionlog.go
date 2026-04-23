@@ -170,8 +170,8 @@ func FormatDecisionTable(entries []DecisionEntry) string {
 	sb.WriteString("| # | Question / Decision | Options Considered | Decision Made | Rationale | Decided By | Date |\n")
 	sb.WriteString("|---|---|---|---|---|---|---|\n")
 	for _, e := range entries {
-		sb.WriteString(fmt.Sprintf("| %03d | %s | %s | %s | %s | %s | %s |\n",
-			e.Number, e.Question, e.Options, e.Decision, e.Rationale, e.DecidedBy, e.Date))
+		fmt.Fprintf(&sb, "| %03d | %s | %s | %s | %s | %s | %s |\n",
+			e.Number, e.Question, e.Options, e.Decision, e.Rationale, e.DecidedBy, e.Date)
 	}
 	return sb.String()
 }

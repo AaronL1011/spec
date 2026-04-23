@@ -63,7 +63,7 @@ func (db *DB) SessionList() ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("session list: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ids []string
 	for rows.Next() {

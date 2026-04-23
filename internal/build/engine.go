@@ -55,7 +55,7 @@ func (e *Engine) StartOrResume(ctx context.Context, specID, specPath, workDir st
 			return err
 		}
 
-		LogActivity(specID, "Build session started")
+		_ = LogActivity(specID, "Build session started") // Best-effort logging
 	}
 
 	if session.IsComplete() {
@@ -78,7 +78,7 @@ func (e *Engine) StartOrResume(ctx context.Context, specID, specPath, workDir st
 	// Generate branch name
 	if step.Branch == "" {
 		step.Branch = gitpkg.SpecBranchName(specID, step.Number, step.Description)
-		SaveSession(e.db, session)
+		_ = SaveSession(e.db, session) // Best-effort persistence
 	}
 
 	// Create or checkout branch
@@ -133,7 +133,7 @@ func (e *Engine) StartOrResume(ctx context.Context, specID, specPath, workDir st
 	}
 
 	// Invoke the agent
-	LogActivity(specID, fmt.Sprintf("Step %d started: %s", step.Number, step.Description))
+	_ = LogActivity(specID, fmt.Sprintf("Step %d started: %s", step.Number, step.Description))
 	if err := e.agent.Invoke(ctx, contextPath, workDir); err != nil {
 		return fmt.Errorf("agent exited with error: %w", err)
 	}
@@ -141,12 +141,12 @@ func (e *Engine) StartOrResume(ctx context.Context, specID, specPath, workDir st
 	// After agent exits, prompt for step completion if not already done via MCP
 	fmt.Printf("\nStep %d complete? [y/n] ", step.Number)
 	var answer string
-	fmt.Scanln(&answer)
+	_, _ = fmt.Scanln(&answer)
 	if strings.ToLower(answer) == "y" {
 		if err := AdvanceStep(e.db, session); err != nil {
 			return err
 		}
-		LogActivity(specID, fmt.Sprintf("Step %d completed: %s", step.Number, step.Description))
+		_ = LogActivity(specID, fmt.Sprintf("Step %d completed: %s", step.Number, step.Description))
 
 		if session.IsComplete() {
 			fmt.Printf("✓ All %d steps complete for %s!\n", len(session.Steps), specID)

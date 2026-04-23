@@ -77,7 +77,7 @@ func TestSessionCreateAndAdvance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	steps := []PRStep{
 		{Number: 1, Repo: "auth-service", Description: "Step 1", Status: "pending"},
@@ -128,7 +128,7 @@ func TestSessionPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	steps := []PRStep{
 		{Number: 1, Repo: "test", Description: "Test step", Status: "pending"},

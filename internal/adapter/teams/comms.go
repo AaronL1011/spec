@@ -90,7 +90,7 @@ func (c *Client) FetchMentions(ctx context.Context, since time.Time) ([]adapter.
 	if err != nil {
 		return nil, nil // degrade gracefully on network error
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, nil // degrade gracefully on auth/permission error
@@ -154,11 +154,11 @@ func (c *Client) postCard(ctx context.Context, webhookURL string, card adaptiveC
 	if err != nil {
 		return fmt.Errorf("posting to Teams webhook: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Teams webhook error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 200))
+		return fmt.Errorf("teams webhook error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 200))
 	}
 	return nil
 }

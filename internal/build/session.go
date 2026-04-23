@@ -140,7 +140,7 @@ func LogActivity(specID, entry string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	_, err = fmt.Fprintf(f, "[%s] %s\n", timestamp, entry)
