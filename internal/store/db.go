@@ -30,13 +30,13 @@ func Open(path string) (*DB, error) {
 
 	// Enable foreign keys
 	if _, err := conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("enabling foreign keys: %w", err)
 	}
 
 	db := &DB{conn: conn, path: path}
 	if err := db.migrate(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
 
@@ -52,7 +52,7 @@ func OpenMemory() (*DB, error) {
 
 	db := &DB{conn: conn, path: ":memory:"}
 	if err := db.migrate(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
 
@@ -102,7 +102,7 @@ func (db *DB) migrateV1() error {
 	if err != nil {
 		return fmt.Errorf("beginning migration v1: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // Rollback is no-op after Commit
 
 	statements := []string{
 		// Dashboard cache: stores aggregated signals with TTL

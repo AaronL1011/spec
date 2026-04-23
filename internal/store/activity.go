@@ -39,7 +39,7 @@ func (db *DB) ActivitySince(since time.Time) ([]ActivityEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("activity since: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanActivityRows(rows)
 }
@@ -54,7 +54,7 @@ func (db *DB) ActivityForSpec(specID string, limit int) ([]ActivityEntry, error)
 	if err != nil {
 		return nil, fmt.Errorf("activity for spec %q: %w", specID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanActivityRows(rows)
 }

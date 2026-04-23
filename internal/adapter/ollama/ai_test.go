@@ -56,7 +56,7 @@ func TestComplete_Success(t *testing.T) {
 func TestComplete_NoSystem(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req chatRequest
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if len(req.Messages) != 1 {
 			t.Fatalf("expected 1 message (no system), got %d", len(req.Messages))
 		}

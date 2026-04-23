@@ -69,13 +69,13 @@ func editInEditor(content, editor string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return "", err
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Open editor
 	cmd := exec.Command(editor, tmpFile.Name())

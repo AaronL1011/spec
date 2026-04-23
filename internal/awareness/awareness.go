@@ -119,11 +119,8 @@ func canReview(reviewers []string, userName, userRole string) bool {
 
 // Print outputs the awareness line to stdout if there are items.
 func Print(rc *config.ResolvedConfig) {
-	// Skip if user prefers not to see during build
-	if rc.User != nil && !rc.User.Preferences.ShowPassiveAwarenessDuringBuild() {
-		// This check is for "during build" - caller should check context
-		// For now, always show
-	}
+	// Note: Caller is responsible for checking build context if needed.
+	// The ShowPassiveAwarenessDuringBuild preference is handled by callers.
 
 	summary, err := Gather(rc)
 	if err != nil {

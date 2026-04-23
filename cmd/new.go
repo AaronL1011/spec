@@ -71,11 +71,11 @@ func runNew(cmd *cobra.Command, args []string) error {
 
 		// Ensure templates directory exists
 		templatesDir := filepath.Join(repoPath, "templates")
-		os.MkdirAll(templatesDir, 0o755)
+		_ = os.MkdirAll(templatesDir, 0o755) // Best-effort directory creation
 
 		// Ensure triage and archive dirs exist
-		os.MkdirAll(filepath.Join(repoPath, "triage"), 0o755)
-		os.MkdirAll(filepath.Join(repoPath, config.ArchiveDir(rc.Team)), 0o755)
+		_ = os.MkdirAll(filepath.Join(repoPath, "triage"), 0o755)
+		_ = os.MkdirAll(filepath.Join(repoPath, config.ArchiveDir(rc.Team)), 0o755)
 
 		return fmt.Sprintf("feat: scaffold %s — %s", specID, title), nil
 	})

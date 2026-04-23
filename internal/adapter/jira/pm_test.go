@@ -63,7 +63,7 @@ func TestCreateEpic_Success(t *testing.T) {
 func TestCreateEpic_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"errorMessages":["permission denied"]}`))
+		_, _ = w.Write([]byte(`{"errorMessages":["permission denied"]}`))
 	}))
 	defer server.Close()
 
@@ -88,7 +88,7 @@ func TestUpdateStatus_FindsTransition(t *testing.T) {
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/rest/api/3/issue/PLAT-123/transitions":
 			var req transitionRequest
-			json.NewDecoder(r.Body).Decode(&req)
+			_ = json.NewDecoder(r.Body).Decode(&req)
 			if req.Transition.ID != "11" {
 				t.Errorf("expected transition ID '11', got %s", req.Transition.ID)
 			}
@@ -122,7 +122,7 @@ func TestFetchUpdates_Success(t *testing.T) {
 		if r.URL.Path != "/rest/api/3/issue/PLAT-123" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"key": "PLAT-123",
 			"fields": {
 				"status": {"name": "In Progress"},

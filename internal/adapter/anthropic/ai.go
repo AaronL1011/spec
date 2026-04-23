@@ -71,7 +71,7 @@ func (c *Client) Complete(ctx context.Context, prompt string, system string) (st
 	if err != nil {
 		return "", fmt.Errorf("calling Anthropic API: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -79,7 +79,7 @@ func (c *Client) Complete(ctx context.Context, prompt string, system string) (st
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Anthropic API error (HTTP %d): %s", resp.StatusCode, truncateBody(respBody, 500))
+		return "", fmt.Errorf("anthropic API error (HTTP %d): %s", resp.StatusCode, truncateBody(respBody, 500))
 	}
 
 	var result messagesResponse

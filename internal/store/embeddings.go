@@ -44,7 +44,7 @@ func (db *DB) EmbeddingSearch(queryVector []float32, limit int) ([]EmbeddingEntr
 	if err != nil {
 		return nil, fmt.Errorf("embedding search: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type scored struct {
 		entry EmbeddingEntry

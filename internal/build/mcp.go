@@ -194,16 +194,19 @@ func (s *MCPServer) toolStepComplete() (*MCPToolResult, error) {
 
 func (s *MCPServer) toolStatus() (*MCPToolResult, error) {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Spec: %s\n", s.session.SpecID))
-	sb.WriteString(fmt.Sprintf("Step: %d/%d\n", s.session.CurrentStep, len(s.session.Steps)))
+	fmt.Fprintf(&sb, "Spec: %s\n", s.session.SpecID)
+	fmt.Fprintf(&sb, "Step: %d/%d\n", s.session.CurrentStep, len(s.session.Steps))
 	for _, step := range s.session.Steps {
-		marker := "  "
-		if step.Status == "in-progress" {
+		var marker string
+		switch step.Status {
+		case "in-progress":
 			marker = "▶ "
-		} else if step.Status == "complete" {
+		case "complete":
 			marker = "✓ "
+		default:
+			marker = "  "
 		}
-		sb.WriteString(fmt.Sprintf("%s%d. [%s] %s (%s)\n", marker, step.Number, step.Repo, step.Description, step.Status))
+		fmt.Fprintf(&sb, "%s%d. [%s] %s (%s)\n", marker, step.Number, step.Repo, step.Description, step.Status)
 	}
 
 	return &MCPToolResult{Success: true, Message: sb.String()}, nil

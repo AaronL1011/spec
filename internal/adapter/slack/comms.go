@@ -222,6 +222,6 @@ func parseSlackTimestamp(ts string) time.Time {
 		return time.Time{}
 	}
 	var sec int64
-	fmt.Sscanf(parts[0], "%d", &sec)
+	_, _ = fmt.Sscanf(parts[0], "%d", &sec)
 	return time.Unix(sec, 0)
 }

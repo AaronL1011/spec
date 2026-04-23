@@ -268,15 +268,15 @@ func (h *GenericHandler) getPipelineResource() (*Resource, error) {
 	var sb strings.Builder
 	sb.WriteString("# Pipeline Configuration\n\n")
 	if resolved.PresetName != "" {
-		sb.WriteString(fmt.Sprintf("**Preset:** %s\n\n", resolved.PresetName))
+		fmt.Fprintf(&sb, "**Preset:** %s\n\n", resolved.PresetName)
 	}
 	sb.WriteString("## Stages\n\n")
 	for i, stage := range resolved.Stages {
-		sb.WriteString(fmt.Sprintf("%d. **%s** (owner: %s)\n", i+1, stage.Name, stage.GetOwner()))
+		fmt.Fprintf(&sb, "%d. **%s** (owner: %s)\n", i+1, stage.Name, stage.GetOwner())
 		if len(stage.Gates) > 0 {
 			sb.WriteString("   Gates:\n")
 			for _, g := range stage.Gates {
-				sb.WriteString(fmt.Sprintf("   - %s: %s\n", g.Type(), g.Value()))
+				fmt.Fprintf(&sb, "   - %s: %s\n", g.Type(), g.Value())
 			}
 		}
 	}

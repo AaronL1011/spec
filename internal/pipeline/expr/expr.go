@@ -161,16 +161,7 @@ func NewContext() Context {
 	}
 }
 
-// Helper function to check if a slice contains a string.
-// This is available in expressions as a method.
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
+
 
 func init() {
 	// Register custom functions available in expressions

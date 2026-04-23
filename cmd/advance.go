@@ -144,7 +144,7 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 		// Log skipped stages to decision log for fast-track
 		if len(skipped) > 0 {
 			msg := fmt.Sprintf("FAST-TRACK: %s → %s. Skipped: %s", previousStage, target, strings.Join(skipped, ", "))
-			markdown.AppendDecision(path, msg, rc.UserName())
+			_, _ = markdown.AppendDecision(path, msg, rc.UserName()) // Best-effort logging
 		}
 
 		// Execute transition effects from pipeline config

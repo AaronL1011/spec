@@ -41,11 +41,11 @@ func runDraft(cmd *cobra.Command, args []string) error {
 
 	// Check AI is configured
 	if !rc.HasIntegration("ai") {
-		return fmt.Errorf("AI integration not configured. Write the section manually with 'spec edit %s'.\nTo enable AI drafting, run 'spec config init' and configure the ai integration.", specID)
+		return fmt.Errorf("AI integration not configured; write the section manually with 'spec edit %s' or run 'spec config init' to configure", specID)
 	}
 
 	if !rc.AIDraftsEnabled() {
-		return fmt.Errorf("AI drafting is disabled in your preferences. Set 'preferences.ai_drafts: true' in ~/.spec/config.yaml to enable.")
+		return fmt.Errorf("AI drafting is disabled in your preferences; set 'preferences.ai_drafts: true' in ~/.spec/config.yaml to enable")
 	}
 
 	reg := buildRegistry(rc)

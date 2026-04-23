@@ -113,7 +113,7 @@ func (c *Client) findPage(ctx context.Context, specID string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("searching for page %s: %w — query: %s", specID, err, cql)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -121,7 +121,7 @@ func (c *Client) findPage(ctx context.Context, specID string) (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Confluence API error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
+		return "", fmt.Errorf("confluence API error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
 	}
 
 	var result pagesResponse
@@ -145,7 +145,7 @@ func (c *Client) getPageBody(ctx context.Context, pageID string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -153,7 +153,7 @@ func (c *Client) getPageBody(ctx context.Context, pageID string) (string, error)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Confluence API error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
+		return "", fmt.Errorf("confluence API error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
 	}
 
 	var page pageResponse

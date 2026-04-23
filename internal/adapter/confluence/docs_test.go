@@ -180,7 +180,7 @@ func TestRoundtrip_SimpleContent(t *testing.T) {
 
 func TestFetchSections_PageNotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(pagesResponse{Results: []pageResponse{}})
+		_ = json.NewEncoder(w).Encode(pagesResponse{Results: []pageResponse{}})
 	}))
 	defer server.Close()
 
@@ -198,13 +198,13 @@ func TestPushFull_CreatePage(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		switch {
-		case r.Method == http.MethodGet:
+		switch r.Method {
+		case http.MethodGet:
 			// findPage — return empty results
-			json.NewEncoder(w).Encode(pagesResponse{Results: []pageResponse{}})
-		case r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(pagesResponse{Results: []pageResponse{}})
+		case http.MethodPost:
 			var req createPageRequest
-			json.NewDecoder(r.Body).Decode(&req)
+			_ = json.NewDecoder(r.Body).Decode(&req)
 			if req.Title != "SPEC-042" {
 				t.Errorf("expected title SPEC-042, got %s", req.Title)
 			}
@@ -212,7 +212,7 @@ func TestPushFull_CreatePage(t *testing.T) {
 				t.Errorf("expected storage representation, got %s", req.Body.Representation)
 			}
 			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(pageResponse{ID: "12345", Title: "SPEC-042"})
+			_ = json.NewEncoder(w).Encode(pageResponse{ID: "12345", Title: "SPEC-042"})
 		}
 	}))
 	defer server.Close()

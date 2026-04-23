@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -239,11 +238,6 @@ func priorityIndicator(priority string) string {
 	default:
 		return "·"
 	}
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 func listMine(specs []specSummary, pipeline config.PipelineConfig, userName string) error {

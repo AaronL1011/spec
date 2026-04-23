@@ -31,7 +31,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	if !rc.HasIntegration("docs") {
-		return fmt.Errorf("docs integration not configured — sync requires a docs provider.\nConfigure 'integrations.docs' in spec.config.yaml.")
+		return fmt.Errorf("docs integration not configured; sync requires a docs provider, configure 'integrations.docs' in spec.config.yaml")
 	}
 
 	// TODO: Implement full sync engine (Phase 3, PR #20)

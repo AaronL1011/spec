@@ -190,9 +190,9 @@ func buildFastTrackSpec(id, title, author, cycle string, labels []string, repo s
 	// Decision log
 	sb.WriteString("---\n\n")
 	sb.WriteString("## Decision Log\n\n")
-	sb.WriteString(fmt.Sprintf("| # | Date | Decision |\n"))
-	sb.WriteString(fmt.Sprintf("|---|------|----------|\n"))
-	sb.WriteString(fmt.Sprintf("| 1 | %s | Created as fast-track spec |\n", now.Format("2006-01-02")))
+	sb.WriteString("| # | Date | Decision |\n")
+	sb.WriteString("|---|------|----------|\n")
+	fmt.Fprintf(&sb, "| 1 | %s | Created as fast-track spec |\n", now.Format("2006-01-02"))
 
 	return sb.String()
 }

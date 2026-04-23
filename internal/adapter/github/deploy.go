@@ -97,22 +97,6 @@ func (d *DeployClient) Status(ctx context.Context, run *adapter.DeployRun) (*ada
 	}, nil
 }
 
-func (d *DeployClient) findLatestRun(ctx context.Context, repo string) (*gh.WorkflowRun, error) {
-	runs, _, err := d.client.Actions.ListWorkflowRunsByFileName(
-		ctx, d.owner, repo, d.workflow,
-		&gh.ListWorkflowRunsOptions{
-			ListOptions: gh.ListOptions{PerPage: 1},
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-	if len(runs.WorkflowRuns) == 0 {
-		return nil, fmt.Errorf("no workflow runs found")
-	}
-	return runs.WorkflowRuns[0], nil
-}
-
 func mapRunStatus(status, conclusion string) string {
 	switch status {
 	case "completed":
