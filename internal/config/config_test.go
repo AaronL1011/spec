@@ -266,3 +266,303 @@ func TestDefaultPipelineHasAllStages(t *testing.T) {
 		}
 	}
 }
+
+func TestUserConfig_AutoNavigate_DefaultTrue(t *testing.T) {
+	content := `
+user:
+  owner_role: engineer
+  name: Test User
+preferences:
+  editor: vim
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("LoadUserConfig: %v", err)
+	}
+
+	if !cfg.Preferences.AutoNavigateEnabled() {
+		t.Error("AutoNavigateEnabled should default to true")
+	}
+}
+
+func TestUserConfig_AutoNavigate_ExplicitFalse(t *testing.T) {
+	content := `
+user:
+  owner_role: engineer
+preferences:
+  auto_navigate: false
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("LoadUserConfig: %v", err)
+	}
+
+	if cfg.Preferences.AutoNavigateEnabled() {
+		t.Error("AutoNavigateEnabled should be false when explicitly set")
+	}
+}
+
+func TestUserConfig_Workspaces(t *testing.T) {
+	content := `
+user:
+  owner_role: engineer
+workspaces:
+  auth-service: ~/code/auth-service
+  api-gateway: /home/user/code/api-gateway
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("LoadUserConfig: %v", err)
+	}
+
+	if len(cfg.Workspaces) != 2 {
+		t.Fatalf("Workspaces count = %d, want 2", len(cfg.Workspaces))
+	}
+
+	if cfg.GetWorkspacePath("auth-service") != "~/code/auth-service" {
+		t.Errorf("auth-service path = %q", cfg.GetWorkspacePath("auth-service"))
+	}
+
+	if cfg.GetWorkspacePath("unknown-repo") != "" {
+		t.Error("unknown repo should return empty string")
+	}
+}
+
+func TestUserConfig_Multiplexer(t *testing.T) {
+	content := `
+user:
+  owner_role: engineer
+preferences:
+  multiplexer: tmux
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("LoadUserConfig: %v", err)
+	}
+
+	if cfg.Preferences.Multiplexer != MultiplexerTmux {
+		t.Errorf("Multiplexer = %q, want tmux", cfg.Preferences.Multiplexer)
+	}
+}
+
+func TestUserConfig_PassiveAwareness(t *testing.T) {
+	content := `
+user:
+  owner_role: engineer
+preferences:
+  passive_awareness:
+    show: [review_requests, spec_owned]
+    hide: [triage]
+    during_build: true
+    dismiss_duration: "4h"
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("LoadUserConfig: %v", err)
+	}
+
+	pa := cfg.Preferences.PassiveAwareness
+	if pa == nil {
+		t.Fatal("PassiveAwareness should not be nil")
+	}
+
+	if len(pa.Show) != 2 {
+		t.Errorf("Show count = %d, want 2", len(pa.Show))
+	}
+	if len(pa.Hide) != 1 {
+		t.Errorf("Hide count = %d, want 1", len(pa.Hide))
+	}
+	if !pa.DuringBuild {
+		t.Error("DuringBuild should be true")
+	}
+	if cfg.Preferences.GetDismissDuration() != "4h" {
+		t.Errorf("DismissDuration = %q, want 4h", cfg.Preferences.GetDismissDuration())
+	}
+}
+
+func TestUserConfig_PassiveAwareness_Defaults(t *testing.T) {
+	content := `
+user:
+  owner_role: engineer
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("LoadUserConfig: %v", err)
+	}
+
+	// Should not show during build by default
+	if cfg.Preferences.ShowPassiveAwarenessDuringBuild() {
+		t.Error("ShowPassiveAwarenessDuringBuild should default to false")
+	}
+
+	// Dismiss duration should default to 2h
+	if cfg.Preferences.GetDismissDuration() != "2h" {
+		t.Errorf("default DismissDuration = %q, want 2h", cfg.Preferences.GetDismissDuration())
+	}
+}
+
+func TestValidMultiplexers(t *testing.T) {
+	valid := ValidMultiplexers()
+	if len(valid) != 5 {
+		t.Errorf("ValidMultiplexers count = %d, want 5", len(valid))
+	}
+
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"", true},
+		{"tmux", true},
+		{"zellij", true},
+		{"wezterm", true},
+		{"iterm2", true},
+		{"none", true},
+		{"invalid", false},
+		{"screen", false},
+	}
+
+	for _, tt := range tests {
+		got := IsValidMultiplexer(tt.input)
+		if got != tt.want {
+			t.Errorf("IsValidMultiplexer(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestFastTrackConfig(t *testing.T) {
+	content := `
+version: "1"
+fast_track:
+  enabled: true
+  allowed_roles: [engineer, tl, senior]
+  max_duration: "2d"
+  require_labels: [bug, hotfix]
+  pipeline_variant: bug
+  excluded_stages: [design, qa-expectations]
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadTeamConfig(path)
+	if err != nil {
+		t.Fatalf("LoadTeamConfig: %v", err)
+	}
+
+	ft := cfg.FastTrack
+	if ft == nil {
+		t.Fatal("FastTrack should not be nil")
+	}
+
+	if !ft.IsEnabled() {
+		t.Error("IsEnabled should be true")
+	}
+
+	if len(ft.AllowedRoles) != 3 {
+		t.Errorf("AllowedRoles count = %d, want 3", len(ft.AllowedRoles))
+	}
+
+	if !ft.IsRoleAllowed("engineer") {
+		t.Error("engineer should be allowed")
+	}
+	if !ft.IsRoleAllowed("senior") {
+		t.Error("senior should be allowed")
+	}
+	if ft.IsRoleAllowed("pm") {
+		t.Error("pm should not be allowed")
+	}
+
+	if ft.MaxDuration != "2d" {
+		t.Errorf("MaxDuration = %q, want 2d", ft.MaxDuration)
+	}
+
+	if len(ft.RequireLabels) != 2 {
+		t.Errorf("RequireLabels count = %d, want 2", len(ft.RequireLabels))
+	}
+
+	if ft.PipelineVariant != "bug" {
+		t.Errorf("PipelineVariant = %q, want bug", ft.PipelineVariant)
+	}
+
+	if len(ft.ExcludedStages) != 2 {
+		t.Errorf("ExcludedStages count = %d, want 2", len(ft.ExcludedStages))
+	}
+}
+
+func TestFastTrackConfig_Defaults(t *testing.T) {
+	// nil config
+	var cfg *FastTrackConfig
+	if cfg.IsEnabled() {
+		t.Error("nil config should not be enabled")
+	}
+	roles := cfg.GetAllowedRoles()
+	if len(roles) != 2 || roles[0] != "engineer" || roles[1] != "tl" {
+		t.Errorf("default roles = %v, want [engineer, tl]", roles)
+	}
+	if cfg.IsRoleAllowed("pm") {
+		t.Error("pm should not be allowed by default")
+	}
+	if !cfg.IsRoleAllowed("engineer") {
+		t.Error("engineer should be allowed by default")
+	}
+}
+
+func TestFastTrackConfig_Disabled(t *testing.T) {
+	content := `
+version: "1"
+fast_track:
+  enabled: false
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadTeamConfig(path)
+	if err != nil {
+		t.Fatalf("LoadTeamConfig: %v", err)
+	}
+
+	if cfg.FastTrack.IsEnabled() {
+		t.Error("FastTrack should not be enabled")
+	}
+}

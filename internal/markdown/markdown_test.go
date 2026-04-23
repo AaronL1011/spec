@@ -390,3 +390,234 @@ func TestParseTriageMeta(t *testing.T) {
 		t.Errorf("Priority = %q, want high", meta.Priority)
 	}
 }
+
+const testSpecWithSteps = `---
+id: SPEC-042
+title: Auth refactor
+status: build
+version: 0.2.0
+author: Aaron
+cycle: Cycle 7
+repos:
+    - auth-service
+    - api-gateway
+revert_count: 0
+created: "2026-04-01"
+updated: "2026-04-21"
+steps:
+    - repo: auth-service
+      description: Add token bucket rate limiter
+      branch: spec-042/step-1-rate-limiter
+      pr: 415
+      status: complete
+    - repo: auth-service
+      description: Integrate Redis backend
+      branch: spec-042/step-2-redis
+      pr: 418
+      status: in-progress
+    - repo: api-gateway
+      description: Add rate limit middleware
+      status: pending
+    - repo: frontend
+      description: Handle 429 errors
+      status: pending
+review:
+    requested_at: "2026-04-20"
+    reviewers:
+        - "@mike"
+    approvals:
+        - reviewer: "@mike"
+          approved_at: "2026-04-21"
+    status: approved
+---
+
+# SPEC-042 - Auth refactor
+
+Body content here.
+`
+
+func TestParseMetaWithSteps(t *testing.T) {
+	meta, err := ParseMeta(testSpecWithSteps)
+	if err != nil {
+		t.Fatalf("ParseMeta: %v", err)
+	}
+
+	// Check steps were parsed
+	if len(meta.Steps) != 4 {
+		t.Fatalf("Steps length = %d, want 4", len(meta.Steps))
+	}
+
+	// Check first step
+	step1 := meta.Steps[0]
+	if step1.Repo != "auth-service" {
+		t.Errorf("Step 1 Repo = %q, want auth-service", step1.Repo)
+	}
+	if step1.Description != "Add token bucket rate limiter" {
+		t.Errorf("Step 1 Description = %q", step1.Description)
+	}
+	if step1.Branch != "spec-042/step-1-rate-limiter" {
+		t.Errorf("Step 1 Branch = %q", step1.Branch)
+	}
+	if step1.PR != 415 {
+		t.Errorf("Step 1 PR = %d, want 415", step1.PR)
+	}
+	if step1.Status != StepStatusComplete {
+		t.Errorf("Step 1 Status = %q, want complete", step1.Status)
+	}
+
+	// Check third step (no branch/PR yet)
+	step3 := meta.Steps[2]
+	if step3.Status != StepStatusPending {
+		t.Errorf("Step 3 Status = %q, want pending", step3.Status)
+	}
+	if step3.Branch != "" {
+		t.Errorf("Step 3 Branch should be empty, got %q", step3.Branch)
+	}
+
+	// Check review state
+	if meta.Review == nil {
+		t.Fatal("Review should not be nil")
+	}
+	if meta.Review.Status != ReviewStatusApproved {
+		t.Errorf("Review Status = %q, want approved", meta.Review.Status)
+	}
+	if len(meta.Review.Approvals) != 1 {
+		t.Errorf("Review Approvals = %d, want 1", len(meta.Review.Approvals))
+	}
+	if meta.Review.Approvals[0].Reviewer != "@mike" {
+		t.Errorf("Approval Reviewer = %q, want @mike", meta.Review.Approvals[0].Reviewer)
+	}
+}
+
+func TestCurrentStep(t *testing.T) {
+	meta, _ := ParseMeta(testSpecWithSteps)
+
+	// Current step should be index 1 (second step, first non-complete)
+	current := meta.CurrentStep()
+	if current != 1 {
+		t.Errorf("CurrentStep = %d, want 1", current)
+	}
+}
+
+func TestCurrentStep_AllComplete(t *testing.T) {
+	meta := &SpecMeta{
+		Steps: []BuildStep{
+			{Status: StepStatusComplete},
+			{Status: StepStatusComplete},
+		},
+	}
+	current := meta.CurrentStep()
+	if current != -1 {
+		t.Errorf("CurrentStep when all complete = %d, want -1", current)
+	}
+}
+
+func TestCurrentStep_NoSteps(t *testing.T) {
+	meta := &SpecMeta{}
+	current := meta.CurrentStep()
+	if current != -1 {
+		t.Errorf("CurrentStep with no steps = %d, want -1", current)
+	}
+}
+
+func TestAllStepsComplete(t *testing.T) {
+	tests := []struct {
+		name   string
+		steps  []BuildStep
+		want   bool
+	}{
+		{"no steps", nil, false},
+		{"all complete", []BuildStep{{Status: StepStatusComplete}, {Status: StepStatusComplete}}, true},
+		{"some pending", []BuildStep{{Status: StepStatusComplete}, {Status: StepStatusPending}}, false},
+		{"all pending", []BuildStep{{Status: StepStatusPending}}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meta := &SpecMeta{Steps: tt.steps}
+			got := meta.AllStepsComplete()
+			if got != tt.want {
+				t.Errorf("AllStepsComplete = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStepsExist(t *testing.T) {
+	tests := []struct {
+		name  string
+		steps []BuildStep
+		want  bool
+	}{
+		{"no steps", nil, false},
+		{"empty slice", []BuildStep{}, false},
+		{"has steps", []BuildStep{{Repo: "test"}}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meta := &SpecMeta{Steps: tt.steps}
+			got := meta.StepsExist()
+			if got != tt.want {
+				t.Errorf("StepsExist = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReviewStateHelpers(t *testing.T) {
+	tests := []struct {
+		name           string
+		review         *ReviewState
+		wantApproved   bool
+		wantPending    bool
+		wantChangesReq bool
+	}{
+		{"nil review", nil, false, false, false},
+		{"approved", &ReviewState{Status: ReviewStatusApproved}, true, false, false},
+		{"pending", &ReviewState{Status: ReviewStatusPending}, false, true, false},
+		{"changes requested", &ReviewState{Status: ReviewStatusChangesRequested}, false, false, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meta := &SpecMeta{Review: tt.review}
+
+			if got := meta.IsReviewApproved(); got != tt.wantApproved {
+				t.Errorf("IsReviewApproved = %v, want %v", got, tt.wantApproved)
+			}
+			if got := meta.IsReviewPending(); got != tt.wantPending {
+				t.Errorf("IsReviewPending = %v, want %v", got, tt.wantPending)
+			}
+			if got := meta.IsReviewChangesRequested(); got != tt.wantChangesReq {
+				t.Errorf("IsReviewChangesRequested = %v, want %v", got, tt.wantChangesReq)
+			}
+		})
+	}
+}
+
+func TestFastTrackField(t *testing.T) {
+	content := `---
+id: SPEC-048
+title: Fix null pointer
+status: build
+version: 0.1.0
+author: Aaron
+cycle: Cycle 7
+revert_count: 0
+created: "2026-04-23"
+updated: "2026-04-23"
+fast_track: true
+---
+
+# SPEC-048 - Fix null pointer
+`
+
+	meta, err := ParseMeta(content)
+	if err != nil {
+		t.Fatalf("ParseMeta: %v", err)
+	}
+	if !meta.FastTrack {
+		t.Error("FastTrack should be true")
+	}
+}

@@ -15,6 +15,12 @@ import (
 var newCmd = &cobra.Command{
 	Use:   "new",
 	Short: "Scaffold a new SPEC.md in the specs repo",
+	Long: `Create a new spec document in the configured specs repository.
+
+The command assigns the next available spec ID, applies the standard
+template, commits the file to the specs repo, and triggers configured
+notifications when integrations are enabled.`,
+	Example: "  spec new --title \"Auth token expiration fix\"",
 	RunE:  runNew,
 }
 

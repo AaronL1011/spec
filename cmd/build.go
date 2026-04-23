@@ -13,6 +13,11 @@ import (
 var buildCmd = &cobra.Command{
 	Use:   "build <id>",
 	Short: "Start or resume the build phase for a spec",
+	Long: `Start or resume implementation work for a spec in the build phase.
+
+The command validates the spec stage, resolves the spec source from local
+or team repository state, and launches the build engine session.`,
+	Example: "  spec build SPEC-042",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runBuild,
 }

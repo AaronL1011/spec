@@ -1,8 +1,8 @@
-# spec — Developer Control Plane
+# spec — The End-Game Developer Control Plane
 
-> Your terminal is your office. `spec` is everything else.
+`spec` was built for flow. Born from a desire for liberation from tangled webs of project management software - free to solve problems in peace and serenity.
 
-`spec` is a CLI that unifies the product development lifecycle into a single terminal interface. It replaces the daily ritual of opening Jira, Slack, GitHub, and Confluence with one command. Specs are the coordination primitive — structured markdown documents that flow through a configurable pipeline from intake to deployment, with role-based ownership, gate validation, and automated handoffs.
+Take back your focus, find a process that really gets shit done.
 
 ```
 $ spec
@@ -177,6 +177,8 @@ spec advance SPEC-042 --dry-run  # Preview transition effects
 
 📖 **[Full pipeline documentation →](docs/pipelines.md)**
 
+📖 **[Engineer workflow guide →](docs/engineer-workflow.md)**
+
 **Transitions:**
 
 - **Forward** (`spec advance`) — validates gates, runs effects, notifies next owner
@@ -186,7 +188,7 @@ spec advance SPEC-042 --dry-run  # Preview transition effects
 
 ### The Dashboard
 
-`spec` with no arguments is the daily driver. It aggregates signals from all configured integrations into a personal, prioritised view — replacing Jira + Slack + GitHub as the first thing you open each morning.
+Running `spec` with no arguments shows the personal dashboard, a prioritised view of specs, PRs, and notifications aggregated from configured integrations.
 
 Every other `spec` command prints a passive awareness line when items are pending:
 
@@ -270,6 +272,7 @@ Every draft goes through **accept / edit / skip** — AI never writes directly t
 | `spec status <id>` | Pipeline position + section completion |
 | `spec list` | Specs awaiting your action |
 | `spec list --all` | Full pipeline grouped by stage |
+| `spec list --mine` | Specs you own |
 | `spec list --triage` | Open triage items |
 
 ### Collaboration
@@ -292,6 +295,28 @@ Every draft goes through **accept / edit / skip** — AI never writes directly t
 | `spec draft <id> --pr` | Draft a PR description |
 | `spec draft <id> --pr-stack` | Propose a PR stack plan |
 
+### Technical planning
+
+| Command | Description |
+|---|---|
+| `spec plan [id]` | View build plan |
+| `spec plan edit [id]` | Edit plan in `$EDITOR` |
+| `spec plan add [id] <desc>` | Add a step (`--repo`) |
+| `spec plan ready [id]` | Request plan review |
+| `spec review <id> --plan` | Review technical plan |
+| `spec review <id> --plan --approve` | Approve plan |
+
+### Build execution
+
+| Command | Description |
+|---|---|
+| `spec steps [id]` | View build steps and progress |
+| `spec steps next [id]` | Show next step details |
+| `spec steps start [id] [n]` | Start working on a step |
+| `spec steps complete [id] [n]` | Mark step complete (`--pr N`) |
+| `spec steps block [id] [n] <reason>` | Block a step |
+| `spec steps unblock [id] [n]` | Unblock a step |
+
 ### Build & deploy
 
 | Command | Description |
@@ -299,6 +324,7 @@ Every draft goes through **accept / edit / skip** — AI never writes directly t
 | `spec build <id>` | Start/resume build with agent context |
 | `spec review <id>` | Post structured review request |
 | `spec deploy <id> [--env production]` | Trigger deployment |
+| `spec fix <title>` | Fast-track bug fix (`--label`) |
 | `spec mcp-server [--spec <id>]` | Standalone MCP server |
 
 ### Knowledge
@@ -519,8 +545,6 @@ internal/
 - Test names describe the scenario: `TestAdvance_GateNotMet_ReturnsError`.
 
 ## Versioning & Roadmap
-
-`spec` ships incrementally. Each version is independently useful.
 
 | Version | What ships |
 |---|---|

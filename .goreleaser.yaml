@@ -24,6 +24,8 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
+    files:
+      - docs/man/spec.1
 
 brews:
   - repository:
@@ -32,6 +34,8 @@ brews:
     homepage: "https://github.com/nexl/spec-cli"
     description: "Developer control plane CLI"
     license: "MIT"
+    extra_install: |
+      man1.install "spec.1"
 
 checksum:
   name_template: "checksums.txt"

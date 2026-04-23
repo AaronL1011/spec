@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/nexl/spec-cli/internal/awareness"
 	"github.com/nexl/spec-cli/internal/build"
 	gitpkg "github.com/nexl/spec-cli/internal/git"
 	"github.com/nexl/spec-cli/internal/markdown"
@@ -14,6 +15,12 @@ import (
 var doCmd = &cobra.Command{
 	Use:   "do [id]",
 	Short: "Resume work — picks up where you left off",
+	Long: `Resume active build work with full execution context.
+
+When no spec ID is provided, this command detects the current spec from
+your branch name first, then falls back to the most recent local build
+session.`,
+	Example: "  spec do\n  spec do SPEC-042",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDo,
 }
@@ -26,6 +33,11 @@ func runDo(cmd *cobra.Command, args []string) error {
 	rc, err := resolveConfig()
 	if err != nil {
 		return err
+	}
+
+	// Show passive awareness (unless user disabled it during build)
+	if rc.User == nil || rc.User.Preferences.ShowPassiveAwarenessDuringBuild() {
+		awareness.Print(rc)
 	}
 
 	db, err := openDB()

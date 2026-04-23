@@ -28,7 +28,7 @@ func TestGateConfigTypes(t *testing.T) {
 		{
 			name:     "pr_stack_exists",
 			yaml:     `pr_stack_exists: true`,
-			wantType: "pr_stack_exists",
+			wantType: "steps_exists", // legacy maps to new type
 			wantVal:  "true",
 		},
 		{
@@ -294,5 +294,173 @@ func TestNewExprGate(t *testing.T) {
 	}
 	if gate.Message != "All decisions must be resolved" {
 		t.Errorf("Message = %q, want %q", gate.Message, "All decisions must be resolved")
+	}
+}
+
+func TestStageReviewConfig(t *testing.T) {
+	yamlContent := `
+name: engineering
+owner: engineer
+review:
+  required: true
+  reviewers: [tl, "@mike"]
+  min_approvals: 2
+`
+	var stage StageConfig
+	if err := yaml.Unmarshal([]byte(yamlContent), &stage); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if stage.Review == nil {
+		t.Fatal("Review config should not be nil")
+	}
+
+	if !stage.Review.IsRequired() {
+		t.Error("IsRequired should be true")
+	}
+
+	if len(stage.Review.Reviewers) != 2 {
+		t.Errorf("Reviewers count = %d, want 2", len(stage.Review.Reviewers))
+	}
+
+	if stage.Review.GetMinApprovals() != 2 {
+		t.Errorf("MinApprovals = %d, want 2", stage.Review.GetMinApprovals())
+	}
+}
+
+func TestStageReviewConfig_Defaults(t *testing.T) {
+	// When Review is nil
+	var cfg *StageReviewConfig
+	if cfg.IsRequired() {
+		t.Error("nil config should not be required")
+	}
+	if cfg.GetMinApprovals() != 1 {
+		t.Errorf("nil config MinApprovals = %d, want 1", cfg.GetMinApprovals())
+	}
+
+	// When Review is present but Required not set
+	cfg = &StageReviewConfig{}
+	if !cfg.IsRequired() {
+		t.Error("empty config should default to required")
+	}
+	if cfg.GetMinApprovals() != 1 {
+		t.Errorf("empty config MinApprovals = %d, want 1", cfg.GetMinApprovals())
+	}
+}
+
+func TestAutoAdvanceConfig(t *testing.T) {
+	yamlContent := `
+name: pr-review
+owner: engineer
+auto_advance:
+  when: "prs.all_approved and prs.threads_resolved"
+  notify: [author, next_owner]
+  quiet_hours: "22:00-08:00"
+  exclude_labels: [needs-discussion]
+`
+	var stage StageConfig
+	if err := yaml.Unmarshal([]byte(yamlContent), &stage); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	aa := stage.AutoAdvance
+	if aa == nil {
+		t.Fatal("AutoAdvance should not be nil")
+	}
+
+	if !aa.IsEnabled() {
+		t.Error("IsEnabled should be true when When is set")
+	}
+
+	if aa.When != "prs.all_approved and prs.threads_resolved" {
+		t.Errorf("When = %q", aa.When)
+	}
+
+	if len(aa.Notify) != 2 {
+		t.Errorf("Notify count = %d, want 2", len(aa.Notify))
+	}
+
+	if aa.QuietHours != "22:00-08:00" {
+		t.Errorf("QuietHours = %q", aa.QuietHours)
+	}
+
+	if len(aa.ExcludeLabels) != 1 || aa.ExcludeLabels[0] != "needs-discussion" {
+		t.Errorf("ExcludeLabels = %v", aa.ExcludeLabels)
+	}
+}
+
+func TestAutoAdvanceConfig_Disabled(t *testing.T) {
+	f := false
+	cfg := &AutoAdvanceConfig{
+		When:    "prs.all_approved",
+		Enabled: &f,
+	}
+
+	if cfg.IsEnabled() {
+		t.Error("should not be enabled when Enabled is explicitly false")
+	}
+
+	// nil config
+	var nilCfg *AutoAdvanceConfig
+	if nilCfg.IsEnabled() {
+		t.Error("nil config should not be enabled")
+	}
+
+	// empty When
+	emptyCfg := &AutoAdvanceConfig{}
+	if emptyCfg.IsEnabled() {
+		t.Error("empty When should not be enabled")
+	}
+}
+
+func TestGateConfig_StepsExists(t *testing.T) {
+	tr := true
+
+	// New style
+	g1 := GateConfig{StepsExists: &tr}
+	if !g1.HasStepsExists() {
+		t.Error("HasStepsExists should be true for StepsExists")
+	}
+	if g1.Type() != "steps_exists" {
+		t.Errorf("Type = %q, want steps_exists", g1.Type())
+	}
+
+	// Legacy style
+	g2 := GateConfig{PRStackExists: &tr}
+	if !g2.HasStepsExists() {
+		t.Error("HasStepsExists should be true for PRStackExists (legacy)")
+	}
+	if g2.Type() != "steps_exists" {
+		t.Errorf("Legacy Type = %q, want steps_exists", g2.Type())
+	}
+}
+
+func TestGateConfig_ReviewApproved(t *testing.T) {
+	tr := true
+	g := GateConfig{ReviewApproved: &tr}
+
+	if !g.HasReviewApproved() {
+		t.Error("HasReviewApproved should be true")
+	}
+	if g.Type() != "review_approved" {
+		t.Errorf("Type = %q, want review_approved", g.Type())
+	}
+}
+
+func TestNewSimpleGate_NewTypes(t *testing.T) {
+	tests := []struct {
+		gateType string
+		wantType string
+	}{
+		{"steps_exists", "steps_exists"},
+		{"pr_stack_exists", "steps_exists"}, // legacy maps to new
+		{"review_approved", "review_approved"},
+	}
+
+	for _, tt := range tests {
+		g := NewSimpleGate(tt.gateType, "")
+		if g.Type() != tt.wantType {
+			t.Errorf("NewSimpleGate(%q).Type() = %q, want %q", tt.gateType, g.Type(), tt.wantType)
+		}
 	}
 }

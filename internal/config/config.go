@@ -33,6 +33,56 @@ type TeamConfig struct {
 	Dashboard DashboardConfig `yaml:"dashboard"`
 
 	Pipeline PipelineConfig `yaml:"pipeline"`
+
+	// FastTrack configures engineer self-service for small bug fixes.
+	FastTrack *FastTrackConfig `yaml:"fast_track,omitempty"`
+}
+
+// FastTrackConfig configures the `spec fix` fast-track workflow.
+type FastTrackConfig struct {
+	// Enabled allows fast-track bug fixes. Defaults to false.
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// AllowedRoles lists roles that can create fast-track specs.
+	// Defaults to ["engineer", "tl"].
+	AllowedRoles []string `yaml:"allowed_roles,omitempty"`
+
+	// MaxDuration is the maximum time before escalation (e.g., "2d", "48h").
+	// If exceeded, notifies TL and/or PM.
+	MaxDuration string `yaml:"max_duration,omitempty"`
+
+	// RequireLabels requires fast-track specs to have specific labels (e.g., ["bug", "hotfix"]).
+	RequireLabels []string `yaml:"require_labels,omitempty"`
+
+	// PipelineVariant is the pipeline variant to use for fast-track specs.
+	// If empty, uses a minimal default: build → pr-review → done.
+	PipelineVariant string `yaml:"pipeline_variant,omitempty"`
+
+	// ExcludedStages lists stages to skip in fast-track (if not using a variant).
+	ExcludedStages []string `yaml:"excluded_stages,omitempty"`
+}
+
+// GetAllowedRoles returns allowed roles or default ["engineer", "tl"].
+func (f *FastTrackConfig) GetAllowedRoles() []string {
+	if f == nil || len(f.AllowedRoles) == 0 {
+		return []string{"engineer", "tl"}
+	}
+	return f.AllowedRoles
+}
+
+// IsRoleAllowed checks if a role can create fast-track specs.
+func (f *FastTrackConfig) IsRoleAllowed(role string) bool {
+	for _, r := range f.GetAllowedRoles() {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+// IsEnabled returns whether fast-track is enabled.
+func (f *FastTrackConfig) IsEnabled() bool {
+	return f != nil && f.Enabled
 }
 
 // SpecsRepoConfig defines the specs repository location.

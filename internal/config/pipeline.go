@@ -66,6 +66,85 @@ type StageConfig struct {
 
 	// AutoArchive moves the spec to archive/ when entering this stage.
 	AutoArchive bool `yaml:"auto_archive,omitempty"`
+
+	// Review configures plan review requirements for this stage.
+	// Used primarily for the engineering stage to require technical plan approval.
+	Review *StageReviewConfig `yaml:"review,omitempty"`
+
+	// AutoAdvance configures automatic stage advancement when gates are satisfied.
+	AutoAdvance *AutoAdvanceConfig `yaml:"auto_advance,omitempty"`
+}
+
+// StageReviewConfig configures plan review requirements.
+type StageReviewConfig struct {
+	// Required indicates whether review is required to advance.
+	// Defaults to true when Review is present.
+	Required *bool `yaml:"required,omitempty"`
+
+	// Reviewers lists who can review (roles like "tl" or named users like "@mike").
+	// Special value "author" allows self-review.
+	Reviewers []string `yaml:"reviewers,omitempty"`
+
+	// MinApprovals is the minimum number of approvals required.
+	// Defaults to 1.
+	MinApprovals int `yaml:"min_approvals,omitempty"`
+}
+
+// IsRequired returns whether review is required.
+// Defaults to true if not explicitly set.
+func (r *StageReviewConfig) IsRequired() bool {
+	if r == nil {
+		return false
+	}
+	if r.Required == nil {
+		return true
+	}
+	return *r.Required
+}
+
+// GetMinApprovals returns the minimum approvals or default of 1.
+func (r *StageReviewConfig) GetMinApprovals() int {
+	if r == nil || r.MinApprovals == 0 {
+		return 1
+	}
+	return r.MinApprovals
+}
+
+// AutoAdvanceConfig configures automatic stage advancement.
+type AutoAdvanceConfig struct {
+	// Enabled allows explicitly disabling auto-advance even if When is set.
+	Enabled *bool `yaml:"enabled,omitempty"`
+
+	// When is an expression that triggers auto-advance when true.
+	// Example: "prs.all_approved and prs.threads_resolved"
+	When string `yaml:"when,omitempty"`
+
+	// Notify lists targets to notify on auto-advance.
+	// Example: ["author", "next_owner"]
+	Notify []string `yaml:"notify,omitempty"`
+
+	// QuietHours prevents auto-advance during specified hours.
+	// Format: "HH:MM-HH:MM" in local timezone.
+	// Example: "22:00-08:00"
+	QuietHours string `yaml:"quiet_hours,omitempty"`
+
+	// RequireApproval requires a specific role to have approved (e.g., "tl").
+	RequireApproval string `yaml:"require_approval,omitempty"`
+
+	// ExcludeLabels prevents auto-advance for specs with these labels.
+	ExcludeLabels []string `yaml:"exclude_labels,omitempty"`
+}
+
+// IsEnabled returns whether auto-advance is enabled.
+// Defaults to true if When is set and Enabled is not explicitly false.
+func (a *AutoAdvanceConfig) IsEnabled() bool {
+	if a == nil || a.When == "" {
+		return false
+	}
+	if a.Enabled == nil {
+		return true
+	}
+	return *a.Enabled
 }
 
 // GetOwner returns the effective owner, checking both Owner and legacy OwnerRole.
@@ -81,8 +160,10 @@ type GateConfig struct {
 	// Simple gate types (mutually exclusive with Expr)
 	SectionNotEmpty string          `yaml:"section_not_empty,omitempty"`
 	SectionComplete string          `yaml:"section_complete,omitempty"` // Deprecated: use SectionNotEmpty
-	PRStackExists   *bool           `yaml:"pr_stack_exists,omitempty"`
+	PRStackExists   *bool           `yaml:"pr_stack_exists,omitempty"`  // Deprecated: use StepsExists
+	StepsExists     *bool           `yaml:"steps_exists,omitempty"`     // Build plan has at least one step
 	PRsApproved     *bool           `yaml:"prs_approved,omitempty"`
+	ReviewApproved  *bool           `yaml:"review_approved,omitempty"` // Technical plan review is approved
 	Duration        string          `yaml:"duration,omitempty"`
 	LinkExists      *LinkExistsGate `yaml:"link_exists,omitempty"`
 
@@ -111,10 +192,14 @@ func (g GateConfig) Type() string {
 		return "section_not_empty"
 	case g.SectionComplete != "":
 		return "section_complete" // backward compat
+	case g.StepsExists != nil:
+		return "steps_exists"
 	case g.PRStackExists != nil:
-		return "pr_stack_exists"
+		return "steps_exists" // backward compat, map to new name
 	case g.PRsApproved != nil:
 		return "prs_approved"
+	case g.ReviewApproved != nil:
+		return "review_approved"
 	case g.Duration != "":
 		return "duration"
 	case g.LinkExists != nil:
@@ -130,6 +215,16 @@ func (g GateConfig) Type() string {
 	default:
 		return "unknown"
 	}
+}
+
+// HasStepsExists returns true if either StepsExists or legacy PRStackExists is set.
+func (g GateConfig) HasStepsExists() bool {
+	return (g.StepsExists != nil && *g.StepsExists) || (g.PRStackExists != nil && *g.PRStackExists)
+}
+
+// HasReviewApproved returns true if ReviewApproved gate is set.
+func (g GateConfig) HasReviewApproved() bool {
+	return g.ReviewApproved != nil && *g.ReviewApproved
 }
 
 // Value returns the gate's primary value as a string for display.
@@ -348,15 +443,16 @@ func (p PipelineConfig) IsValidReversion(from, to string) bool {
 
 // NewSimpleGate creates a simple gate config for common gate types.
 func NewSimpleGate(gateType, value string) GateConfig {
+	t := true
 	switch gateType {
 	case "section_not_empty":
 		return GateConfig{SectionNotEmpty: value}
-	case "pr_stack_exists":
-		t := true
-		return GateConfig{PRStackExists: &t}
+	case "steps_exists", "pr_stack_exists":
+		return GateConfig{StepsExists: &t}
 	case "prs_approved":
-		t := true
 		return GateConfig{PRsApproved: &t}
+	case "review_approved":
+		return GateConfig{ReviewApproved: &t}
 	case "duration":
 		return GateConfig{Duration: value}
 	case "expr":

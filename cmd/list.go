@@ -15,11 +15,18 @@ import (
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List specs filtered by role queue",
+	Long: `List specs from the team pipeline with role-based and ownership views.
+
+Use default mode to see specs awaiting your role, --mine to focus on your
+work, --all for a stage-grouped pipeline view, and --triage to inspect
+unpromoted intake items.`,
+	Example: "  spec list\n  spec list --mine\n  spec list --all\n  spec list --triage",
 	RunE:  runList,
 }
 
 func init() {
 	listCmd.Flags().Bool("all", false, "show all specs across all roles and stages")
+	listCmd.Flags().Bool("mine", false, "show only specs you own")
 	listCmd.Flags().String("role", "", "view from another role's perspective")
 	listCmd.Flags().Bool("triage", false, "show open triage items")
 	rootCmd.AddCommand(listCmd)
@@ -27,6 +34,7 @@ func init() {
 
 func runList(cmd *cobra.Command, args []string) error {
 	showAll, _ := cmd.Flags().GetBool("all")
+	showMine, _ := cmd.Flags().GetBool("mine")
 	roleFilter, _ := cmd.Flags().GetString("role")
 	showTriage, _ := cmd.Flags().GetBool("triage")
 
@@ -66,6 +74,11 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Filter to user's owned specs if --mine
+	if showMine {
+		return listMine(specs, pipeline, rc.UserName())
+	}
+
 	if showAll {
 		return listAllByStage(specs, pipeline)
 	}
@@ -99,9 +112,13 @@ func listTriage(rc *config.ResolvedConfig) error {
 }
 
 type specSummary struct {
-	ID     string
-	Title  string
-	Status string
+	ID      string
+	Title   string
+	Status  string
+	Owner   string
+	Blocked bool
+	Steps   int
+	StepsDone int
 }
 
 func loadAllSpecs(rc *config.ResolvedConfig) ([]specSummary, error) {
@@ -117,10 +134,28 @@ func loadAllSpecs(rc *config.ResolvedConfig) ([]specSummary, error) {
 		if err != nil {
 			continue
 		}
+		
+		// Count steps progress
+		var stepsDone, stepsTotal int
+		var hasBlocked bool
+		for _, step := range meta.Steps {
+			stepsTotal++
+			if step.Status == "complete" {
+				stepsDone++
+			}
+			if step.Status == "blocked" {
+				hasBlocked = true
+			}
+		}
+		
 		specs = append(specs, specSummary{
-			ID:     meta.ID,
-			Title:  meta.Title,
-			Status: meta.Status,
+			ID:        meta.ID,
+			Title:     meta.Title,
+			Status:    meta.Status,
+			Owner:     meta.Author,
+			Blocked:   hasBlocked,
+			Steps:     stepsTotal,
+			StepsDone: stepsDone,
 		})
 	}
 	return specs, nil
@@ -209,4 +244,66 @@ func priorityIndicator(priority string) string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func listMine(specs []specSummary, pipeline config.PipelineConfig, userName string) error {
+	var mine []specSummary
+	for _, s := range specs {
+		if strings.EqualFold(s.Owner, userName) {
+			mine = append(mine, s)
+		}
+	}
+
+	if len(mine) == 0 {
+		fmt.Printf("✓ You don't own any specs. Run 'spec list --all' to see the full pipeline.\n")
+		return nil
+	}
+
+	fmt.Printf("Your specs (%d):\n\n", len(mine))
+
+	// Group by status for better readability
+	var needsAction, inProgress, blocked []specSummary
+	for _, s := range mine {
+		if s.Blocked {
+			blocked = append(blocked, s)
+		} else if s.Status == "build" || s.Status == "engineering" {
+			inProgress = append(inProgress, s)
+		} else {
+			needsAction = append(needsAction, s)
+		}
+	}
+
+	if len(blocked) > 0 {
+		fmt.Println("  ⊘ Blocked:")
+		for _, s := range blocked {
+			progress := ""
+			if s.Steps > 0 {
+				progress = fmt.Sprintf(" [%d/%d steps]", s.StepsDone, s.Steps)
+			}
+			fmt.Printf("    %-10s  %-35s  %s%s\n", s.ID, truncate(s.Title, 35), s.Status, progress)
+		}
+		fmt.Println()
+	}
+
+	if len(inProgress) > 0 {
+		fmt.Println("  ▶ In Progress:")
+		for _, s := range inProgress {
+			progress := ""
+			if s.Steps > 0 {
+				progress = fmt.Sprintf(" [%d/%d steps]", s.StepsDone, s.Steps)
+			}
+			fmt.Printf("    %-10s  %-35s  %s%s\n", s.ID, truncate(s.Title, 35), s.Status, progress)
+		}
+		fmt.Println()
+	}
+
+	if len(needsAction) > 0 {
+		fmt.Println("  ○ Other:")
+		for _, s := range needsAction {
+			fmt.Printf("    %-10s  %-35s  %s\n", s.ID, truncate(s.Title, 35), s.Status)
+		}
+		fmt.Println()
+	}
+
+	return nil
 }

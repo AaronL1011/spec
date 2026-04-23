@@ -17,6 +17,11 @@ type UserConfig struct {
 	} `yaml:"user"`
 
 	Preferences PreferencesConfig `yaml:"preferences"`
+
+	// Workspaces maps repo names to local filesystem paths.
+	// Used for cross-repo navigation in multi-repo build plans.
+	// Example: workspaces: { auth-service: ~/code/auth-service }
+	Workspaces map[string]string `yaml:"workspaces,omitempty"`
 }
 
 // PreferencesConfig holds personal preferences.
@@ -25,6 +30,68 @@ type PreferencesConfig struct {
 	DashboardSections []string `yaml:"dashboard_sections"`
 	StandupAutoPost   bool     `yaml:"standup_auto_post"`
 	AIDrafts          *bool    `yaml:"ai_drafts,omitempty"`
+
+	// Multiplexer specifies the terminal multiplexer for cross-repo navigation.
+	// Valid values: tmux, zellij, wezterm, iterm2, none
+	// If empty or "none", falls back to manual navigation prompts.
+	Multiplexer string `yaml:"multiplexer,omitempty"`
+
+	// AutoPull automatically pulls stale specs when running `spec do`.
+	// If false, prompts the user before pulling.
+	AutoPull bool `yaml:"auto_pull,omitempty"`
+
+	// AutoNavigate opens a new terminal pane when switching repos.
+	// Defaults to true. Set to false for manual navigation.
+	AutoNavigate *bool `yaml:"auto_navigate,omitempty"`
+
+	// PassiveAwareness configures the passive awareness line shown on commands.
+	PassiveAwareness *PassiveAwarenessConfig `yaml:"passive_awareness,omitempty"`
+}
+
+// PassiveAwarenessConfig controls what pending items are shown in the
+// awareness line on every spec command.
+type PassiveAwarenessConfig struct {
+	// Show whitelists item types to display. If empty, shows all.
+	// Valid types: review_requests, spec_owned, mentions, triage, fyi, blocked
+	Show []string `yaml:"show,omitempty"`
+
+	// Hide blacklists item types to suppress.
+	Hide []string `yaml:"hide,omitempty"`
+
+	// DuringBuild shows awareness during `spec do` and `spec build`.
+	// Defaults to false to avoid interrupting flow state.
+	DuringBuild bool `yaml:"during_build,omitempty"`
+
+	// DismissDuration is how long dismissed items stay hidden.
+	// Defaults to "2h". Valid formats: "30m", "2h", "1d".
+	DismissDuration string `yaml:"dismiss_duration,omitempty"`
+}
+
+// Multiplexer constants.
+const (
+	MultiplexerTmux    = "tmux"
+	MultiplexerZellij  = "zellij"
+	MultiplexerWezterm = "wezterm"
+	MultiplexerIterm2  = "iterm2"
+	MultiplexerNone    = "none"
+)
+
+// ValidMultiplexers returns the valid multiplexer values.
+func ValidMultiplexers() []string {
+	return []string{MultiplexerTmux, MultiplexerZellij, MultiplexerWezterm, MultiplexerIterm2, MultiplexerNone}
+}
+
+// IsValidMultiplexer checks if a multiplexer string is valid.
+func IsValidMultiplexer(m string) bool {
+	if m == "" {
+		return true // empty is valid (defaults to none)
+	}
+	for _, v := range ValidMultiplexers() {
+		if v == m {
+			return true
+		}
+	}
+	return false
 }
 
 // AIDraftsEnabled returns whether AI drafts are enabled.
@@ -34,6 +101,39 @@ func (p PreferencesConfig) AIDraftsEnabled() bool {
 		return true
 	}
 	return *p.AIDrafts
+}
+
+// AutoNavigateEnabled returns whether auto-navigation to new repos is enabled.
+// Defaults to true if not explicitly set.
+func (p PreferencesConfig) AutoNavigateEnabled() bool {
+	if p.AutoNavigate == nil {
+		return true
+	}
+	return *p.AutoNavigate
+}
+
+// GetDismissDuration returns the dismiss duration or the default "2h".
+func (p PreferencesConfig) GetDismissDuration() string {
+	if p.PassiveAwareness == nil || p.PassiveAwareness.DismissDuration == "" {
+		return "2h"
+	}
+	return p.PassiveAwareness.DismissDuration
+}
+
+// ShowPassiveAwarenessDuringBuild returns whether to show awareness during builds.
+func (p PreferencesConfig) ShowPassiveAwarenessDuringBuild() bool {
+	if p.PassiveAwareness == nil {
+		return false
+	}
+	return p.PassiveAwareness.DuringBuild
+}
+
+// GetWorkspacePath returns the local path for a repo, or empty string if not configured.
+func (c *UserConfig) GetWorkspacePath(repoName string) string {
+	if c.Workspaces == nil {
+		return ""
+	}
+	return c.Workspaces[repoName]
 }
 
 // UserConfigDir returns the path to the ~/.spec/ directory.

@@ -48,6 +48,6 @@ func PrintAwarenessLine(rc *config.ResolvedConfig, role string) bool {
 		return false
 	}
 
-	fmt.Printf("⚠ %d pending · run 'spec' for details\n", count)
+	fmt.Fprintf(os.Stderr, "⚠ %d pending · run 'spec' for details\n", count)
 	return true
 }
