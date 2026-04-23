@@ -5,7 +5,7 @@ LDFLAGS := -ldflags "-s -w -X github.com/nexl/spec-cli/cmd.Version=$(VERSION)"
 GOFLAGS := -trimpath
 DETECTED_SHELL := $(notdir $(shell echo $$SHELL))
 
-.PHONY: build test lint clean install install-completions fmt vet
+.PHONY: build test lint clean install install-completions fmt vet docs install-man
 
 build:
 	go build $(GOFLAGS) $(LDFLAGS) -o bin/$(BINARY) .
@@ -15,6 +15,14 @@ install:
 	go build $(GOFLAGS) $(LDFLAGS) -o $(BINDIR)/$(BINARY) .
 	@echo "Installed $(BINDIR)/$(BINARY)"
 	@echo "If the shell cannot find spec, add $(BINDIR) to PATH (fish: fish_add_path $(BINDIR))"
+
+docs:
+	go run ./tools/gen-man --output docs/man
+
+install-man: docs
+	mkdir -p /usr/local/share/man/man1
+	cp docs/man/spec*.1 /usr/local/share/man/man1/
+	mandb 2>/dev/null || true
 
 install-completions:
 	@echo "Detected shell: $(DETECTED_SHELL)"

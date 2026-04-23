@@ -15,6 +15,12 @@ import (
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List specs filtered by role queue",
+	Long: `List specs from the team pipeline with role-based and ownership views.
+
+Use default mode to see specs awaiting your role, --mine to focus on your
+work, --all for a stage-grouped pipeline view, and --triage to inspect
+unpromoted intake items.`,
+	Example: "  spec list\n  spec list --mine\n  spec list --all\n  spec list --triage",
 	RunE:  runList,
 }
 

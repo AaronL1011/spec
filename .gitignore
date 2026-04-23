@@ -6,3 +6,4 @@ coverage.html
 *.test
 *.prof
 .DS_Store
+docs/man/

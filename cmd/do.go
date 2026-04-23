@@ -15,6 +15,12 @@ import (
 var doCmd = &cobra.Command{
 	Use:   "do [id]",
 	Short: "Resume work — picks up where you left off",
+	Long: `Resume active build work with full execution context.
+
+When no spec ID is provided, this command detects the current spec from
+your branch name first, then falls back to the most recent local build
+session.`,
+	Example: "  spec do\n  spec do SPEC-042",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDo,
 }
