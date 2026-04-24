@@ -36,7 +36,7 @@ brews:
   - repository:
       owner: aaronl1011
       name: homebrew-tap
-      # Uses GITHUB_TOKEN by default, or HOMEBREW_TAP_GITHUB_TOKEN if set
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: "https://github.com/aaronl1011/spec-cli"
     description: "Developer control plane CLI"
     license: "MIT"
