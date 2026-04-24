@@ -384,8 +384,7 @@ func (h *GenericHandler) toolList(args json.RawMessage) (*ToolResult, error) {
 
 		// Filter by owner (would need pipeline config to resolve stage owner)
 		if params.Owner != "" && h.config != nil && h.config.Team != nil {
-			stageOwner := pipeline.StageOwner(h.config.Team.Pipeline, meta.Status)
-			if stageOwner != params.Owner {
+			if !pipeline.StageHasOwner(h.config.Team.Pipeline, meta.Status, params.Owner) {
 				continue
 			}
 		}

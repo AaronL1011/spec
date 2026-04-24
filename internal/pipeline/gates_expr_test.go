@@ -12,7 +12,7 @@ func TestEvaluateGatesWithExpressions(t *testing.T) {
 		Stages: []config.StageConfig{
 			{
 				Name:  "review",
-				Owner: "tl",
+				Owner: config.Owners{"tl"},
 				Gates: []config.GateConfig{
 					{Expr: "decisions.unresolved == 0", Message: "All decisions must be resolved"},
 				},
@@ -63,7 +63,7 @@ func TestEvaluateComplexExpressionGate(t *testing.T) {
 		Stages: []config.StageConfig{
 			{
 				Name:  "build",
-				Owner: "engineer",
+				Owner: config.Owners{"engineer"},
 				Gates: []config.GateConfig{
 					{Expr: "acceptance_criteria.items.count >= 3 && decisions.unresolved == 0"},
 				},
@@ -90,7 +90,7 @@ func TestEvaluateLabelsExpression(t *testing.T) {
 		Stages: []config.StageConfig{
 			{
 				Name:  "fast_track",
-				Owner: "tl",
+				Owner: config.Owners{"tl"},
 				Gates: []config.GateConfig{
 					{Expr: "'urgent' in spec.labels", Message: "Only urgent specs can fast-track"},
 				},

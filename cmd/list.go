@@ -164,7 +164,7 @@ func listByRole(specs []specSummary, pipeline config.PipelineConfig, role string
 	var matching []specSummary
 	for _, s := range specs {
 		stage := pipeline.StageByName(s.Status)
-		if stage != nil && stage.OwnerRole == role {
+		if stage != nil && stage.HasOwner(role) {
 			matching = append(matching, s)
 		}
 	}

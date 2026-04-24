@@ -12,13 +12,22 @@ const (
 	StatusBlocked = "blocked"
 )
 
-// StageOwner returns the owner role for a stage.
+// StageOwner returns the owner role for a stage as a display string.
 func StageOwner(pipeline config.PipelineConfig, stageName string) string {
 	s := pipeline.StageByName(stageName)
 	if s == nil {
 		return ""
 	}
 	return s.GetOwner()
+}
+
+// StageHasOwner returns true if the given role is an owner of the stage.
+func StageHasOwner(pipeline config.PipelineConfig, stageName, role string) bool {
+	s := pipeline.StageByName(stageName)
+	if s == nil {
+		return false
+	}
+	return s.HasOwner(role)
 }
 
 // NextStage returns the next non-optional stage, or the next stage if includeOptional.
@@ -45,8 +54,8 @@ func ValidateAdvance(pipeline config.PipelineConfig, currentStage, targetStage, 
 	}
 
 	// Check user owns the current stage
-	owner := StageOwner(pipeline, currentStage)
-	if owner != "" && userRole != owner && userRole != "tl" {
+	if !StageHasOwner(pipeline, currentStage, userRole) && userRole != "tl" {
+		owner := StageOwner(pipeline, currentStage)
 		return fmt.Errorf("stage %q is owned by %q — only the stage owner or a TL can advance", currentStage, owner)
 	}
 
@@ -71,8 +80,8 @@ func ValidateRevert(pipeline config.PipelineConfig, currentStage, targetStage, u
 	}
 
 	// Check user owns the current stage
-	owner := StageOwner(pipeline, currentStage)
-	if owner != "" && userRole != owner {
+	if !StageHasOwner(pipeline, currentStage, userRole) {
+		owner := StageOwner(pipeline, currentStage)
 		return fmt.Errorf("only the current stage owner (%s) can revert — your role is %q", owner, userRole)
 	}
 

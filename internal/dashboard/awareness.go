@@ -33,7 +33,7 @@ func PendingCount(rc *config.ResolvedConfig, role string) int {
 			continue
 		}
 		stage := pl.StageByName(meta.Status)
-		if stage != nil && stage.OwnerRole == role {
+		if stage != nil && stage.HasOwner(role) {
 			count++
 		}
 	}

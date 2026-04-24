@@ -236,31 +236,31 @@ func DefaultPipeline() PipelineConfig {
 	t := true
 	return PipelineConfig{
 		Stages: []StageConfig{
-			{Name: "triage", Owner: "pm", Icon: "📥"},
-			{Name: "draft", Owner: "pm", Icon: "📝"},
-			{Name: "tl-review", Owner: "tl", Icon: "👀", Gates: []GateConfig{
+			{Name: "triage", Owner: Owners{"pm"}, Icon: "📥"},
+			{Name: "draft", Owner: Owners{"pm"}, Icon: "📝"},
+			{Name: "tl-review", Owner: Owners{"tl"}, Icon: "👀", Gates: []GateConfig{
 				{SectionNotEmpty: "problem_statement"},
 			}},
-			{Name: "design", Owner: "designer", Icon: "🎨", Gates: []GateConfig{
+			{Name: "design", Owner: Owners{"designer"}, Icon: "🎨", Gates: []GateConfig{
 				{SectionNotEmpty: "user_stories"},
 			}},
-			{Name: "qa-expectations", Owner: "qa", Icon: "📋", Gates: []GateConfig{
+			{Name: "qa-expectations", Owner: Owners{"qa"}, Icon: "📋", Gates: []GateConfig{
 				{SectionNotEmpty: "design_inputs"},
 			}},
-			{Name: "engineering", Owner: "engineer", Icon: "🔧", Gates: []GateConfig{
+			{Name: "engineering", Owner: Owners{"engineer"}, Icon: "🔧", Gates: []GateConfig{
 				{SectionNotEmpty: "acceptance_criteria"},
 			}},
-			{Name: "build", Owner: "engineer", Icon: "🏗️"},
-			{Name: "pr-review", Owner: "engineer", Icon: "👁️", Gates: []GateConfig{
+			{Name: "build", Owner: Owners{"engineer"}, Icon: "🏗️"},
+			{Name: "pr-review", Owner: Owners{"engineer"}, Icon: "👁️", Gates: []GateConfig{
 				{PRStackExists: &t},
 			}},
-			{Name: "qa-validation", Owner: "qa", Icon: "✅", Gates: []GateConfig{
+			{Name: "qa-validation", Owner: Owners{"qa"}, Icon: "✅", Gates: []GateConfig{
 				{PRsApproved: &t},
 			}},
-			{Name: "done", Owner: "tl", Icon: "🎉"},
-			{Name: "deploying", Owner: "engineer", Icon: "🚀", Optional: true},
-			{Name: "monitoring", Owner: "engineer", Icon: "📊", Optional: true},
-			{Name: "closed", Owner: "tl", Icon: "📦", Optional: true, AutoArchive: true},
+			{Name: "done", Owner: Owners{"tl"}, Icon: "🎉"},
+			{Name: "deploying", Owner: Owners{"engineer"}, Icon: "🚀", Optional: true},
+			{Name: "monitoring", Owner: Owners{"engineer"}, Icon: "📊", Optional: true},
+			{Name: "closed", Owner: Owners{"tl"}, Icon: "📦", Optional: true, AutoArchive: true},
 		},
 	}
 }

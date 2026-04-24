@@ -123,7 +123,7 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 		if err == nil {
 			for _, s := range specs {
 				stage := pl.StageByName(s.Status)
-				if stage != nil && stage.OwnerRole == role {
+				if stage != nil && stage.HasOwner(role) {
 					data.Do = append(data.Do, DashboardItem{
 						SpecID: s.ID,
 						Title:  s.Title,

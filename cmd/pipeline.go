@@ -564,7 +564,7 @@ func runPipelineAdd(cmd *cobra.Command, args []string) error {
 	// Build the new stage
 	newStage := config.StageConfig{
 		Name:     stageName,
-		Owner:    owner,
+		Owner:    config.Owners{owner},
 		Icon:     icon,
 		Optional: optional,
 		Gates:    gates,

@@ -122,7 +122,7 @@ func TestStageConfigGetOwner(t *testing.T) {
 	}{
 		{
 			name:      "uses Owner field",
-			stage:     StageConfig{Name: "build", Owner: "engineer"},
+			stage:     StageConfig{Name: "build", Owner: Owners{"engineer"}},
 			wantOwner: "engineer",
 		},
 		{
@@ -132,8 +132,13 @@ func TestStageConfigGetOwner(t *testing.T) {
 		},
 		{
 			name:      "Owner takes precedence",
-			stage:     StageConfig{Name: "build", Owner: "pm", OwnerRole: "engineer"},
+			stage:     StageConfig{Name: "build", Owner: Owners{"pm"}, OwnerRole: "engineer"},
 			wantOwner: "pm",
+		},
+		{
+			name:      "multiple owners",
+			stage:     StageConfig{Name: "build", Owner: Owners{"pm", "tl"}},
+			wantOwner: "pm, tl",
 		},
 	}
 
@@ -141,6 +146,127 @@ func TestStageConfigGetOwner(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.stage.GetOwner(); got != tt.wantOwner {
 				t.Errorf("GetOwner() = %q, want %q", got, tt.wantOwner)
+			}
+		})
+	}
+}
+
+func TestStageConfigHasOwner(t *testing.T) {
+	tests := []struct {
+		name  string
+		stage StageConfig
+		role  string
+		want  bool
+	}{
+		{
+			name:  "single owner matches",
+			stage: StageConfig{Name: "build", Owner: Owners{"engineer"}},
+			role:  "engineer",
+			want:  true,
+		},
+		{
+			name:  "single owner no match",
+			stage: StageConfig{Name: "build", Owner: Owners{"engineer"}},
+			role:  "pm",
+			want:  false,
+		},
+		{
+			name:  "multiple owners first matches",
+			stage: StageConfig{Name: "build", Owner: Owners{"pm", "tl"}},
+			role:  "pm",
+			want:  true,
+		},
+		{
+			name:  "multiple owners second matches",
+			stage: StageConfig{Name: "build", Owner: Owners{"pm", "tl"}},
+			role:  "tl",
+			want:  true,
+		},
+		{
+			name:  "multiple owners no match",
+			stage: StageConfig{Name: "build", Owner: Owners{"pm", "tl"}},
+			role:  "engineer",
+			want:  false,
+		},
+		{
+			name:  "legacy OwnerRole matches",
+			stage: StageConfig{Name: "build", OwnerRole: "engineer"},
+			role:  "engineer",
+			want:  true,
+		},
+		{
+			name:  "no owner allows any role",
+			stage: StageConfig{Name: "build"},
+			role:  "pm",
+			want:  true,
+		},
+		{
+			name:  "empty role always allowed",
+			stage: StageConfig{Name: "build", Owner: Owners{"engineer"}},
+			role:  "",
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.stage.HasOwner(tt.role); got != tt.want {
+				t.Errorf("HasOwner(%q) = %v, want %v", tt.role, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOwnersUnmarshalYAML(t *testing.T) {
+	tests := []struct {
+		name     string
+		yaml     string
+		want     []string
+		wantStr  string
+	}{
+		{
+			name:    "single owner string",
+			yaml:    `owner: pm`,
+			want:    []string{"pm"},
+			wantStr: "pm",
+		},
+		{
+			name:    "multiple owners array",
+			yaml:    `owner: [pm, tl]`,
+			want:    []string{"pm", "tl"},
+			wantStr: "pm, tl",
+		},
+		{
+			name:    "multiple owners multiline",
+			yaml:    "owner:\n  - pm\n  - tl\n  - designer",
+			want:    []string{"pm", "tl", "designer"},
+			wantStr: "pm, tl, designer",
+		},
+		{
+			name:    "empty owner",
+			yaml:    `name: build`,
+			want:    nil,
+			wantStr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stage StageConfig
+			if err := yaml.Unmarshal([]byte(tt.yaml), &stage); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+
+			if len(stage.Owner) != len(tt.want) {
+				t.Errorf("len(Owner) = %d, want %d", len(stage.Owner), len(tt.want))
+			}
+			for i, w := range tt.want {
+				if i < len(stage.Owner) && stage.Owner[i] != w {
+					t.Errorf("Owner[%d] = %q, want %q", i, stage.Owner[i], w)
+				}
+			}
+			if got := stage.Owner.String(); got != tt.wantStr {
+				t.Errorf("Owner.String() = %q, want %q", got, tt.wantStr)
 			}
 		})
 	}

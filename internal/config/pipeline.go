@@ -1,6 +1,8 @@
 // Package config handles loading and resolution of team and user configuration.
 package config
 
+import "strings"
+
 // PipelineConfig defines the configurable pipeline stages.
 type PipelineConfig struct {
 	// Preset is the name of a built-in pipeline preset (e.g., "minimal", "product").
@@ -26,14 +28,60 @@ type PipelineConfig struct {
 	VariantFromLabels []LabelVariantMapping `yaml:"variant_from_labels,omitempty"`
 }
 
+// Owners represents one or more owner roles for a pipeline stage.
+// In YAML, it can be specified as a single string or an array:
+//
+//	owner: pm           # single owner
+//	owner: [pm, tl]     # multiple owners
+type Owners []string
+
+// UnmarshalYAML allows owner to be a string or array in YAML.
+func (o *Owners) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try single string first
+	var single string
+	if err := unmarshal(&single); err == nil {
+		if single != "" {
+			*o = []string{single}
+		}
+		return nil
+	}
+	// Try array
+	var list []string
+	if err := unmarshal(&list); err != nil {
+		return err
+	}
+	*o = list
+	return nil
+}
+
+// Contains returns true if role is one of the owners.
+func (o Owners) Contains(role string) bool {
+	for _, r := range o {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+// String returns owners as a comma-separated string for display.
+func (o Owners) String() string {
+	return strings.Join(o, ", ")
+}
+
+// IsEmpty returns true if no owners are defined.
+func (o Owners) IsEmpty() bool {
+	return len(o) == 0
+}
+
 // StageConfig defines a single pipeline stage.
 type StageConfig struct {
 	// Name is the stage identifier (lowercase, underscores allowed).
 	Name string `yaml:"name"`
 
-	// Owner is the role that owns this stage. Supports multiple roles
-	// separated by " | " (e.g., "pm | tl").
-	Owner string `yaml:"owner,omitempty"`
+	// Owner is the role(s) that own this stage. Can be a single role
+	// or an array of roles in YAML.
+	Owner Owners `yaml:"owner,omitempty"`
 
 	// OwnerRole is the legacy field for backward compatibility.
 	// Deprecated: Use Owner instead.
@@ -147,12 +195,32 @@ func (a *AutoAdvanceConfig) IsEnabled() bool {
 	return *a.Enabled
 }
 
-// GetOwner returns the effective owner, checking both Owner and legacy OwnerRole.
+// GetOwner returns the effective owner as a display string.
+// For multiple owners, returns comma-separated list.
+// Falls back to legacy OwnerRole if Owner is not set.
 func (s StageConfig) GetOwner() string {
-	if s.Owner != "" {
-		return s.Owner
+	if !s.Owner.IsEmpty() {
+		return s.Owner.String()
 	}
 	return s.OwnerRole
+}
+
+// HasOwner returns true if role is an owner of this stage.
+// Also returns true if no owners are defined (open stage) or if role is empty.
+func (s StageConfig) HasOwner(role string) bool {
+	if role == "" {
+		return true
+	}
+	// Check new Owner field first
+	if !s.Owner.IsEmpty() {
+		return s.Owner.Contains(role)
+	}
+	// Fall back to legacy OwnerRole
+	if s.OwnerRole != "" {
+		return s.OwnerRole == role
+	}
+	// No owner defined - anyone can act
+	return true
 }
 
 // GateConfig defines a gate condition for stage advancement.

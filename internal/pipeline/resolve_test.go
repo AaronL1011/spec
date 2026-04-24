@@ -98,9 +98,9 @@ func TestResolveWithOverrides(t *testing.T) {
 func TestResolveWithExplicitStages(t *testing.T) {
 	cfg := config.PipelineConfig{
 		Stages: []config.StageConfig{
-			{Name: "todo", Owner: "anyone"},
-			{Name: "doing", Owner: "engineer"},
-			{Name: "done", Owner: "engineer"},
+			{Name: "todo", Owner: config.Owners{"anyone"}},
+			{Name: "doing", Owner: config.Owners{"engineer"}},
+			{Name: "done", Owner: config.Owners{"engineer"}},
 		},
 	}
 
@@ -284,7 +284,7 @@ func TestPresetInfo(t *testing.T) {
 func TestMergeStage(t *testing.T) {
 	base := config.StageConfig{
 		Name:  "build",
-		Owner: "engineer",
+		Owner: config.Owners{"engineer"},
 		Icon:  "🏗️",
 		Gates: []config.GateConfig{
 			{SectionNotEmpty: "acceptance_criteria"},
@@ -301,8 +301,8 @@ func TestMergeStage(t *testing.T) {
 	merged := mergeStage(base, override)
 
 	// Original fields preserved
-	if merged.Owner != "engineer" {
-		t.Errorf("Owner = %q, want %q", merged.Owner, "engineer")
+	if merged.GetOwner() != "engineer" {
+		t.Errorf("Owner = %q, want %q", merged.GetOwner(), "engineer")
 	}
 	if merged.Icon != "🏗️" {
 		t.Errorf("Icon = %q, want %q", merged.Icon, "🏗️")
@@ -322,11 +322,11 @@ func TestMergeStage(t *testing.T) {
 func TestEvaluateSkipWhen(t *testing.T) {
 	resolved := &ResolvedPipeline{
 		Stages: []config.StageConfig{
-			{Name: "triage", Owner: "pm"},
-			{Name: "design", Owner: "designer", SkipWhen: "'no-design' in spec.labels"},
-			{Name: "build", Owner: "engineer"},
-			{Name: "qa", Owner: "qa", SkipWhen: "'skip-qa' in spec.labels"},
-			{Name: "done", Owner: "tl"},
+			{Name: "triage", Owner: config.Owners{"pm"}},
+			{Name: "design", Owner: config.Owners{"designer"}, SkipWhen: "'no-design' in spec.labels"},
+			{Name: "build", Owner: config.Owners{"engineer"}},
+			{Name: "qa", Owner: config.Owners{"qa"}, SkipWhen: "'skip-qa' in spec.labels"},
+			{Name: "done", Owner: config.Owners{"tl"}},
 		},
 		StageIndex: map[string]int{"triage": 0, "design": 1, "build": 2, "qa": 3, "done": 4},
 	}
@@ -400,10 +400,10 @@ func TestEvaluateSkipWhen(t *testing.T) {
 func TestNextEffectiveStage(t *testing.T) {
 	resolved := &ResolvedPipeline{
 		Stages: []config.StageConfig{
-			{Name: "triage", Owner: "pm"},
-			{Name: "design", Owner: "designer", SkipWhen: "'no-design' in spec.labels"},
-			{Name: "build", Owner: "engineer"},
-			{Name: "done", Owner: "tl"},
+			{Name: "triage", Owner: config.Owners{"pm"}},
+			{Name: "design", Owner: config.Owners{"designer"}, SkipWhen: "'no-design' in spec.labels"},
+			{Name: "build", Owner: config.Owners{"engineer"}},
+			{Name: "done", Owner: config.Owners{"tl"}},
 		},
 		StageIndex: map[string]int{"triage": 0, "design": 1, "build": 2, "done": 3},
 	}
@@ -456,8 +456,8 @@ func TestNextEffectiveStage(t *testing.T) {
 func TestShouldSkipStage(t *testing.T) {
 	resolved := &ResolvedPipeline{
 		Stages: []config.StageConfig{
-			{Name: "design", Owner: "designer", SkipWhen: "'urgent' in spec.labels"},
-			{Name: "qa", Owner: "qa", SkipWhen: "spec.word_count < 100"},
+			{Name: "design", Owner: config.Owners{"designer"}, SkipWhen: "'urgent' in spec.labels"},
+			{Name: "qa", Owner: config.Owners{"qa"}, SkipWhen: "spec.word_count < 100"},
 		},
 		StageIndex: map[string]int{"design": 0, "qa": 1},
 	}

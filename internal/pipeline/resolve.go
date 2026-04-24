@@ -222,7 +222,7 @@ func mergeStage(base, override config.StageConfig) config.StageConfig {
 	result := base
 
 	// Override simple fields if set
-	if override.Owner != "" {
+	if !override.Owner.IsEmpty() {
 		result.Owner = override.Owner
 	}
 	if override.OwnerRole != "" {
@@ -291,11 +291,11 @@ var presets = map[string]PresetConfig{
 			"Good for solo developers",
 		},
 		Stages: []config.StageConfig{
-			{Name: "triage", Owner: "anyone", Icon: "📥"},
-			{Name: "draft", Owner: "author", Icon: "📝"},
-			{Name: "build", Owner: "engineer", Icon: "🏗️"},
-			{Name: "review", Owner: "engineer", Icon: "👁️"},
-			{Name: "done", Owner: "author", Icon: "🎉"},
+			{Name: "triage", Owner: config.Owners{"anyone"}, Icon: "📥"},
+			{Name: "draft", Owner: config.Owners{"author"}, Icon: "📝"},
+			{Name: "build", Owner: config.Owners{"engineer"}, Icon: "🏗️"},
+			{Name: "review", Owner: config.Owners{"engineer"}, Icon: "👁️"},
+			{Name: "done", Owner: config.Owners{"author"}, Icon: "🎉"},
 		},
 	},
 	"startup": {
@@ -307,16 +307,16 @@ var presets = map[string]PresetConfig{
 			"TL review before build",
 		},
 		Stages: []config.StageConfig{
-			{Name: "triage", Owner: "pm", Icon: "📥"},
-			{Name: "draft", Owner: "pm", Icon: "📝"},
-			{Name: "review", Owner: "tl", Icon: "👀", Gates: []config.GateConfig{
+			{Name: "triage", Owner: config.Owners{"pm"}, Icon: "📥"},
+			{Name: "draft", Owner: config.Owners{"pm"}, Icon: "📝"},
+			{Name: "review", Owner: config.Owners{"tl"}, Icon: "👀", Gates: []config.GateConfig{
 				{SectionNotEmpty: "problem_statement"},
 			}},
-			{Name: "build", Owner: "engineer", Icon: "🏗️", Gates: []config.GateConfig{
+			{Name: "build", Owner: config.Owners{"engineer"}, Icon: "🏗️", Gates: []config.GateConfig{
 				{SectionNotEmpty: "acceptance_criteria"},
 			}},
-			{Name: "pr_review", Owner: "engineer", Icon: "👁️"},
-			{Name: "done", Owner: "tl", Icon: "🎉"},
+			{Name: "pr_review", Owner: config.Owners{"engineer"}, Icon: "👁️"},
+			{Name: "done", Owner: config.Owners{"tl"}, Icon: "🎉"},
 		},
 	},
 	"product": {
@@ -330,31 +330,31 @@ var presets = map[string]PresetConfig{
 		Stages: func() []config.StageConfig {
 			t := true
 			return []config.StageConfig{
-				{Name: "triage", Owner: "pm", Icon: "📥"},
-				{Name: "draft", Owner: "pm", Icon: "📝"},
-				{Name: "tl_review", Owner: "tl", Icon: "👀", Gates: []config.GateConfig{
+				{Name: "triage", Owner: config.Owners{"pm"}, Icon: "📥"},
+				{Name: "draft", Owner: config.Owners{"pm"}, Icon: "📝"},
+				{Name: "tl_review", Owner: config.Owners{"tl"}, Icon: "👀", Gates: []config.GateConfig{
 					{SectionNotEmpty: "problem_statement"},
 				}},
-				{Name: "design", Owner: "designer", Icon: "🎨", Gates: []config.GateConfig{
+				{Name: "design", Owner: config.Owners{"designer"}, Icon: "🎨", Gates: []config.GateConfig{
 					{SectionNotEmpty: "user_stories"},
 				}},
-				{Name: "qa_expectations", Owner: "qa", Icon: "📋", Gates: []config.GateConfig{
+				{Name: "qa_expectations", Owner: config.Owners{"qa"}, Icon: "📋", Gates: []config.GateConfig{
 					{SectionNotEmpty: "design_inputs"},
 				}},
-				{Name: "engineering", Owner: "engineer", Icon: "🔧", Gates: []config.GateConfig{
+				{Name: "engineering", Owner: config.Owners{"engineer"}, Icon: "🔧", Gates: []config.GateConfig{
 					{SectionNotEmpty: "acceptance_criteria"},
 				}},
-				{Name: "build", Owner: "engineer", Icon: "🏗️"},
-				{Name: "pr_review", Owner: "engineer", Icon: "👁️", Gates: []config.GateConfig{
+				{Name: "build", Owner: config.Owners{"engineer"}, Icon: "🏗️"},
+				{Name: "pr_review", Owner: config.Owners{"engineer"}, Icon: "👁️", Gates: []config.GateConfig{
 					{PRStackExists: &t},
 				}},
-				{Name: "qa_validation", Owner: "qa", Icon: "✅", Gates: []config.GateConfig{
+				{Name: "qa_validation", Owner: config.Owners{"qa"}, Icon: "✅", Gates: []config.GateConfig{
 					{PRsApproved: &t},
 				}},
-				{Name: "done", Owner: "tl", Icon: "🎉"},
-				{Name: "deploying", Owner: "engineer", Icon: "🚀", Optional: true},
-				{Name: "monitoring", Owner: "engineer", Icon: "📊", Optional: true},
-				{Name: "closed", Owner: "tl", Icon: "📦", Optional: true, AutoArchive: true},
+				{Name: "done", Owner: config.Owners{"tl"}, Icon: "🎉"},
+				{Name: "deploying", Owner: config.Owners{"engineer"}, Icon: "🚀", Optional: true},
+				{Name: "monitoring", Owner: config.Owners{"engineer"}, Icon: "📊", Optional: true},
+				{Name: "closed", Owner: config.Owners{"tl"}, Icon: "📦", Optional: true, AutoArchive: true},
 			}
 		}(),
 	},
@@ -367,17 +367,17 @@ var presets = map[string]PresetConfig{
 			"Good for infrastructure teams",
 		},
 		Stages: []config.StageConfig{
-			{Name: "draft", Owner: "engineer", Icon: "📝"},
-			{Name: "review", Owner: "tl", Icon: "👀", Gates: []config.GateConfig{
+			{Name: "draft", Owner: config.Owners{"engineer"}, Icon: "📝"},
+			{Name: "review", Owner: config.Owners{"tl"}, Icon: "👀", Gates: []config.GateConfig{
 				{SectionNotEmpty: "problem_statement"},
 				{SectionNotEmpty: "proposed_solution"},
 			}},
-			{Name: "discussion", Owner: "engineer", Icon: "💬"},
-			{Name: "approved", Owner: "tl", Icon: "✅", Gates: []config.GateConfig{
+			{Name: "discussion", Owner: config.Owners{"engineer"}, Icon: "💬"},
+			{Name: "approved", Owner: config.Owners{"tl"}, Icon: "✅", Gates: []config.GateConfig{
 				{Expr: "decisions.unresolved == 0", Message: "All decisions must be resolved"},
 			}},
-			{Name: "implementing", Owner: "engineer", Icon: "🏗️"},
-			{Name: "done", Owner: "tl", Icon: "🎉"},
+			{Name: "implementing", Owner: config.Owners{"engineer"}, Icon: "🏗️"},
+			{Name: "done", Owner: config.Owners{"tl"}, Icon: "🎉"},
 		},
 	},
 	"kanban": {
@@ -389,9 +389,9 @@ var presets = map[string]PresetConfig{
 			"Good for maintenance work",
 		},
 		Stages: []config.StageConfig{
-			{Name: "backlog", Owner: "anyone", Icon: "📥"},
-			{Name: "doing", Owner: "engineer", Icon: "🏗️"},
-			{Name: "done", Owner: "engineer", Icon: "✅"},
+			{Name: "backlog", Owner: config.Owners{"anyone"}, Icon: "📥"},
+			{Name: "doing", Owner: config.Owners{"engineer"}, Icon: "🏗️"},
+			{Name: "done", Owner: config.Owners{"engineer"}, Icon: "✅"},
 		},
 	},
 }
