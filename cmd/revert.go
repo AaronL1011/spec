@@ -72,7 +72,11 @@ func runRevert(cmd *cobra.Command, args []string) error {
 			return "", err
 		}
 
-		// Best-effort: effects and activity logging degrade gracefully if DB unavailable
+		// Best-effort pattern: DB and effects failures do not block the revert.
+		// Rationale: the spec file has already been mutated; reverting on DB failure
+		// would leave the file in an inconsistent state. Effects (notifications, webhooks, logging)
+		// are informational — if they fail, the spec still reverted correctly.
+		// Errors are logged to the user via warnf() below.
 		db, _ := openDB()
 		if db != nil {
 			defer func() { _ = db.Close() }()

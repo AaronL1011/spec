@@ -20,19 +20,20 @@ type GateResult struct {
 	Reason string
 }
 
-// EvaluateGates checks all gates for the current stage.
+// EvaluateGates checks all gates for the current stage by building a context from raw parameters.
 func EvaluateGates(pipeline config.PipelineConfig, currentStage string, sections []markdown.Section, hasPRStack bool, prsApproved bool, meta *markdown.SpecMeta) []GateResult {
-	stage := pipeline.StageByName(currentStage)
-	if stage == nil {
-		return nil
-	}
-
 	var timeInStage time.Duration
 	var revertCount int
 	var specID, specTitle, specStatus string
 	if meta != nil {
-		if updated, err := time.Parse("2006-01-02", meta.Updated); err == nil {
-			timeInStage = time.Since(updated)
+		// Parse updated timestamp to compute time-in-stage for duration gates.
+		// Empty or malformed dates result in timeInStage=0, which may incorrectly pass
+		// gates checking for minimum dwell time — only acceptable because such
+		// gates should reject incomplete/corrupted specs as a safety measure anyway.
+		if meta.Updated != "" {
+			if updated, err := time.Parse("2006-01-02", meta.Updated); err == nil {
+				timeInStage = time.Since(updated)
+			}
 		}
 		revertCount = meta.RevertCount
 		specID = meta.ID
@@ -55,21 +56,11 @@ func EvaluateGates(pipeline config.PipelineConfig, currentStage string, sections
 		}
 	}
 
-	var results []GateResult
-	for _, gate := range stage.Gates {
-		result := evaluateGateWithContext(gate, sections, hasPRStack, prsApproved, ctx)
-		results = append(results, result)
-	}
-	return results
+	return evaluateGatesWithBuiltContext(pipeline, currentStage, sections, ctx)
 }
 
-// EvaluateGatesWithContext checks all gates using a full expression context.
+// EvaluateGatesWithContext checks all gates using a pre-built expression context.
 func EvaluateGatesWithContext(pipeline config.PipelineConfig, currentStage string, ctx expr.Context) []GateResult {
-	stage := pipeline.StageByName(currentStage)
-	if stage == nil {
-		return nil
-	}
-
 	// Convert context sections to markdown.Section for compatibility
 	var sections []markdown.Section
 	for slug, sec := range ctx.Sections {
@@ -78,6 +69,16 @@ func EvaluateGatesWithContext(pipeline config.PipelineConfig, currentStage strin
 			content = "non-empty" // placeholder for section check
 		}
 		sections = append(sections, markdown.Section{Slug: slug, Content: content})
+	}
+
+	return evaluateGatesWithBuiltContext(pipeline, currentStage, sections, ctx)
+}
+
+// evaluateGatesWithBuiltContext is the single source of truth for evaluating all gates on a stage.
+func evaluateGatesWithBuiltContext(pipeline config.PipelineConfig, currentStage string, sections []markdown.Section, ctx expr.Context) []GateResult {
+	stage := pipeline.StageByName(currentStage)
+	if stage == nil {
+		return nil
 	}
 
 	var results []GateResult
@@ -157,6 +158,9 @@ func evaluateGateWithContext(gate config.GateConfig, sections []markdown.Section
 	}
 
 	if gate.Duration != "" {
+		// Duration gate: require spec to spend minimum time in current stage before advancing.
+		// Computed from spec.Updated (when last modified) to now. If no valid updated date,
+		// timeInStage will be 0, which will fail the gate — intentional safety measure.
 		gateName := fmt.Sprintf("duration: %s", gate.Duration)
 		d, err := time.ParseDuration(gate.Duration)
 		if err != nil {

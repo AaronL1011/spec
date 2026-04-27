@@ -147,7 +147,11 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 			_, _ = markdown.AppendDecision(path, msg, rc.UserName()) // Best-effort logging
 		}
 
-		// Best-effort: effects and activity logging degrade gracefully if DB unavailable
+		// Best-effort pattern: DB and effects failures do not block the advance.
+		// Rationale: the spec file has already been mutated (line 139); reverting on DB failure
+		// would leave the file in an inconsistent state. Effects (notifications, webhooks, logging)
+		// are informational — if they fail, the spec still advanced correctly.
+		// Errors are logged to the user via warnf() below.
 		db, _ := openDB()
 		if db != nil {
 			defer func() { _ = db.Close() }()

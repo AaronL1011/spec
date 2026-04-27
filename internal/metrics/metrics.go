@@ -26,6 +26,10 @@ type advanceMeta struct {
 }
 
 // Compute calculates pipeline metrics from activity entries and current spec distribution.
+// Note: specsByStage is collected at query time, separate from activity history.
+// In a live system, specs may advance between loading the activity log and scanning
+// specs, causing off-by-one discrepancies in SpecsPerStage counts. This is acceptable
+// for approximate metrics over a time window — exact consistency is not required.
 func Compute(entries []store.ActivityEntry, specsByStage map[string]int, stageNames []string, terminalStages []string) *PipelineMetrics {
 	m := &PipelineMetrics{
 		AvgTimePerStage: make(map[string]time.Duration),
@@ -93,6 +97,14 @@ func Compute(entries []store.ActivityEntry, specsByStage map[string]int, stageNa
 	return m
 }
 
+// computeStageDurations calculates time spent in each stage across all specs.
+// For each spec, measures the gap between consecutive advance events, attributing
+// the dwell to the FromStage of the earlier advance.
+//
+// Example: if SPEC-001 advances draft→review at t1, then review→build at t2,
+// dwell from t1 to t2 is attributed to the "draft" stage. This accurately
+// captures time-in-stage even when specs visit the same stage multiple times
+// (e.g., draft→review→draft→review), accumulating the dwell each time.
 func computeStageDurations(advances []store.ActivityEntry) map[string][]time.Duration {
 	// Group by spec, sorted by time (already ASC from query)
 	bySpec := make(map[string][]store.ActivityEntry)
