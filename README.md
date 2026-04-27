@@ -90,13 +90,32 @@ This scaffolds a `SPEC-001.md` in your specs repo with all required sections, au
 
 ```bash
 spec list              # What's waiting for me?
-spec advance SPEC-001  # Move it through the pipeline
-spec pull SPEC-001     # Fetch into my service repo
-spec build SPEC-001    # Start the build with agent context
-spec do                # Resume where I left off
+spec focus SPEC-001    # Set your working context
+spec advance           # Move it through the pipeline
+spec pull              # Fetch into my service repo
+spec build             # Start the build with agent context
+spec do                # Resume where you left off
 ```
 
+Once you `spec focus` a spec, most commands infer the ID automatically — no need to repeat it.
+
 ## How It Works
+
+### Focus Mode
+
+Most `spec` commands operate on a single spec. Instead of typing the ID every time, set a **focused spec**:
+
+```bash
+spec focus SPEC-042        # Set focus
+spec status                # → shows SPEC-042
+spec advance               # → advances SPEC-042
+spec build                  # → builds SPEC-042
+spec focus --clear         # Clear when done
+```
+
+The focus persists across terminal sessions. Passing an explicit ID (e.g. `spec status SPEC-007`) overrides the focus for that one command.
+
+`spec do` is even smarter — it checks your current branch first, then falls back to the focus, then to your most recent build session.
 
 ### The Spec
 
@@ -172,7 +191,7 @@ spec pipeline              # View current pipeline
 spec pipeline presets      # List all presets
 spec pipeline add          # Add a stage interactively
 spec pipeline validate     # Check for errors
-spec advance SPEC-042 --dry-run  # Preview transition effects
+spec advance --dry-run     # Preview transition effects
 ```
 
 📖 **[Full pipeline documentation →](docs/pipelines.md)**
@@ -195,10 +214,10 @@ Running `spec` with no arguments shows the personal dashboard, a prioritised vie
 Every other `spec` command prints a passive awareness line when items are pending:
 
 ```
-$ spec build SPEC-042
+$ spec build
 ⚠ 1 pending · run 'spec' for details
 
-Building SPEC-042...
+Building SPEC-042...   # Uses focused spec
 ```
 
 ### Build Orchestration
@@ -206,10 +225,12 @@ Building SPEC-042...
 `spec build` and `spec do` provide structured context to coding agents (Claude Code, Cursor, Copilot, etc.) via an MCP server or consolidated context file:
 
 ```bash
-spec build SPEC-042   # Start the build — branches, context, agent
+spec focus SPEC-042   # Set your working context
+spec build            # Start the build — branches, context, agent
 spec do               # Resume where you left off
-spec do SPEC-042      # Resume a specific spec
 ```
+
+Once focused, you can omit the spec ID from most commands. Passing an explicit ID overrides the focus for that invocation.
 
 The build engine:
 1. Reads the PR Stack Plan from §7.3
@@ -237,10 +258,12 @@ For agents that support MCP (Claude Code, Cursor), add to `.mcp.json`:
 AI is a progressive enhancement — every feature works without it. When configured, `spec draft` generates content for human review:
 
 ```bash
-spec draft SPEC-042 --section problem_statement   # Draft a section
-spec draft SPEC-042 --pr-stack                     # Propose a PR decomposition
-spec draft SPEC-042 --pr                           # Generate a PR description
+spec draft --section problem_statement   # Draft a section
+spec draft --pr-stack                     # Propose a PR decomposition
+spec draft --pr                           # Generate a PR description
 ```
+
+(These commands use the focused spec. Pass an explicit ID to override.)
 
 Every draft goes through **accept / edit / skip** — AI never writes directly to a spec.
 
@@ -251,6 +274,7 @@ Every draft goes through **accept / edit / skip** — AI never writes directly t
 | Command | Description |
 |---|---|
 | `spec` | Personal dashboard — everything awaiting your attention |
+| `spec focus [id]` | Set (or clear with `--clear`) the focused spec |
 | `spec do [id]` | Resume work with full context |
 | `spec standup` | Auto-generated standup from real activity |
 
@@ -266,36 +290,38 @@ Every draft goes through **accept / edit / skip** — AI never writes directly t
 | Command | Description |
 |---|---|
 | `spec new --title "..."` | Scaffold a new spec |
-| `spec advance <id>` | Advance to next stage (validates gates) |
-| `spec revert <id> --to <stage> --reason "..."` | Send back to a previous stage |
-| `spec eject <id> --reason "..."` | Escape hatch → blocked |
-| `spec resume <id>` | Unblock |
-| `spec validate <id>` | Dry-run gate checks |
-| `spec status <id>` | Pipeline position + section completion |
+| `spec advance [id]` | Advance to next stage (validates gates) |
+| `spec revert [id] --to <stage> --reason "..."` | Send back to a previous stage |
+| `spec eject [id] --reason "..."` | Escape hatch → blocked |
+| `spec resume [id]` | Unblock |
+| `spec validate [id]` | Dry-run gate checks |
+| `spec status [id]` | Pipeline position + section completion |
 | `spec list` | Specs awaiting your action |
 | `spec list --all` | Full pipeline grouped by stage |
 | `spec list --mine` | Specs you own |
 | `spec list --triage` | Open triage items |
 
+*Commands marked `[id]` use the focused spec when omitted.*
+
 ### Collaboration
 
 | Command | Description |
 |---|---|
-| `spec pull <id>` | Fetch spec to local `.spec/` directory |
-| `spec sync <id>` | Bidirectional sync with docs provider |
-| `spec link <id> --section <s> --url <url>` | Attach a resource link |
-| `spec edit <id>` | Open in `$EDITOR` |
-| `spec decide <id> --question "..."` | Add to decision log |
-| `spec decide <id> --resolve N --decision "..."` | Resolve a decision |
-| `spec decide <id> --list` | View decision log |
+| `spec pull [id]` | Fetch spec to local `.spec/` directory |
+| `spec sync [id]` | Bidirectional sync with docs provider |
+| `spec link [id] --section <s> --url <url>` | Attach a resource link |
+| `spec edit [id]` | Open in `$EDITOR` |
+| `spec decide [id] --question "..."` | Add to decision log |
+| `spec decide [id] --resolve N --decision "..."` | Resolve a decision |
+| `spec decide [id] --list` | View decision log |
 
 ### AI drafting
 
 | Command | Description |
 |---|---|
-| `spec draft <id> --section <slug>` | Draft a spec section |
-| `spec draft <id> --pr` | Draft a PR description |
-| `spec draft <id> --pr-stack` | Propose a PR stack plan |
+| `spec draft [id] --section <slug>` | Draft a spec section |
+| `spec draft [id] --pr` | Draft a PR description |
+| `spec draft [id] --pr-stack` | Propose a PR stack plan |
 
 ### Technical planning
 
@@ -305,8 +331,8 @@ Every draft goes through **accept / edit / skip** — AI never writes directly t
 | `spec plan edit [id]` | Edit plan in `$EDITOR` |
 | `spec plan add [id] <desc>` | Add a step (`--repo`) |
 | `spec plan ready [id]` | Request plan review |
-| `spec review <id> --plan` | Review technical plan |
-| `spec review <id> --plan --approve` | Approve plan |
+| `spec review [id] --plan` | Review technical plan |
+| `spec review [id] --plan --approve` | Approve plan |
 
 ### Build execution
 
@@ -323,9 +349,9 @@ Every draft goes through **accept / edit / skip** — AI never writes directly t
 
 | Command | Description |
 |---|---|
-| `spec build <id>` | Start/resume build with agent context |
-| `spec review <id>` | Post structured review request |
-| `spec deploy <id> [--env production]` | Trigger deployment |
+| `spec build [id]` | Start/resume build with agent context |
+| `spec review [id]` | Post structured review request |
+| `spec deploy [id] [--env production]` | Trigger deployment |
 | `spec fix <title>` | Fast-track bug fix (`--label`) |
 | `spec mcp-server [--spec <id>]` | Standalone MCP server |
 
