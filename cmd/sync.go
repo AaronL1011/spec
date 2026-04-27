@@ -12,9 +12,9 @@ import (
 )
 
 var syncCmd = &cobra.Command{
-	Use:   "sync <id>",
+	Use:   "sync [id]",
 	Short: "Bidirectional section-scoped sync with external tools",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runSync,
 }
 
@@ -27,7 +27,10 @@ func init() {
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec sync <id>")
+	if err != nil {
+		return err
+	}
 	direction, _ := cmd.Flags().GetString("direction")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	force, _ := cmd.Flags().GetBool("force")

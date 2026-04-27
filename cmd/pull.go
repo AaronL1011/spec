@@ -12,9 +12,9 @@ import (
 )
 
 var pullCmd = &cobra.Command{
-	Use:   "pull <id>",
+	Use:   "pull [id]",
 	Short: "Fetch spec from specs repo to .spec/<id>.md in the current service repo",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runPull,
 }
 
@@ -24,7 +24,10 @@ func init() {
 }
 
 func runPull(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec pull <id>")
+	if err != nil {
+		return err
+	}
 	force, _ := cmd.Flags().GetBool("force")
 
 	rc, err := resolveConfig()

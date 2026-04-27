@@ -14,7 +14,7 @@ import (
 )
 
 var advanceCmd = &cobra.Command{
-	Use:   "advance <id>",
+	Use:   "advance [id]",
 	Short: "Advance a spec to the next pipeline stage",
 	Long: `Move a spec forward in the pipeline after validating role and gates.
 
@@ -22,7 +22,7 @@ By default the command advances to the immediate next stage. Tech leads can
 optionally fast-track to a later stage with --to, and --dry-run previews
 gate checks and transition effects without persisting changes.`,
 	Example: "  spec advance SPEC-042\n  spec advance SPEC-042 --dry-run\n  spec advance SPEC-042 --to done",
-	Args:    cobra.ExactArgs(1),
+	Args:    cobra.MaximumNArgs(1),
 	RunE:    runAdvance,
 }
 
@@ -33,7 +33,10 @@ func init() {
 }
 
 func runAdvance(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec advance <id>")
+	if err != nil {
+		return err
+	}
 	targetStage, _ := cmd.Flags().GetString("to")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 

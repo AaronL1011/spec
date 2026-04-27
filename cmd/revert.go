@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
 	"github.com/aaronl1011/spec-cli/internal/pipeline"
@@ -12,9 +11,9 @@ import (
 )
 
 var revertCmd = &cobra.Command{
-	Use:   "revert <id>",
+	Use:   "revert [id]",
 	Short: "Send a spec back to a previous stage",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runRevert,
 }
 
@@ -25,7 +24,10 @@ func init() {
 }
 
 func runRevert(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec revert <id>")
+	if err != nil {
+		return err
+	}
 	targetStage, _ := cmd.Flags().GetString("to")
 	reason, _ := cmd.Flags().GetString("reason")
 

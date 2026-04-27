@@ -217,7 +217,7 @@ func runPlanAdd(cmd *cobra.Command, args []string) error {
 		specID = id
 		description = args[0]
 	} else {
-		specID = strings.ToUpper(args[0])
+		specID = normalizeSpecID(args[0])
 		description = strings.Join(args[1:], " ")
 	}
 
@@ -347,34 +347,3 @@ func runPlanReady(cmd *cobra.Command, args []string) error {
 }
 
 // resolveSpecIDFromArgs gets the spec ID from args or tries to detect from current context
-func resolveSpecIDFromArgs(args []string) (string, error) {
-	if len(args) > 0 {
-		return strings.ToUpper(args[0]), nil
-	}
-
-	// Try to detect from current branch
-	workDir, err := os.Getwd()
-	if err == nil {
-		if specID := detectSpecFromBranch(workDir); specID != "" {
-			return specID, nil
-		}
-	}
-
-	// Try most recent session
-	db, err := openDB()
-	if err == nil {
-		defer func() { _ = db.Close() }()
-		if recent, err := db.SessionMostRecent(); err == nil && recent != "" {
-			return recent, nil
-		}
-	}
-
-	return "", fmt.Errorf("no spec ID provided — use 'spec plan <id>'")
-}
-
-// detectSpecFromBranch tries to extract spec ID from current git branch name
-func detectSpecFromBranch(workDir string) string {
-	// This is a simple implementation; the real one is in internal/git
-	// For now, delegate to that
-	return ""
-}

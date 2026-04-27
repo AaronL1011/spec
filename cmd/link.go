@@ -12,9 +12,9 @@ import (
 )
 
 var linkCmd = &cobra.Command{
-	Use:   "link <id>",
+	Use:   "link [id]",
 	Short: "Attach a resource link to a spec section",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runLink,
 }
 
@@ -26,7 +26,10 @@ func init() {
 }
 
 func runLink(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec link <id>")
+	if err != nil {
+		return err
+	}
 	section, _ := cmd.Flags().GetString("section")
 	url, _ := cmd.Flags().GetString("url")
 	label, _ := cmd.Flags().GetString("label")

@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/aaronl1011/spec-cli/internal/build"
 	"github.com/aaronl1011/spec-cli/internal/markdown"
@@ -11,15 +10,15 @@ import (
 )
 
 var buildCmd = &cobra.Command{
-	Use:   "build <id>",
+	Use:   "build [id]",
 	Short: "Start or resume the build phase for a spec",
 	Long: `Start or resume implementation work for a spec in the build phase.
 
 The command validates the spec stage, resolves the spec source from local
 or team repository state, and launches the build engine session.`,
 	Example: "  spec build SPEC-042",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runBuild,
+	Args:    cobra.MaximumNArgs(1),
+	RunE:    runBuild,
 }
 
 func init() {
@@ -27,7 +26,10 @@ func init() {
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec build <id>")
+	if err != nil {
+		return err
+	}
 
 	rc, err := resolveConfig()
 	if err != nil {

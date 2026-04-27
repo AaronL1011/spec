@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/aaronl1011/spec-cli/internal/markdown"
 	"github.com/aaronl1011/spec-cli/internal/pipeline"
@@ -10,9 +9,9 @@ import (
 )
 
 var validateCmd = &cobra.Command{
-	Use:   "validate <id>",
+	Use:   "validate [id]",
 	Short: "Dry-run all gate checks for the current stage without advancing",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runValidate,
 }
 
@@ -21,7 +20,10 @@ func init() {
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec validate <id>")
+	if err != nil {
+		return err
+	}
 
 	rc, err := resolveConfig()
 	if err != nil {

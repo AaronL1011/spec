@@ -11,9 +11,9 @@ import (
 )
 
 var statusCmd = &cobra.Command{
-	Use:   "status <id>",
+	Use:   "status [id]",
 	Short: "Show pipeline position, section completion, and cycle metrics",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runStatus,
 }
 
@@ -22,7 +22,10 @@ func init() {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec status <id>")
+	if err != nil {
+		return err
+	}
 
 	rc, err := resolveConfig()
 	if err != nil {

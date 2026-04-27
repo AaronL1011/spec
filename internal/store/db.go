@@ -69,7 +69,7 @@ func (db *DB) Conn() *sql.DB {
 	return db.conn
 }
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 func (db *DB) migrate() error {
 	// Create migrations table if not exists
@@ -90,6 +90,11 @@ func (db *DB) migrate() error {
 
 	if currentVersion < 1 {
 		if err := db.migrateV1(); err != nil {
+			return err
+		}
+	}
+	if currentVersion < 2 {
+		if err := db.migrateV2(); err != nil {
 			return err
 		}
 	}
@@ -163,6 +168,34 @@ func (db *DB) migrateV1() error {
 	for _, stmt := range statements {
 		if _, err := tx.Exec(stmt); err != nil {
 			return fmt.Errorf("migration v1 statement failed: %w\nSQL: %s", err, stmt)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) migrateV2() error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning migration v2: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }() // Rollback is no-op after Commit
+
+	statements := []string{
+		// Settings: durable local CLI preferences and state.
+		`CREATE TABLE IF NOT EXISTS settings (
+			key        TEXT PRIMARY KEY,
+			value      TEXT NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
+
+		// Record migration
+		`INSERT INTO migrations (version) VALUES (2)`,
+	}
+
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("migration v2 statement failed: %w\nSQL: %s", err, stmt)
 		}
 	}
 

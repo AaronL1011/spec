@@ -3,11 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/aaronl1011/spec-cli/internal/awareness"
 	"github.com/aaronl1011/spec-cli/internal/build"
-	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
 	"github.com/aaronl1011/spec-cli/internal/markdown"
 	"github.com/spf13/cobra"
 )
@@ -21,8 +19,8 @@ When no spec ID is provided, this command detects the current spec from
 your branch name first, then falls back to the most recent local build
 session.`,
 	Example: "  spec do\n  spec do SPEC-042",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runDo,
+	Args:    cobra.MaximumNArgs(1),
+	RunE:    runDo,
 }
 
 func init() {
@@ -46,29 +44,9 @@ func runDo(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	var specID string
-
-	if len(args) > 0 {
-		specID = strings.ToUpper(args[0])
-	} else {
-		// Try to detect from current branch
-		workDir, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("could not determine working directory: %w", err)
-		}
-		specID = gitpkg.DetectSpecFromBranch(ctx(), workDir)
-
-		// Try most recent session
-		if specID == "" {
-			recent, err := db.SessionMostRecent()
-			if err == nil && recent != "" {
-				specID = recent
-			}
-		}
-
-		if specID == "" {
-			return fmt.Errorf("no active build session found — start one with 'spec build <id>'")
-		}
+	specID, err := resolveSpecIDFromArgs(args)
+	if err != nil {
+		return fmt.Errorf("no active build session found — start one with 'spec build <id>' or set one with 'spec focus <id>'")
 	}
 
 	// Find the spec

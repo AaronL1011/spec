@@ -256,11 +256,11 @@ func runStepsStart(cmd *cobra.Command, args []string) error {
 			specID = id
 			stepNum = parseNumber(args[0])
 		} else {
-			specID = strings.ToUpper(args[0])
+			specID = normalizeSpecID(args[0])
 			stepNum = 0
 		}
 	case 2:
-		specID = strings.ToUpper(args[0])
+		specID = normalizeSpecID(args[0])
 		stepNum = parseNumber(args[1])
 	}
 
@@ -351,11 +351,11 @@ func runStepsComplete(cmd *cobra.Command, args []string) error {
 			specID = id
 			stepNum = parseNumber(args[0])
 		} else {
-			specID = strings.ToUpper(args[0])
+			specID = normalizeSpecID(args[0])
 			stepNum = 0
 		}
 	case 2:
-		specID = strings.ToUpper(args[0])
+		specID = normalizeSpecID(args[0])
 		stepNum = parseNumber(args[1])
 	}
 
@@ -460,13 +460,13 @@ func runStepsBlock(cmd *cobra.Command, args []string) error {
 			stepNum = parseNumber(args[0])
 			reason = args[1]
 		} else {
-			specID = strings.ToUpper(args[0])
+			specID = normalizeSpecID(args[0])
 			stepNum = 0
 			reason = args[1]
 		}
 	} else {
 		// "SPEC-001 1 reason..." or "SPEC-001 reason reason..."
-		specID = strings.ToUpper(args[0])
+		specID = normalizeSpecID(args[0])
 		if isNumber(args[1]) {
 			stepNum = parseNumber(args[1])
 			reason = strings.Join(args[2:], " ")
@@ -548,7 +548,7 @@ func runStepsUnblock(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("usage: spec steps unblock <id> <step-number>")
 		}
 	case 2:
-		specID = strings.ToUpper(args[0])
+		specID = normalizeSpecID(args[0])
 		stepNum = parseNumber(args[1])
 	}
 

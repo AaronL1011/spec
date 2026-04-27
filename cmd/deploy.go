@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
 	"github.com/aaronl1011/spec-cli/internal/markdown"
@@ -12,9 +11,9 @@ import (
 )
 
 var deployCmd = &cobra.Command{
-	Use:   "deploy <id>",
+	Use:   "deploy [id]",
 	Short: "Trigger deployment via CI/CD adapter",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDeploy,
 }
 
@@ -24,7 +23,10 @@ func init() {
 }
 
 func runDeploy(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec deploy <id>")
+	if err != nil {
+		return err
+	}
 	env, _ := cmd.Flags().GetString("env")
 
 	rc, err := resolveConfig()

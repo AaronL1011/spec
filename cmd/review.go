@@ -13,13 +13,13 @@ import (
 )
 
 var reviewCmd = &cobra.Command{
-	Use:   "review <id>",
+	Use:   "review [id]",
 	Short: "Post structured review request with all stacked PRs",
 	Long: `Post structured review request with all stacked PRs.
 
 With --plan flag, review the technical build plan instead of PRs.
 Use --approve or --request-changes to submit your review decision.`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.MaximumNArgs(1),
 	RunE: runReview,
 }
 
@@ -32,7 +32,10 @@ func init() {
 }
 
 func runReview(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec review <id>")
+	if err != nil {
+		return err
+	}
 
 	isPlanReview, _ := cmd.Flags().GetBool("plan")
 	if isPlanReview {

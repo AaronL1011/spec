@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/aaronl1011/spec-cli/internal/adapter"
 	"github.com/aaronl1011/spec-cli/internal/adapter/noop"
@@ -41,6 +42,72 @@ func requireTeamConfig(rc *config.ResolvedConfig) error {
 // openDB opens the default SQLite database.
 func openDB() (*store.DB, error) {
 	return store.Open(store.DefaultDBPath())
+}
+
+func normalizeSpecID(specID string) string {
+	return strings.ToUpper(strings.TrimSpace(specID))
+}
+
+func resolveSpecIDArg(args []string, usage string) (string, error) {
+	if len(args) > 0 {
+		return normalizeSpecID(args[0]), nil
+	}
+
+	specID, err := resolveFocusedSpecID()
+	if err != nil {
+		return "", err
+	}
+	if specID != "" {
+		return specID, nil
+	}
+
+	return "", fmt.Errorf("no spec ID provided — use '%s' or set one with 'spec focus <id>'", usage)
+}
+
+// resolveSpecIDFromArgs gets the spec ID from args, focused state, branch, or recent session.
+func resolveSpecIDFromArgs(args []string) (string, error) {
+	if len(args) > 0 {
+		return normalizeSpecID(args[0]), nil
+	}
+
+	specID, err := resolveFocusedSpecID()
+	if err != nil {
+		return "", err
+	}
+	if specID != "" {
+		return specID, nil
+	}
+
+	workDir, err := os.Getwd()
+	if err == nil {
+		if specID := gitpkg.DetectSpecFromBranch(ctx(), workDir); specID != "" {
+			return specID, nil
+		}
+	}
+
+	db, err := openDB()
+	if err == nil {
+		defer func() { _ = db.Close() }()
+		if recent, err := db.SessionMostRecent(); err == nil && recent != "" {
+			return recent, nil
+		}
+	}
+
+	return "", fmt.Errorf("no spec ID provided — pass an ID or set one with 'spec focus <id>'")
+}
+
+func resolveFocusedSpecID() (string, error) {
+	db, err := openDB()
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = db.Close() }()
+
+	specID, err := db.FocusedSpecGet()
+	if err != nil {
+		return "", err
+	}
+	return specID, nil
 }
 
 // resolveSpecPath finds a spec file by ID in the specs repo.

@@ -7,9 +7,9 @@ It is designed to validate workflow value quickly while keeping setup and ceremo
 
 Use this pilot scope for the first two weeks:
 
-- In scope: `config`, `new`, `list`, `status`, `advance`, `decide`, `plan`, `steps`, `pull`, `build`, `do`, dashboard (`spec` with no args)
-- Optional in scope: `intake`, `promote`, `draft`
-- Out of scope for pilot: `sync`, `deploy`, `watch`, `retro`, `metrics`, `context` (can be enabled later)
+- In scope: `config`, `new`, `list`, `status`, `advance`, `decide`, `plan`, `steps`, `pull`, `build`, `do`, `sync`, dashboard (`spec` with no args)
+- Optional in scope: `intake`, `promote`, `draft`, `watch`, `retro`, `metrics`
+- Out of scope for pilot: `deploy`, `context` (can be enabled later)
 
 This keeps the pilot focused on the core lifecycle and execution loop.
 
@@ -91,7 +91,84 @@ pipeline:
   skip: [design]
 ```
 
-### 4) Dry-run smoke test
+### 4) Sync integration setup
+
+For a Jira + Confluence + Microsoft Teams + GitHub pilot, use environment variables for secrets:
+
+```bash
+export GITHUB_TOKEN="..."
+export JIRA_BASE_URL="https://your-domain.atlassian.net"
+export JIRA_EMAIL="you@example.com"
+export JIRA_API_TOKEN="..."
+export CONFLUENCE_BASE_URL="https://your-domain.atlassian.net/wiki"
+export CONFLUENCE_EMAIL="you@example.com"
+export CONFLUENCE_API_TOKEN="..."
+export TEAMS_WEBHOOK_URL="https://..."
+```
+
+Optional Teams mention ingestion requires Graph access:
+
+```bash
+export TEAMS_GRAPH_TOKEN="..."
+export TEAMS_TEAM_ID="..."
+export TEAMS_CHANNEL_ID="..."
+```
+
+Update the `integrations` and `sync` sections in `spec.config.yaml`:
+
+```yaml
+integrations:
+  comms:
+    provider: teams
+    webhook_url: ${TEAMS_WEBHOOK_URL}
+    standup_webhook_url: ${TEAMS_STANDUP_WEBHOOK_URL} # optional
+    graph_token: ${TEAMS_GRAPH_TOKEN}                 # optional
+    team_id: ${TEAMS_TEAM_ID}                         # optional
+    channel_id: ${TEAMS_CHANNEL_ID}                   # optional
+
+  pm:
+    provider: jira
+    base_url: ${JIRA_BASE_URL}
+    project_key: PLAT
+    email: ${JIRA_EMAIL}
+    token: ${JIRA_API_TOKEN}
+
+  docs:
+    provider: confluence
+    base_url: ${CONFLUENCE_BASE_URL}
+    space_key: ENG
+    email: ${CONFLUENCE_EMAIL}
+    token: ${CONFLUENCE_API_TOKEN}
+
+  repo:
+    provider: github
+    owner: your-org
+    token: ${GITHUB_TOKEN}
+
+  deploy:
+    provider: none
+
+sync:
+  outbound_on_advance: true
+  conflict_strategy: warn # warn | abort | force | skip
+```
+
+Permission checklist:
+
+- Jira: account can create issues, browse issues, and transition issues in `project_key`.
+- Confluence: account can create, read, and edit pages in `space_key`. `base_url` must include `/wiki`.
+- Teams: webhook can post to the pilot channel; messages must stay under 28 KB.
+- Teams mentions: optional Graph token can read channel messages for `team_id` and `channel_id`.
+- GitHub: token can read repo metadata and read/write pull requests for pilot repos.
+
+Sync operating policy:
+
+- Treat the specs repo as the source of truth. Confluence is the readable external workspace.
+- Keep Confluence pages structured by `spec`; avoid manual page restructuring during the pilot.
+- Start with `conflict_strategy: warn`; use `--force` only when intentionally accepting remote Confluence content.
+- Each user must have `user.owner_role` configured before inbound sync; `spec sync` enforces section ownership.
+
+### 5) Dry-run smoke test
 
 Run once as TL:
 
@@ -100,6 +177,20 @@ spec new --title "Pilot smoke test"
 spec list --all
 spec status SPEC-001
 spec advance SPEC-001 --dry-run
+```
+
+If sync is enabled, run one Confluence smoke test before inviting the full team:
+
+```bash
+spec sync SPEC-001 --direction out --dry-run
+spec sync SPEC-001 --direction out
+```
+
+Then edit one TL-owned section in Confluence and verify inbound behavior:
+
+```bash
+spec sync SPEC-001 --direction in --dry-run
+spec sync SPEC-001 --direction in
 ```
 
 ## Working Agreement (Pilot Policy)

@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/aaronl1011/spec-cli/internal/config"
 	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
@@ -12,9 +11,9 @@ import (
 )
 
 var decideCmd = &cobra.Command{
-	Use:   "decide <id>",
+	Use:   "decide [id]",
 	Short: "Manage the decision log for a spec",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDecide,
 }
 
@@ -28,7 +27,10 @@ func init() {
 }
 
 func runDecide(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec decide <id>")
+	if err != nil {
+		return err
+	}
 	question, _ := cmd.Flags().GetString("question")
 	resolveNum, _ := cmd.Flags().GetInt("resolve")
 	decision, _ := cmd.Flags().GetString("decision")

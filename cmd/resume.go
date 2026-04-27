@@ -12,9 +12,9 @@ import (
 )
 
 var resumeCmd = &cobra.Command{
-	Use:   "resume <id>",
+	Use:   "resume [id]",
 	Short: "Return a blocked spec to its pre-block stage",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runResume,
 }
 
@@ -24,7 +24,10 @@ func init() {
 }
 
 func runResume(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec resume <id>")
+	if err != nil {
+		return err
+	}
 	resumeStage, _ := cmd.Flags().GetString("stage")
 
 	rc, err := resolveConfig()

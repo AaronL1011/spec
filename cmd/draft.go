@@ -14,9 +14,9 @@ import (
 )
 
 var draftCmd = &cobra.Command{
-	Use:   "draft <id>",
+	Use:   "draft [id]",
 	Short: "Request an AI draft of a spec section, PR description, or PR stack plan",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDraft,
 }
 
@@ -29,7 +29,10 @@ func init() {
 }
 
 func runDraft(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec draft <id>")
+	if err != nil {
+		return err
+	}
 	section, _ := cmd.Flags().GetString("section")
 	prMode, _ := cmd.Flags().GetBool("pr")
 	prStack, _ := cmd.Flags().GetBool("pr-stack")

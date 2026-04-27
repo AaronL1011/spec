@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/aaronl1011/spec-cli/internal/adapter"
 	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
@@ -12,9 +11,9 @@ import (
 )
 
 var ejectCmd = &cobra.Command{
-	Use:   "eject <id>",
+	Use:   "eject [id]",
 	Short: "Log a blocker and transition to blocked status",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runEject,
 }
 
@@ -24,7 +23,10 @@ func init() {
 }
 
 func runEject(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec eject <id>")
+	if err != nil {
+		return err
+	}
 	reason, _ := cmd.Flags().GetString("reason")
 
 	if reason == "" {

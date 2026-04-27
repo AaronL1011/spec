@@ -4,15 +4,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
 
 var editCmd = &cobra.Command{
-	Use:   "edit <id>",
+	Use:   "edit [id]",
 	Short: "Open a spec in $EDITOR or print docs provider URL",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runEdit,
 }
 
@@ -21,7 +20,10 @@ func init() {
 }
 
 func runEdit(cmd *cobra.Command, args []string) error {
-	specID := strings.ToUpper(args[0])
+	specID, err := resolveSpecIDArg(args, "spec edit <id>")
+	if err != nil {
+		return err
+	}
 
 	rc, err := resolveConfig()
 	if err != nil {

@@ -103,6 +103,54 @@ func TestSessions(t *testing.T) {
 	}
 }
 
+func TestFocusedSpec(t *testing.T) {
+	db := mustOpenMemory(t)
+
+	id, err := db.FocusedSpecGet()
+	if err != nil {
+		t.Fatalf("FocusedSpecGet: %v", err)
+	}
+	if id != "" {
+		t.Errorf("expected empty focused spec, got %q", id)
+	}
+
+	if err := db.FocusedSpecSet("SPEC-001"); err != nil {
+		t.Fatalf("FocusedSpecSet: %v", err)
+	}
+
+	id, err = db.FocusedSpecGet()
+	if err != nil {
+		t.Fatalf("FocusedSpecGet: %v", err)
+	}
+	if id != "SPEC-001" {
+		t.Errorf("focused spec = %q, want SPEC-001", id)
+	}
+
+	if err := db.FocusedSpecSet("SPEC-002"); err != nil {
+		t.Fatalf("FocusedSpecSet update: %v", err)
+	}
+
+	id, err = db.FocusedSpecGet()
+	if err != nil {
+		t.Fatalf("FocusedSpecGet after update: %v", err)
+	}
+	if id != "SPEC-002" {
+		t.Errorf("focused spec after update = %q, want SPEC-002", id)
+	}
+
+	if err := db.FocusedSpecClear(); err != nil {
+		t.Fatalf("FocusedSpecClear: %v", err)
+	}
+
+	id, err = db.FocusedSpecGet()
+	if err != nil {
+		t.Fatalf("FocusedSpecGet after clear: %v", err)
+	}
+	if id != "" {
+		t.Errorf("expected cleared focused spec, got %q", id)
+	}
+}
+
 func TestActivity(t *testing.T) {
 	db := mustOpenMemory(t)
 
