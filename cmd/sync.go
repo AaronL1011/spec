@@ -48,7 +48,10 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("docs integration not configured; sync requires a docs provider, configure 'integrations.docs' in spec.config.yaml")
 	}
 
-	role := rc.OwnerRole("")
+	role, err := requireRole(rc)
+	if err != nil {
+		return err
+	}
 	strategy := rc.Team.Sync.ConflictStrategy
 	if force {
 		strategy = syncengine.ConflictForce
@@ -65,14 +68,14 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	reg := buildRegistry(rc)
 	engine := syncengine.NewEngine(reg.Docs(), db)
-	var report *syncengine.Report
+	var prepared *syncengine.PreparedRun
 
 	err = gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
 			return "", err
 		}
-		report, err = engine.Run(context.Background(), syncengine.Options{
+		prepared, err = engine.Prepare(context.Background(), syncengine.Options{
 			SpecID:           specID,
 			SpecPath:         path,
 			Direction:        direction,
@@ -84,19 +87,25 @@ func runSync(cmd *cobra.Command, args []string) error {
 		if err != nil && !errors.Is(err, syncengine.ErrSyncConflict) {
 			return "", err
 		}
-		if dryRun || report == nil || len(report.InboundApplied) == 0 {
+		if dryRun || prepared == nil || prepared.Report == nil || len(prepared.Report.InboundApplied) == 0 {
 			return "", err
 		}
 		return fmt.Sprintf("chore: sync %s from docs", specID), err
 	})
-	if report != nil {
-		printSyncReport(report)
-	}
 	if err != nil {
+		if prepared != nil && prepared.Report != nil {
+			printSyncReport(prepared.Report)
+		}
 		if errors.Is(err, syncengine.ErrSyncConflict) {
 			return fmt.Errorf("sync conflicts detected — rerun with --force to accept remote changes or --skip to leave conflicts unchanged")
 		}
 		return err
+	}
+	if prepared != nil {
+		if err := engine.Finalize(context.Background(), prepared); err != nil {
+			return err
+		}
+		printSyncReport(prepared.Report)
 	}
 	return nil
 }

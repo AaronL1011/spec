@@ -52,13 +52,20 @@ type Options struct {
 
 // Engine coordinates sync through adapter interfaces and store APIs.
 type Engine struct {
-	docs adapter.DocsAdapter
-	db   *store.DB
+	docs      adapter.DocsAdapter
+	db        *store.DB
+	readFile  func(string) ([]byte, error)
+	writeFile func(string, []byte, os.FileMode) error
 }
 
 // NewEngine creates a sync engine.
 func NewEngine(docs adapter.DocsAdapter, db *store.DB) *Engine {
-	return &Engine{docs: docs, db: db}
+	return &Engine{
+		docs:      docs,
+		db:        db,
+		readFile:  os.ReadFile,
+		writeFile: os.WriteFile,
+	}
 }
 
 // Report summarizes the outcome of a sync run.
@@ -95,8 +102,37 @@ type SectionSkip struct {
 	Reason  string
 }
 
+// PreparedRun contains local changes and deferred external/state side effects.
+type PreparedRun struct {
+	opts            Options
+	Report          *Report
+	outboundContent string
+	pendingState    []pendingStateUpdate
+}
+
+type pendingStateUpdate struct {
+	section    string
+	localHash  string
+	remoteHash string
+}
+
 // Run executes a sync run.
 func (e *Engine) Run(ctx context.Context, opts Options) (*Report, error) {
+	prepared, err := e.Prepare(ctx, opts)
+	if err != nil {
+		if prepared != nil {
+			return prepared.Report, err
+		}
+		return nil, err
+	}
+	if err := e.Finalize(ctx, prepared); err != nil {
+		return prepared.Report, err
+	}
+	return prepared.Report, nil
+}
+
+// Prepare computes the sync plan and applies only local file changes.
+func (e *Engine) Prepare(ctx context.Context, opts Options) (*PreparedRun, error) {
 	if e.docs == nil {
 		return nil, fmt.Errorf("docs adapter is not configured")
 	}
@@ -119,24 +155,47 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Report, error) {
 	opts.ConflictStrategy = strategy
 
 	report := &Report{SpecID: opts.SpecID, Direction: direction, DryRun: opts.DryRun}
+	prepared := &PreparedRun{opts: opts, Report: report}
 
 	if direction == DirectionIn || direction == DirectionBoth {
-		if err := e.runInbound(ctx, opts, report); err != nil {
-			return report, err
+		if err := e.prepareInbound(ctx, prepared); err != nil {
+			return prepared, err
 		}
 	}
 	if direction == DirectionOut || direction == DirectionBoth {
-		if err := e.runOutbound(ctx, opts, report); err != nil {
-			return report, err
+		if err := e.prepareOutbound(opts, prepared); err != nil {
+			return prepared, err
 		}
 	}
 
-	e.logActivity(opts, report)
-	return report, nil
+	return prepared, nil
 }
 
-func (e *Engine) runInbound(ctx context.Context, opts Options, report *Report) error {
-	data, err := os.ReadFile(opts.SpecPath)
+// Finalize applies external docs writes, sync-state persistence, and activity logging.
+func (e *Engine) Finalize(ctx context.Context, prepared *PreparedRun) error {
+	if prepared == nil || prepared.Report == nil {
+		return fmt.Errorf("prepared sync run is required")
+	}
+	if prepared.opts.DryRun {
+		return nil
+	}
+	if prepared.outboundContent != "" {
+		if err := e.docs.PushFull(ctx, prepared.opts.SpecID, prepared.outboundContent); err != nil {
+			return fmt.Errorf("pushing %s to docs provider: %w", prepared.opts.SpecID, err)
+		}
+		prepared.Report.OutboundPushed = true
+	}
+	if err := e.persistState(prepared.opts.SpecID, prepared.pendingState); err != nil {
+		return err
+	}
+	e.logActivity(prepared.opts, prepared.Report)
+	return nil
+}
+
+func (e *Engine) prepareInbound(ctx context.Context, prepared *PreparedRun) error {
+	opts := prepared.opts
+	report := prepared.Report
+	data, err := e.readFile(opts.SpecPath)
 	if err != nil {
 		return fmt.Errorf("reading local spec %s: %w", opts.SpecPath, err)
 	}
@@ -165,9 +224,11 @@ func (e *Engine) runInbound(ctx context.Context, opts Options, report *Report) e
 		remoteHash := Hash(remoteContent)
 		if localHash == remoteHash {
 			report.Unchanged = append(report.Unchanged, section.Slug)
-			if !opts.DryRun {
-				e.setSectionState(opts.SpecID, section.Slug, localHash, remoteHash)
-			}
+			prepared.pendingState = append(prepared.pendingState, pendingStateUpdate{
+				section:    section.Slug,
+				localHash:  localHash,
+				remoteHash: remoteHash,
+			})
 			continue
 		}
 
@@ -209,9 +270,11 @@ func (e *Engine) runInbound(ctx context.Context, opts Options, report *Report) e
 				return fmt.Errorf("applying inbound section %s: %w", section.Slug, err)
 			}
 			report.InboundApplied = append(report.InboundApplied, section.Slug)
-			if !opts.DryRun {
-				e.setSectionState(opts.SpecID, section.Slug, Hash(remoteContent), Hash(remoteContent))
-			}
+			prepared.pendingState = append(prepared.pendingState, pendingStateUpdate{
+				section:    section.Slug,
+				localHash:  remoteHash,
+				remoteHash: remoteHash,
+			})
 		}
 	}
 
@@ -219,15 +282,16 @@ func (e *Engine) runInbound(ctx context.Context, opts Options, report *Report) e
 		return ErrSyncConflict
 	}
 	if !opts.DryRun && nextContent != content {
-		if err := os.WriteFile(opts.SpecPath, []byte(nextContent), 0o644); err != nil {
+		if err := e.writeFile(opts.SpecPath, []byte(nextContent), 0o644); err != nil {
 			return fmt.Errorf("writing local spec %s: %w", opts.SpecPath, err)
 		}
 	}
 	return nil
 }
 
-func (e *Engine) runOutbound(ctx context.Context, opts Options, report *Report) error {
-	data, err := os.ReadFile(opts.SpecPath)
+func (e *Engine) prepareOutbound(opts Options, prepared *PreparedRun) error {
+	report := prepared.Report
+	data, err := e.readFile(opts.SpecPath)
 	if err != nil {
 		return fmt.Errorf("reading local spec %s: %w", opts.SpecPath, err)
 	}
@@ -237,16 +301,19 @@ func (e *Engine) runOutbound(ctx context.Context, opts Options, report *Report) 
 		report.OutboundSections = append(report.OutboundSections, section.Slug)
 	}
 
-	if !opts.DryRun {
-		if err := e.docs.PushFull(ctx, opts.SpecID, content); err != nil {
-			return fmt.Errorf("pushing %s to docs provider: %w", opts.SpecID, err)
-		}
-		for _, section := range sections {
-			hash := Hash(section.Content)
-			e.setSectionState(opts.SpecID, section.Slug, hash, hash)
-		}
+	for _, section := range sections {
+		hash := Hash(section.Content)
+		prepared.pendingState = append(prepared.pendingState, pendingStateUpdate{
+			section:    section.Slug,
+			localHash:  hash,
+			remoteHash: hash,
+		})
 	}
-	report.OutboundPushed = true
+	if opts.DryRun {
+		report.OutboundPushed = true
+		return nil
+	}
+	prepared.outboundContent = content
 	return nil
 }
 
@@ -267,12 +334,19 @@ func (e *Engine) stateHash(specID, section, direction string) string {
 	return entry.Hash
 }
 
-func (e *Engine) setSectionState(specID, section, localHash, remoteHash string) {
+func (e *Engine) persistState(specID string, updates []pendingStateUpdate) error {
 	if e.db == nil {
-		return
+		return nil
 	}
-	_ = e.db.SyncStateSet(specID, section, stateDirectionOut, localHash)
-	_ = e.db.SyncStateSet(specID, section, stateDirectionIn, remoteHash)
+	for _, update := range updates {
+		if err := e.db.SyncStateSet(specID, update.section, stateDirectionOut, update.localHash); err != nil {
+			return err
+		}
+		if err := e.db.SyncStateSet(specID, update.section, stateDirectionIn, update.remoteHash); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) logActivity(opts Options, report *Report) {
@@ -321,8 +395,11 @@ func localChangedSinceSync(content, localHash, lastOut, lastIn string) bool {
 }
 
 func ownerMismatch(section markdown.Section, ownerRole string) bool {
-	if section.Owner == "" || ownerRole == "" {
+	if section.Owner == "" {
 		return false
+	}
+	if ownerRole == "" {
+		return true
 	}
 	return !strings.EqualFold(section.Owner, ownerRole)
 }
