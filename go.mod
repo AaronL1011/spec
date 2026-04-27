@@ -1,4 +1,4 @@
-module github.com/aaronl1011/spec-cli
+module github.com/aaronl1011/spec
 
 go 1.25.0
 

@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aaronl1011/spec-cli/internal/adapter"
+	"github.com/aaronl1011/spec/internal/adapter"
 )
 
 // Client implements adapter.CommsAdapter using Microsoft Teams.

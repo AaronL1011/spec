@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aaronl1011/spec-cli/internal/markdown"
+	"github.com/aaronl1011/spec/internal/markdown"
 )
 
 // Plan represents a technical build plan for a spec.

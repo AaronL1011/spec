@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/aaronl1011/spec-cli/internal/adapter"
-	"github.com/aaronl1011/spec-cli/internal/markdown"
-	"github.com/aaronl1011/spec-cli/internal/store"
-	syncengine "github.com/aaronl1011/spec-cli/internal/sync"
+	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/store"
+	syncengine "github.com/aaronl1011/spec/internal/sync"
 )
 
 // NotifierAdapter bridges adapter.CommsAdapter to the Notifier interface.

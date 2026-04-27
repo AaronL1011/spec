@@ -11,9 +11,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/aaronl1011/spec-cli/internal/adapter"
-	"github.com/aaronl1011/spec-cli/internal/markdown"
-	"github.com/aaronl1011/spec-cli/internal/store"
+	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/store"
 )
 
 // Sync directions.

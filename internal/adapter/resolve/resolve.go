@@ -6,17 +6,17 @@ package resolve
 import (
 	"fmt"
 
-	"github.com/aaronl1011/spec-cli/internal/adapter"
-	"github.com/aaronl1011/spec-cli/internal/adapter/anthropic"
-	"github.com/aaronl1011/spec-cli/internal/adapter/claude"
-	"github.com/aaronl1011/spec-cli/internal/adapter/confluence"
-	gh "github.com/aaronl1011/spec-cli/internal/adapter/github"
-	"github.com/aaronl1011/spec-cli/internal/adapter/jira"
-	"github.com/aaronl1011/spec-cli/internal/adapter/noop"
-	"github.com/aaronl1011/spec-cli/internal/adapter/ollama"
-	"github.com/aaronl1011/spec-cli/internal/adapter/slack"
-	"github.com/aaronl1011/spec-cli/internal/adapter/teams"
-	"github.com/aaronl1011/spec-cli/internal/config"
+	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/adapter/anthropic"
+	"github.com/aaronl1011/spec/internal/adapter/claude"
+	"github.com/aaronl1011/spec/internal/adapter/confluence"
+	gh "github.com/aaronl1011/spec/internal/adapter/github"
+	"github.com/aaronl1011/spec/internal/adapter/jira"
+	"github.com/aaronl1011/spec/internal/adapter/noop"
+	"github.com/aaronl1011/spec/internal/adapter/ollama"
+	"github.com/aaronl1011/spec/internal/adapter/slack"
+	"github.com/aaronl1011/spec/internal/adapter/teams"
+	"github.com/aaronl1011/spec/internal/config"
 )
 
 // All builds a fully-populated Registry from team config.

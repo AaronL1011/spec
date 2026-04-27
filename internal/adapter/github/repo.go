@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aaronl1011/spec-cli/internal/adapter"
+	"github.com/aaronl1011/spec/internal/adapter"
 	gh "github.com/google/go-github/v62/github"
 )
 

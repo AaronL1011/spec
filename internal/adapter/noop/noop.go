@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/aaronl1011/spec-cli/internal/adapter"
+	"github.com/aaronl1011/spec/internal/adapter"
 )
 
 // Comms is a no-op CommsAdapter.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
+	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/spf13/cobra"
 )
 

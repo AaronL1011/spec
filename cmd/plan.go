@@ -6,9 +6,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/aaronl1011/spec-cli/internal/markdown"
-	"github.com/aaronl1011/spec-cli/internal/planning"
-	"github.com/aaronl1011/spec-cli/internal/tui"
+	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/planning"
+	"github.com/aaronl1011/spec/internal/tui"
 	"github.com/spf13/cobra"
 )
 

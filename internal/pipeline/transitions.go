@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aaronl1011/spec-cli/internal/markdown"
+	"github.com/aaronl1011/spec/internal/markdown"
 	"gopkg.in/yaml.v3"
 )
 

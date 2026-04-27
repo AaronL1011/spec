@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/aaronl1011/spec-cli/internal/store"
+	"github.com/aaronl1011/spec/internal/store"
 )
 
 // SessionState persists the build session for `spec do` resume.

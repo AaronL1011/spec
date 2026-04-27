@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aaronl1011/spec-cli/internal/markdown"
-	"github.com/aaronl1011/spec-cli/internal/metrics"
-	"github.com/aaronl1011/spec-cli/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/metrics"
+	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/spf13/cobra"
 )
 

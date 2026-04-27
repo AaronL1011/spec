@@ -4,7 +4,7 @@ package pipeline
 import (
 	"fmt"
 
-	"github.com/aaronl1011/spec-cli/internal/config"
+	"github.com/aaronl1011/spec/internal/config"
 )
 
 const (

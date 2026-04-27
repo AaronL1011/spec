@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aaronl1011/spec-cli/internal/adapter"
-	"github.com/aaronl1011/spec-cli/internal/config"
-	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
-	"github.com/aaronl1011/spec-cli/internal/markdown"
+	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/config"
+	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/spf13/cobra"
 )
 

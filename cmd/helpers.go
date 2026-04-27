@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/aaronl1011/spec-cli/internal/adapter"
-	"github.com/aaronl1011/spec-cli/internal/adapter/noop"
-	"github.com/aaronl1011/spec-cli/internal/adapter/resolve"
-	"github.com/aaronl1011/spec-cli/internal/config"
-	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
-	"github.com/aaronl1011/spec-cli/internal/markdown"
-	"github.com/aaronl1011/spec-cli/internal/store"
+	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/adapter/noop"
+	"github.com/aaronl1011/spec/internal/adapter/resolve"
+	"github.com/aaronl1011/spec/internal/config"
+	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/store"
 )
 
 // resolveConfig loads the full configuration chain.

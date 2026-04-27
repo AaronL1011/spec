@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
-	"github.com/aaronl1011/spec-cli/internal/pipeline"
-	"github.com/aaronl1011/spec-cli/internal/pipeline/effects"
+	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/pipeline/effects"
 	"github.com/spf13/cobra"
 )
 

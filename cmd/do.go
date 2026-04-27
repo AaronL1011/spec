@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/aaronl1011/spec-cli/internal/awareness"
-	"github.com/aaronl1011/spec-cli/internal/build"
-	"github.com/aaronl1011/spec-cli/internal/markdown"
+	"github.com/aaronl1011/spec/internal/awareness"
+	"github.com/aaronl1011/spec/internal/build"
+	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/spf13/cobra"
 )
 

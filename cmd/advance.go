@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aaronl1011/spec-cli/internal/config"
-	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
-	"github.com/aaronl1011/spec-cli/internal/markdown"
-	"github.com/aaronl1011/spec-cli/internal/pipeline"
-	"github.com/aaronl1011/spec-cli/internal/pipeline/effects"
+	"github.com/aaronl1011/spec/internal/config"
+	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/pipeline/effects"
 	"github.com/spf13/cobra"
 )
 

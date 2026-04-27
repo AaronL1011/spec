@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
-	syncengine "github.com/aaronl1011/spec-cli/internal/sync"
+	gitpkg "github.com/aaronl1011/spec/internal/git"
+	syncengine "github.com/aaronl1011/spec/internal/sync"
 	"github.com/spf13/cobra"
 )
 

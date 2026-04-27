@@ -3,9 +3,9 @@ package steps
 import (
 	"testing"
 
-	"github.com/aaronl1011/spec-cli/internal/config"
-	"github.com/aaronl1011/spec-cli/internal/markdown"
-	"github.com/aaronl1011/spec-cli/internal/planning"
+	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/planning"
 )
 
 func TestEngine_BranchName(t *testing.T) {

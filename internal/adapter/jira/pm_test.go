@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/aaronl1011/spec-cli/internal/adapter"
+	"github.com/aaronl1011/spec/internal/adapter"
 )
 
 func TestCreateEpic_Success(t *testing.T) {

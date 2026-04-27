@@ -3,7 +3,7 @@ package cmd
 //go:generate go run ../tools/gen-man --output ../docs/man
 
 import (
-	"github.com/aaronl1011/spec-cli/internal/dashboard"
+	"github.com/aaronl1011/spec/internal/dashboard"
 	"github.com/spf13/cobra"
 )
 

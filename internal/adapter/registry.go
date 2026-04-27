@@ -1,7 +1,7 @@
 package adapter
 
 import (
-	"github.com/aaronl1011/spec-cli/internal/config"
+	"github.com/aaronl1011/spec/internal/config"
 )
 
 // Registry resolves configuration to concrete adapter implementations.

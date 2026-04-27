@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/aaronl1011/spec-cli/internal/build"
-	"github.com/aaronl1011/spec-cli/internal/config"
-	"github.com/aaronl1011/spec-cli/internal/mcp"
+	"github.com/aaronl1011/spec/internal/build"
+	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/mcp"
 	"github.com/spf13/cobra"
 )
 

@@ -3,7 +3,7 @@ package build
 import (
 	"testing"
 
-	"github.com/aaronl1011/spec-cli/internal/store"
+	"github.com/aaronl1011/spec/internal/store"
 )
 
 func TestParsePRStack(t *testing.T) {

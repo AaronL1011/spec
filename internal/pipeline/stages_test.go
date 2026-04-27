@@ -3,7 +3,7 @@ package pipeline
 import (
 	"testing"
 
-	"github.com/aaronl1011/spec-cli/internal/config"
+	"github.com/aaronl1011/spec/internal/config"
 )
 
 func TestTerminalStages_DefaultPipeline(t *testing.T) {

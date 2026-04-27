@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	gitpkg "github.com/aaronl1011/spec-cli/internal/git"
-	"github.com/aaronl1011/spec-cli/internal/markdown"
+	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/spf13/cobra"
 )
 

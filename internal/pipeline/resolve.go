@@ -4,8 +4,8 @@ package pipeline
 import (
 	"fmt"
 
-	"github.com/aaronl1011/spec-cli/internal/config"
-	"github.com/aaronl1011/spec-cli/internal/pipeline/expr"
+	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/pipeline/expr"
 )
 
 // ResolvedPipeline is a fully resolved pipeline configuration with all

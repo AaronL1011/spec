@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aaronl1011/spec-cli/internal/adapter/noop"
-	"github.com/aaronl1011/spec-cli/internal/config"
+	"github.com/aaronl1011/spec/internal/adapter/noop"
+	"github.com/aaronl1011/spec/internal/config"
 )
 
 func TestAll_EmptyConfig_AllNoop(t *testing.T) {

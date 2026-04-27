@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aaronl1011/spec-cli/internal/store"
+	"github.com/aaronl1011/spec/internal/store"
 )
 
 // SpecMetrics holds computed metrics for a single spec's journey.

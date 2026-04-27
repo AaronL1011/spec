@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/aaronl1011/spec-cli/internal/config"
+	"github.com/aaronl1011/spec/internal/config"
 )
 
 // Mock notifier for testing

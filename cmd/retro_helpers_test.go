@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aaronl1011/spec-cli/internal/metrics"
+	"github.com/aaronl1011/spec/internal/metrics"
 )
 
 func TestBuildRetroSection_PerSpec(t *testing.T) {
