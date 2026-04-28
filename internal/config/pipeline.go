@@ -326,6 +326,24 @@ type LinkExistsGate struct {
 	Type    string `yaml:"type,omitempty"` // e.g., "figma", "github"
 }
 
+// UnmarshalYAML supports both string and object formats:
+//
+//	link_exists: pr                     # simple string
+//	link_exists: { section: pr }        # object form
+//	link_exists: { section: pr, type: github }
+func (g *LinkExistsGate) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try string first
+	var s string
+	if err := unmarshal(&s); err == nil {
+		g.Section = s
+		return nil
+	}
+
+	// Fall back to struct
+	type plain LinkExistsGate
+	return unmarshal((*plain)(g))
+}
+
 // WarningConfig defines a time-based warning for a stage.
 type WarningConfig struct {
 	// After is the duration after which the warning triggers (e.g., "5d", "48h").

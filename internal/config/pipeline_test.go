@@ -590,3 +590,50 @@ func TestNewSimpleGate_NewTypes(t *testing.T) {
 		}
 	}
 }
+
+func TestLinkExistsGate_UnmarshalYAML(t *testing.T) {
+	tests := []struct {
+		name        string
+		yaml        string
+		wantSection string
+		wantType    string
+	}{
+		{
+			name:        "simple string",
+			yaml:        `link_exists: pr`,
+			wantSection: "pr",
+			wantType:    "",
+		},
+		{
+			name:        "object with section only",
+			yaml:        "link_exists:\n  section: design",
+			wantSection: "design",
+			wantType:    "",
+		},
+		{
+			name:        "object with section and type",
+			yaml:        "link_exists:\n  section: design\n  type: figma",
+			wantSection: "design",
+			wantType:    "figma",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gate GateConfig
+			if err := yaml.Unmarshal([]byte(tt.yaml), &gate); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+
+			if gate.LinkExists == nil {
+				t.Fatal("LinkExists is nil")
+			}
+			if gate.LinkExists.Section != tt.wantSection {
+				t.Errorf("Section = %q, want %q", gate.LinkExists.Section, tt.wantSection)
+			}
+			if gate.LinkExists.Type != tt.wantType {
+				t.Errorf("Type = %q, want %q", gate.LinkExists.Type, tt.wantType)
+			}
+		})
+	}
+}
