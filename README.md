@@ -61,7 +61,20 @@ spec config init --user
 
 This creates `~/.spec/config.yaml` with your name, role, and preferences. You only do this once.
 
-### 2. Set up your team
+### 2. Join your team (or set up a new one)
+
+**Joining an existing team:**
+
+If your team already has a specs repo with `spec.config.yaml`:
+
+```bash
+export GITHUB_TOKEN=ghp_...
+spec join acme/specs
+```
+
+This clones the specs repo and configures your local environment automatically.
+
+**Setting up a new team:**
 
 In your specs repo (or wherever you want to manage specs):
 
@@ -376,6 +389,7 @@ Every draft goes through **accept / edit / skip** — AI never writes directly t
 | Command | Description |
 |---|---|
 | `spec whoami` | Your resolved identity |
+| `spec join <repo>` | Join an existing team by cloning their specs repo |
 | `spec config init` | Team config wizard |
 | `spec config init --user` | Personal config wizard |
 | `spec config test` | Validate all integrations |
