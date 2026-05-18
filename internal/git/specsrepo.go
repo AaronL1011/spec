@@ -14,6 +14,11 @@ import (
 
 const (
 	maxPushRetries = 3
+
+	// SpecsSubDir is the sub-directory within the specs repo where spec
+	// files are stored. All spec, triage, and archive content lives under
+	// this path.
+	SpecsSubDir = "specs"
 )
 
 // SpecsRepoDir returns the local path for the specs repo clone.
@@ -81,6 +86,12 @@ func EnsureSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig) (string, 
 	ref := fmt.Sprintf("origin/%s", cfg.Branch)
 	if err := ResetHard(ctx, dir, ref); err != nil {
 		return dir, fmt.Errorf("resetting specs repo: %w", redactToken(err))
+	}
+
+	// Ensure specs sub-directory exists
+	specsDir := filepath.Join(dir, SpecsSubDir)
+	if err := os.MkdirAll(specsDir, 0o755); err != nil {
+		return dir, fmt.Errorf("creating specs directory: %w", err)
 	}
 
 	return dir, nil
@@ -200,20 +211,20 @@ func PushLocalEdits(ctx context.Context, cfg *config.SpecsRepoConfig, commitMsg 
 // ReadSpecFile reads a spec file from the specs repo.
 func ReadSpecFile(cfg *config.SpecsRepoConfig, filename string) ([]byte, error) {
 	dir := SpecsRepoDir(cfg)
-	path := filepath.Join(dir, filename)
+	path := filepath.Join(dir, SpecsSubDir, filename)
 	return os.ReadFile(path)
 }
 
-// ListSpecFiles returns all spec files in the specs repo root.
+// ListSpecFiles returns all spec files in the specs/ directory of the specs repo.
 func ListSpecFiles(cfg *config.SpecsRepoConfig) ([]string, error) {
 	dir := SpecsRepoDir(cfg)
-	return listMarkdownFiles(dir)
+	return listMarkdownFiles(filepath.Join(dir, SpecsSubDir))
 }
 
-// ListTriageFiles returns all triage files in the triage/ directory.
+// ListTriageFiles returns all triage files in the specs/triage/ directory.
 func ListTriageFiles(cfg *config.SpecsRepoConfig) ([]string, error) {
 	dir := SpecsRepoDir(cfg)
-	triageDir := filepath.Join(dir, "triage")
+	triageDir := filepath.Join(dir, SpecsSubDir, "triage")
 	if _, err := os.Stat(triageDir); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -223,7 +234,7 @@ func ListTriageFiles(cfg *config.SpecsRepoConfig) ([]string, error) {
 // ListArchiveFiles returns all archived spec files.
 func ListArchiveFiles(cfg *config.SpecsRepoConfig, archiveDir string) ([]string, error) {
 	dir := SpecsRepoDir(cfg)
-	archivePath := filepath.Join(dir, archiveDir)
+	archivePath := filepath.Join(dir, SpecsSubDir, archiveDir)
 	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -246,12 +257,12 @@ func listMarkdownFiles(dir string) ([]string, error) {
 
 // SpecFilePath returns the absolute path to a spec file in the specs repo.
 func SpecFilePath(cfg *config.SpecsRepoConfig, filename string) string {
-	return filepath.Join(SpecsRepoDir(cfg), filename)
+	return filepath.Join(SpecsRepoDir(cfg), SpecsSubDir, filename)
 }
 
 // TriageFilePath returns the absolute path to a triage file.
 func TriageFilePath(cfg *config.SpecsRepoConfig, filename string) string {
-	return filepath.Join(SpecsRepoDir(cfg), "triage", filename)
+	return filepath.Join(SpecsRepoDir(cfg), SpecsSubDir, "triage", filename)
 }
 
 // guardUnpushedChanges checks for uncommitted changes in the specs repo

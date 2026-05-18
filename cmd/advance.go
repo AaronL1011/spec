@@ -174,14 +174,14 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 			Syncer: &effects.SyncerAdapter{
 				Docs:             reg.Docs(),
 				DB:               db,
-				SpecDir:          repoPath,
+				SpecDir:          specsDir(repoPath),
 				ConflictStrategy: rc.Team.Sync.ConflictStrategy,
 				OwnerRole:        role,
 				UserName:         rc.UserName(),
 			},
 			PMUpdater: &effects.PMUpdaterAdapter{PM: reg.PM(), EpicKey: meta.EpicKey},
 			Webhooker: &effects.WebhookerAdapter{},
-			Logger:    &effects.LoggerAdapter{DB: db, SpecDir: repoPath, SpecID: specID},
+			Logger:    &effects.LoggerAdapter{DB: db, SpecDir: specsDir(repoPath), SpecID: specID},
 		}
 
 		resolvedPipeline, _ := pipeline.Resolve(rc.Team.Pipeline)
