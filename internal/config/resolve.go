@@ -53,7 +53,7 @@ func Resolve() (*ResolvedConfig, error) {
 						if loadErr == nil {
 							rc.Team = teamCfg
 							rc.TeamConfigPath = candidate
-							rc.SpecsRepoDir = filepath.Join(ownerPath, repo.Name())
+							rc.SpecsRepoDir = filepath.Join(ownerPath, repo.Name(), "specs")
 						}
 						break
 					}
@@ -65,14 +65,14 @@ func Resolve() (*ResolvedConfig, error) {
 		}
 	}
 
-	// SpecsRepoDir always points to the internal managed clone, not wherever
-	// spec.config.yaml was found. The config file may live in the user's own
-	// checkout of the specs repo, but spec reads and writes through the clone
-	// it controls at ~/.spec/repos/<owner>/<repo>.
+	// SpecsRepoDir always points to the specs/ sub-directory of the internal
+	// managed clone, not wherever spec.config.yaml was found. The config file
+	// may live in the user's own checkout of the specs repo, but spec reads
+	// and writes through the clone at ~/.spec/repos/<owner>/<repo>/specs/.
 	if rc.SpecsRepoDir == "" && rc.Team != nil &&
 		rc.Team.SpecsRepo.Owner != "" && rc.Team.SpecsRepo.Repo != "" {
 		rc.SpecsRepoDir = filepath.Join(UserConfigDir(), "repos",
-			rc.Team.SpecsRepo.Owner, rc.Team.SpecsRepo.Repo)
+			rc.Team.SpecsRepo.Owner, rc.Team.SpecsRepo.Repo, "specs")
 	}
 
 	return rc, nil

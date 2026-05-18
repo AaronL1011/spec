@@ -335,7 +335,8 @@ type ResolvedConfig struct {
 	// UserConfigPath is the path to the user config file.
 	UserConfigPath string
 
-	// SpecsRepoDir is the local path to the specs repo clone.
+	// SpecsRepoDir is the local path to the specs/ sub-directory within
+	// the specs repo clone. All spec, triage, and archive content lives here.
 	SpecsRepoDir string
 }
 

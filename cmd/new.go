@@ -46,7 +46,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 	reg := buildRegistry(rc)
 
 	// Ensure specs repo is cloned and up to date
-	specsDir, err := gitpkg.EnsureSpecsRepo(ctx(), &rc.Team.SpecsRepo)
+	repoDir, err := gitpkg.EnsureSpecsRepo(ctx(), &rc.Team.SpecsRepo)
 	if err != nil {
 		return fmt.Errorf("syncing specs repo: %w", err)
 	}
@@ -64,7 +64,10 @@ func runNew(cmd *cobra.Command, args []string) error {
 
 	// Write to specs repo via WithSpecsRepo
 	err = gitpkg.WithSpecsRepo(ctx(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
-		specPath := filepath.Join(repoPath, specID+".md")
+		sd := specsDir(repoPath)
+		_ = os.MkdirAll(sd, 0o755)
+
+		specPath := filepath.Join(sd, specID+".md")
 		if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {
 			return "", fmt.Errorf("writing spec: %w", err)
 		}
@@ -74,8 +77,8 @@ func runNew(cmd *cobra.Command, args []string) error {
 		_ = os.MkdirAll(templatesDir, 0o755) // Best-effort directory creation
 
 		// Ensure triage and archive dirs exist
-		_ = os.MkdirAll(filepath.Join(repoPath, "triage"), 0o755)
-		_ = os.MkdirAll(filepath.Join(repoPath, config.ArchiveDir(rc.Team)), 0o755)
+		_ = os.MkdirAll(filepath.Join(sd, "triage"), 0o755)
+		_ = os.MkdirAll(filepath.Join(sd, config.ArchiveDir(rc.Team)), 0o755)
 
 		return fmt.Sprintf("feat: scaffold %s — %s", specID, title), nil
 	})
@@ -111,7 +114,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("✓ Created %s — %s\n", specID, title)
-	fmt.Printf("  Location: %s/%s.md\n", specsDir, specID)
+	fmt.Printf("  Location: %s/%s.md\n", filepath.Join(repoDir, gitpkg.SpecsSubDir), specID)
 	fmt.Printf("  Status: draft\n")
 	fmt.Printf("  Edit with: spec edit %s\n", specID)
 

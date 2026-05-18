@@ -73,14 +73,16 @@ func runPromote(cmd *cobra.Command, args []string) error {
 	var newSpecID string
 
 	err = gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+		sd := specsDir(repoPath)
+
 		// Write the new spec
-		specPath := filepath.Join(repoPath, specID+".md")
+		specPath := filepath.Join(sd, specID+".md")
 		if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {
 			return "", fmt.Errorf("writing spec: %w", err)
 		}
 
 		// Remove the triage item
-		triageFile := filepath.Join(repoPath, "triage", triageID+".md")
+		triageFile := filepath.Join(sd, "triage", triageID+".md")
 		if err := os.Remove(triageFile); err != nil {
 			// Non-fatal — the triage file might already be gone
 			warnf("could not remove triage file: %v", err)
