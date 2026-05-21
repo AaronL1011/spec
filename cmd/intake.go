@@ -57,7 +57,7 @@ func runIntake(cmd *cobra.Command, args []string) error {
 
 	// Write via WithSpecsRepo
 	err = gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
-		triageDir := filepath.Join(repoPath, "triage")
+		triageDir := filepath.Join(specsDir(repoPath), "triage")
 		if err := os.MkdirAll(triageDir, 0o755); err != nil {
 			return "", err
 		}

@@ -16,6 +16,12 @@ import (
 	"github.com/aaronl1011/spec/internal/store"
 )
 
+// specsDir returns the specs content directory within a repo root path.
+// Use inside WithSpecsRepo mutators where repoPath is the git repo root.
+func specsDir(repoPath string) string {
+	return filepath.Join(repoPath, gitpkg.SpecsSubDir)
+}
+
 // resolveConfig loads the full configuration chain.
 func resolveConfig() (*config.ResolvedConfig, error) {
 	return config.Resolve()
@@ -181,8 +187,9 @@ func buildRegistry(rc *config.ResolvedConfig) *adapter.Registry {
 }
 
 // specPathIn is a shorthand for resolveSpecPathIn using the team config's archive dir.
+// repoPath is the git repo root; specs are resolved under the specs/ sub-directory.
 func specPathIn(repoPath string, rc *config.ResolvedConfig, specID string) (string, error) {
-	return resolveSpecPathIn(repoPath, config.ArchiveDir(rc.Team), specID)
+	return resolveSpecPathIn(specsDir(repoPath), config.ArchiveDir(rc.Team), specID)
 }
 
 // ctx returns a background context.
