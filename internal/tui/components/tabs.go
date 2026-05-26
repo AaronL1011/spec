@@ -43,12 +43,22 @@ func (t *TabStrip) SetActive(idx int) {
 // SetWidth updates the tab strip width.
 func (t *TabStrip) SetWidth(w int) { t.width = w }
 
+// compactThreshold is the width below which tabs show shortcuts only.
+const compactThreshold = 85
+
 // View renders the tab strip.
 func (t TabStrip) View() string {
-	var rendered []string
+	compact := t.width > 0 && t.width < compactThreshold
 
+	var rendered []string
 	for i, tab := range t.tabs {
-		label := tab.Shortcut + " " + tab.Label
+		var label string
+		if compact {
+			label = tab.Shortcut
+		} else {
+			label = tab.Shortcut + " " + tab.Label
+		}
+
 		if i == t.active {
 			rendered = append(rendered, t.styles.Active.Render(label))
 		} else {
@@ -56,7 +66,12 @@ func (t TabStrip) View() string {
 		}
 	}
 
-	sep := t.styles.Separator.Render(" │ ")
+	var sep string
+	if compact {
+		sep = t.styles.Separator.Render(" ")
+	} else {
+		sep = t.styles.Separator.Render(" │ ")
+	}
 	strip := strings.Join(rendered, sep)
 
 	return t.styles.Bar.Width(t.width).Render(strip)

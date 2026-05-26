@@ -57,14 +57,48 @@ func (h Header) View() string {
 		right = h.styles.Meta.Render(strings.Join(meta, " · "))
 	}
 
-	// Fill the bar to full width
-	gap := h.width - lipgloss.Width(left) - lipgloss.Width(right)
+	// At narrow widths, stack vertically instead of colliding.
+	minGap := 2
+	available := h.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if available < minGap && right != "" {
+		// Stack: greeting on top, meta below right-aligned.
+		topBar := h.styles.Bar.Width(h.width).Render(left)
+		botBar := h.styles.Bar.Width(h.width).Align(lipgloss.Right).Render(right)
+		return topBar + "\n" + botBar
+	}
+
+	gap := available
 	if gap < 0 {
 		gap = 0
 	}
 
 	bar := left + strings.Repeat(" ", gap) + right
 	return h.styles.Bar.Width(h.width).Render(bar)
+}
+
+// Height returns how many lines the header occupies at the current width.
+func (h Header) Height() int {
+	greeting := h.greeting()
+	left := h.styles.Greeting.Render(greeting)
+
+	var meta []string
+	if h.role != "" {
+		meta = append(meta, h.role)
+	}
+	if h.cycle != "" {
+		meta = append(meta, h.cycle)
+	}
+
+	right := ""
+	if len(meta) > 0 {
+		right = h.styles.Meta.Render(strings.Join(meta, " · "))
+	}
+
+	available := h.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if available < 2 && right != "" {
+		return 2
+	}
+	return 1
 }
 
 func (h Header) greeting() string {

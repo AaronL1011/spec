@@ -189,8 +189,9 @@ func (a App) View() string {
 	tabs := a.tabs.View()
 	statusBar := a.statusBar.View()
 
-	// Content area = total height minus header, tabs, status bar
-	chromeHeight := 3
+	// Content area = total height minus header (1-2 lines), tabs (1), status bar (1)
+	headerHeight := a.header.Height()
+	chromeHeight := headerHeight + 2 // tabs + status bar
 	contentHeight := a.height - chromeHeight
 	if contentHeight < 1 {
 		contentHeight = 1
@@ -264,7 +265,8 @@ func (a *App) propagateSize() {
 	a.tabs.SetWidth(a.width)
 	a.statusBar.SetWidth(a.width)
 
-	contentHeight := a.height - 3
+	headerH := a.header.Height()
+	contentHeight := a.height - headerH - 2 // tabs + status bar
 	if contentHeight < 1 {
 		contentHeight = 1
 	}

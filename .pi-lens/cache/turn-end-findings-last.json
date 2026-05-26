@@ -1,4 +1,4 @@
 {
-  "signature": "internal/tui/dashboard_test.go::Unresolved from this turn — internal/tui/dashboard_test.go:\n🔴 STOP — 3 issue(s) must be fixed:\n  L90: undefined: keyMsg\n    💡 Fix: LSP quick fixes: Create function keyMsg\n  L96: undefined: keyMsg\n    💡 Fix: LSP quick fixes: Create function keyMsg\n  L102: undefined: keyMsg\n    💡 Fix: LSP quick fixes: Create function keyMsg",
+  "signature": "internal/tui/dashboard.go::Unresolved from this turn — internal/tui/dashboard.go:\n🔴 STOP — 3 issue(s) must be fixed:\n  L271: undefined: slices\n    💡 Fix: LSP quick fixes: Add import: \"github.com/charmbracelet/lipgloss\"; Add import: \"slices\"\n  L293: undefined: lipgloss\n    💡 Fix: LSP quick fixes: Add import: \"github.com/charmbracelet/lipgloss\"; Add import: \"slices\"\n  L293: undefined: lipgloss\n    💡 Fix: LSP quick fixes: Add import: \"github.com/charmbracelet/lipgloss\"; Add import: \"slices\"",
   "sessionId": "lens-mpm71hqm-04c8067c"
 }
