@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
@@ -51,6 +52,14 @@ type App struct {
 	detail     specDetailModel
 	detailFrom View // which view we drilled in from
 
+	// Overlays
+	modal components.Modal
+	toast components.Toast
+
+	// Pending action context (for modal confirmations)
+	pendingAction string
+	pendingSpecID string
+
 	// Refresh
 	refreshInterval time.Duration
 }
@@ -96,22 +105,34 @@ func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
 	sb.SetView(ViewDashboard.Label())
 
 	return App{
-		rc:              rc,
-		reg:             reg,
-		role:            role,
-		theme:           theme,
-		styles:          styles,
-		keys:            keys,
-		header:          header,
-		tabs:            tabs,
-		statusBar:       sb,
-		activeView:      ViewDashboard,
-		dashboard:       newDashboard(rc, reg, role, styles, keys),
-		pipeline:        newPipeline(rc, styles, keys),
-		specs:           newSpecList(rc, styles, keys),
-		triage:          newTriage(rc, styles, keys),
-		reviews:         newReview(rc, reg, styles, keys),
-		settings:        newPlaceholder("Settings", styles),
+		rc:         rc,
+		reg:        reg,
+		role:       role,
+		theme:      theme,
+		styles:     styles,
+		keys:       keys,
+		header:     header,
+		tabs:       tabs,
+		statusBar:  sb,
+		activeView: ViewDashboard,
+		dashboard:  newDashboard(rc, reg, role, styles, keys),
+		pipeline:   newPipeline(rc, styles, keys),
+		specs:      newSpecList(rc, styles, keys),
+		triage:     newTriage(rc, styles, keys),
+		reviews:    newReview(rc, reg, styles, keys),
+		settings:   newPlaceholder("Settings", styles),
+		modal: components.NewModal(components.ModalStyles{
+			Border:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(theme.Accent),
+			Title:   styles.Title,
+			Message: styles.Subtitle,
+			Input:   lipgloss.NewStyle().Foreground(theme.Text).Background(theme.Surface).Padding(0, 1),
+			Hint:    styles.Muted,
+		}),
+		toast: components.NewToast(components.ToastStyles{
+			Success: lipgloss.NewStyle().Foreground(theme.Base).Background(theme.Success).Padding(0, 1),
+			Error:   lipgloss.NewStyle().Foreground(theme.Base).Background(theme.Error).Padding(0, 1),
+			Info:    lipgloss.NewStyle().Foreground(theme.Base).Background(theme.Accent).Padding(0, 1),
+		}),
 		refreshInterval: defaultRefreshInterval,
 	}
 }
@@ -177,10 +198,40 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case navigateBackMsg:
 		return a, a.closeDetail()
 
+	// Action results — show toast and refresh.
+	case actionResultMsg:
+		if msg.Err != nil {
+			a.toast.Show(msg.Err.Error(), components.ToastError, 5*time.Second)
+		} else {
+			label := msg.Action
+			if msg.Detail != "" {
+				label += ": " + msg.Detail
+			}
+			if msg.SpecID != "" {
+				label = msg.SpecID + " " + label
+			}
+			a.toast.Show(label, components.ToastSuccess, 3*time.Second)
+		}
+		return a, a.refreshActiveView()
+
 	case tea.KeyMsg:
+		// Modal gets absolute priority when visible.
+		if a.modal.Visible {
+			return a.updateModal(msg)
+		}
+
 		// Detail view gets priority when open.
 		if a.showDetail {
 			return a.updateDetail(msg)
+		}
+
+		// When a view is capturing text input (e.g. search), delegate
+		// all keystrokes to the view. Only Ctrl+C force-quits.
+		if a.viewCapturingInput() {
+			if msg.Type == tea.KeyCtrlC {
+				return a, tea.Quit
+			}
+			return a, a.delegateToActive(msg)
 		}
 
 		switch {
@@ -197,6 +248,61 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, a.keys.Enter):
 			if specID := a.selectedSpecID(); specID != "" {
 				return a, a.openDetail(specID)
+			}
+
+		// --- Action hotkeys ---
+
+		case key.Matches(msg, a.keys.Advance):
+			if specID := a.selectedSpecID(); specID != "" {
+				a.pendingAction = "advance"
+				a.pendingSpecID = specID
+				a.modal.ShowConfirm("Advance "+specID, "Advance this spec to the next pipeline stage?")
+				a.modal.SetSize(a.width, a.contentHeight())
+				return a, nil
+			}
+
+		case key.Matches(msg, a.keys.Block):
+			if specID := a.selectedSpecID(); specID != "" {
+				a.pendingAction = "block"
+				a.pendingSpecID = specID
+				a.modal.ShowInput("Block "+specID, "Reason for blocking:")
+				a.modal.SetSize(a.width, a.contentHeight())
+				return a, nil
+			}
+
+		case key.Matches(msg, a.keys.Unblock):
+			if specID := a.selectedSpecID(); specID != "" {
+				a.pendingAction = "unblock"
+				a.pendingSpecID = specID
+				a.modal.ShowConfirm("Unblock "+specID, "Resume this spec from blocked status?")
+				a.modal.SetSize(a.width, a.contentHeight())
+				return a, nil
+			}
+
+		case key.Matches(msg, a.keys.Focus):
+			if specID := a.selectedSpecID(); specID != "" {
+				return a, focusSpec(specID)
+			}
+
+		case key.Matches(msg, a.keys.Yank):
+			if specID := a.selectedSpecID(); specID != "" {
+				return a, yankSpecID(specID)
+			}
+
+		case key.Matches(msg, a.keys.Open):
+			if a.activeView == ViewReviews {
+				if url := a.reviews.selectedURL(); url != "" {
+					return a, openInBrowser(url)
+				}
+			}
+
+		case key.Matches(msg, a.keys.Edit):
+			if specID := a.selectedSpecID(); specID != "" {
+				editor := "vi"
+				if a.rc.User != nil && a.rc.User.Preferences.Editor != "" {
+					editor = a.rc.User.Preferences.Editor
+				}
+				return a, editSpec(a.rc, specID, editor)
 			}
 
 		// View switching — number keys and tab.
@@ -244,7 +350,9 @@ func (a App) View() string {
 	}
 
 	var content string
-	if a.showDetail {
+	if a.modal.Visible {
+		content = a.modal.View()
+	} else if a.showDetail {
 		content = a.detail.view()
 	} else {
 		content = a.activeViewContent()
@@ -264,7 +372,13 @@ func (a App) View() string {
 	for _, l := range lines {
 		out += l + "\n"
 	}
-	out += statusBar
+
+	// Toast overlays the status bar when visible.
+	if a.toast.Visible() {
+		out += a.toast.View()
+	} else {
+		out += statusBar
+	}
 
 	return out
 }
@@ -284,6 +398,16 @@ func (a App) selectedSpecID() string {
 	default:
 		return ""
 	}
+}
+
+// viewCapturingInput returns true when the active view is in a text
+// input mode (e.g. search bar) and keystrokes should be routed to
+// the view instead of being interpreted as hotkeys.
+func (a App) viewCapturingInput() bool {
+	if a.activeView == ViewSpecs {
+		return a.specs.isInputActive()
+	}
+	return false
 }
 
 func (a App) activeViewContent() string {
@@ -392,10 +516,111 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 		return a, a.switchView(ViewSettings)
 	}
 
-	// Delegate to detail.
+	// Action keys work on the detail's spec.
+	specID := a.detail.specID
+	switch {
+	case key.Matches(msg, a.keys.Advance):
+		a.pendingAction = "advance"
+		a.pendingSpecID = specID
+		a.modal.ShowConfirm("Advance "+specID, "Advance this spec to the next pipeline stage?")
+		a.modal.SetSize(a.width, a.contentHeight())
+		return a, nil
+	case key.Matches(msg, a.keys.Block):
+		a.pendingAction = "block"
+		a.pendingSpecID = specID
+		a.modal.ShowInput("Block "+specID, "Reason for blocking:")
+		a.modal.SetSize(a.width, a.contentHeight())
+		return a, nil
+	case key.Matches(msg, a.keys.Unblock):
+		a.pendingAction = "unblock"
+		a.pendingSpecID = specID
+		a.modal.ShowConfirm("Unblock "+specID, "Resume this spec from blocked status?")
+		a.modal.SetSize(a.width, a.contentHeight())
+		return a, nil
+	case key.Matches(msg, a.keys.Focus):
+		return a, focusSpec(specID)
+	case key.Matches(msg, a.keys.Yank):
+		return a, yankSpecID(specID)
+	case key.Matches(msg, a.keys.Edit):
+		editor := "vi"
+		if a.rc.User != nil && a.rc.User.Preferences.Editor != "" {
+			editor = a.rc.User.Preferences.Editor
+		}
+		return a, editSpec(a.rc, specID, editor)
+	}
+
+	// Delegate to detail for scrolling etc.
 	var cmd tea.Cmd
 	a.detail, cmd = a.detail.update(msg)
 	return a, cmd
+}
+
+func (a App) updateModal(msg tea.KeyMsg) (App, tea.Cmd) {
+	switch a.modal.Kind {
+	case components.ModalConfirm:
+		switch msg.Type {
+		case tea.KeyRunes:
+			if string(msg.Runes) == "y" {
+				a.modal.Hide()
+				return a, a.executeAction()
+			}
+			if string(msg.Runes) == "n" {
+				a.modal.Hide()
+				return a, nil
+			}
+		case tea.KeyEscape:
+			a.modal.Hide()
+			return a, nil
+		}
+
+	case components.ModalInput:
+		switch msg.Type {
+		case tea.KeyEscape:
+			a.modal.Hide()
+			return a, nil
+		case tea.KeyEnter:
+			if a.modal.Input != "" {
+				a.modal.Hide()
+				return a, a.executeAction()
+			}
+		case tea.KeyBackspace:
+			a.modal.BackspaceInput()
+		case tea.KeyRunes:
+			a.modal.AppendInput(string(msg.Runes))
+		}
+	}
+	return a, nil
+}
+
+// executeAction runs the pending action after modal confirmation.
+func (a *App) executeAction() tea.Cmd {
+	specID := a.pendingSpecID
+	switch a.pendingAction {
+	case "advance":
+		return advanceSpec(a.rc, specID, a.role)
+	case "block":
+		reason := a.modal.Input
+		if reason == "" {
+			reason = "blocked from TUI"
+		}
+		return blockSpec(a.rc, specID, reason, a.rc.UserName())
+	case "unblock":
+		return unblockSpec(a.rc, specID)
+	case "revert":
+		reason := a.modal.Input
+		if reason == "" {
+			reason = "reverted from TUI"
+		}
+		// Revert to the first stage as default.
+		pl := a.rc.Pipeline()
+		target := ""
+		if len(pl.Stages) > 0 {
+			target = pl.Stages[0].Name
+		}
+		return revertSpec(a.rc, specID, target, reason, a.rc.UserName())
+	default:
+		return nil
+	}
 }
 
 func (a *App) delegateToActive(msg tea.Msg) tea.Cmd {
@@ -430,6 +655,7 @@ func (a *App) propagateSize() {
 	if a.showDetail {
 		a.detail.setSize(a.width, ch)
 	}
+	a.modal.SetSize(a.width, ch)
 }
 
 func (a App) contentHeight() int {

@@ -1,17 +1,6 @@
 {
-  "files": {
-    "internal/tui/speclist_test.go": {
-      "modifiedRanges": [
-        {
-          "start": 1,
-          "end": 154
-        }
-      ],
-      "importsChanged": true,
-      "lastEdit": "2026-05-26T06:27:13.947Z"
-    }
-  },
+  "files": {},
   "turnCycles": 0,
   "maxCycles": 3,
-  "lastUpdated": "2026-05-26T06:27:13.947Z"
+  "lastUpdated": "2026-05-26T23:42:47.369Z"
 }

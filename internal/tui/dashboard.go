@@ -107,13 +107,8 @@ func (m dashboardModel) view() string {
 		return m.styles.Muted.Render("  No data")
 	}
 
-	var b strings.Builder
-
 	if len(m.items) == 0 {
-		b.WriteString("\n")
-		b.WriteString(m.styles.Success.Render("  ✓ All clear — nothing needs your attention"))
-		b.WriteString("\n")
-		return b.String()
+		return m.styles.Success.Render("  ✓ All clear — nothing needs your attention")
 	}
 
 	contentWidth := m.width - 4
@@ -121,23 +116,58 @@ func (m dashboardModel) view() string {
 		contentWidth = 30
 	}
 
+	// Build all lines first, then apply scroll window.
+	var allLines []string
 	currentSection := ""
 	for i, row := range m.items {
 		if row.section != currentSection {
 			currentSection = row.section
 			count := m.sectionCount(currentSection)
 			if i > 0 {
-				b.WriteString("\n")
+				allLines = append(allLines, "")
 			}
-			b.WriteString(m.sectionHeader(currentSection, count, contentWidth))
-			b.WriteString("\n")
+			allLines = append(allLines, m.sectionHeader(currentSection, count, contentWidth))
 		}
-
-		b.WriteString(m.renderRow(row, i == m.cursor, contentWidth))
-		b.WriteString("\n")
+		allLines = append(allLines, m.renderRow(row, i == m.cursor, contentWidth))
 	}
 
+	// Find which line index the cursor row occupies.
+	cursorLine := m.cursorLineIndex()
+
+	visible := m.height
+	if visible < 3 {
+		visible = 3
+	}
+
+	start, end := scrollWindowAround(cursorLine, len(allLines), visible)
+
+	var b strings.Builder
+	for _, l := range allLines[start:end] {
+		b.WriteString(l)
+		b.WriteString("\n")
+	}
 	return b.String()
+}
+
+// cursorLineIndex returns which rendered line the cursor row maps to,
+// accounting for section headers and blank separators.
+func (m dashboardModel) cursorLineIndex() int {
+	line := 0
+	currentSection := ""
+	for i, row := range m.items {
+		if row.section != currentSection {
+			currentSection = row.section
+			if i > 0 {
+				line++ // blank separator
+			}
+			line++ // section header
+		}
+		if i == m.cursor {
+			return line
+		}
+		line++
+	}
+	return line
 }
 
 func (m *dashboardModel) setSize(w, h int) {

@@ -83,10 +83,20 @@ func (m pipelineModel) update(msg tea.Msg) (pipelineModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Up):
 			if m.specIdx > 0 {
 				m.specIdx--
+			} else if prev := m.prevNonEmptyStage(m.stageIdx); prev >= 0 {
+				// At top of current stage — wrap to last spec of previous stage.
+				m.stageIdx = prev
+				m.specIdx = len(m.stages[prev].Specs) - 1
 			}
 		case key.Matches(msg, m.keys.Down):
-			m.specIdx++
-			m.clampCursor()
+			specCount := m.currentStageSpecCount()
+			if m.specIdx < specCount-1 {
+				m.specIdx++
+			} else if next := m.nextNonEmptyStage(m.stageIdx); next >= 0 {
+				// At bottom of current stage — wrap to first spec of next stage.
+				m.stageIdx = next
+				m.specIdx = 0
+			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("left", "h"))):
 			if m.stageIdx > 0 {
 				m.stageIdx--
@@ -113,12 +123,13 @@ func (m pipelineModel) view() string {
 		return m.styles.Muted.Render("  No pipeline stages configured")
 	}
 
-	var b strings.Builder
+	// Build all lines, track which line the cursor maps to.
+	var allLines []string
+	cursorLine := 0
 
 	for si, stage := range m.stages {
 		isActiveStage := si == m.stageIdx
 
-		// Stage header: icon + name + count
 		icon := stage.Icon
 		if icon == "" {
 			icon = "○"
@@ -137,26 +148,37 @@ func (m pipelineModel) view() string {
 			header += m.styles.Muted.Render(fmt.Sprintf("  (%s)", stage.Owner))
 		}
 
-		b.WriteString(header)
-		b.WriteString("\n")
+		// Blank separator between stages (not before first).
+		if si > 0 {
+			allLines = append(allLines, "")
+		}
+		allLines = append(allLines, header)
 
 		if len(stage.Specs) == 0 {
-			b.WriteString(m.styles.Muted.Render("    —"))
-			b.WriteString("\n")
+			allLines = append(allLines, m.styles.Muted.Render("    —"))
 		} else {
 			for ri, spec := range stage.Specs {
 				selected := isActiveStage && ri == m.specIdx
-				b.WriteString(m.renderPipelineRow(spec, selected))
-				b.WriteString("\n")
+				if selected {
+					cursorLine = len(allLines)
+				}
+				allLines = append(allLines, m.renderPipelineRow(spec, selected))
 			}
-		}
-
-		// Breathing room between stages
-		if si < len(m.stages)-1 {
-			b.WriteString("\n")
 		}
 	}
 
+	// Scroll so the selected row is visible.
+	visible := m.height
+	if visible < 3 {
+		visible = 3
+	}
+	start, end := scrollWindowAround(cursorLine, len(allLines), visible)
+
+	var b strings.Builder
+	for _, l := range allLines[start:end] {
+		b.WriteString(l)
+		b.WriteString("\n")
+	}
 	return b.String()
 }
 
@@ -217,6 +239,36 @@ func (m *pipelineModel) clampCursor() {
 			m.specIdx = max(0, specCount-1)
 		}
 	}
+}
+
+// currentStageSpecCount returns the spec count for the active stage.
+func (m pipelineModel) currentStageSpecCount() int {
+	if m.stageIdx < len(m.stages) {
+		return len(m.stages[m.stageIdx].Specs)
+	}
+	return 0
+}
+
+// nextNonEmptyStage returns the index of the next stage that has specs,
+// or -1 if none.
+func (m pipelineModel) nextNonEmptyStage(from int) int {
+	for i := from + 1; i < len(m.stages); i++ {
+		if len(m.stages[i].Specs) > 0 {
+			return i
+		}
+	}
+	return -1
+}
+
+// prevNonEmptyStage returns the index of the previous stage that has specs,
+// or -1 if none.
+func (m pipelineModel) prevNonEmptyStage(from int) int {
+	for i := from - 1; i >= 0; i-- {
+		if len(m.stages[i].Specs) > 0 {
+			return i
+		}
+	}
+	return -1
 }
 
 func (m pipelineModel) fetchData() tea.Cmd {

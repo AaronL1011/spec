@@ -34,12 +34,13 @@ type specDetailModel struct {
 	rc     *config.ResolvedConfig
 	specID string
 
-	meta      *markdown.SpecMeta
-	sections  []markdown.Section
-	decisions []markdown.DecisionEntry
-	loading   bool
-	err       error
-	scroll    int
+	meta         *markdown.SpecMeta
+	sections     []markdown.Section
+	decisions    []markdown.DecisionEntry
+	loading      bool
+	err          error
+	scroll       int
+	contentLines int // cached line count for scroll clamping
 
 	width  int
 	height int
@@ -73,6 +74,8 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 		m.sections = msg.Sections
 		m.decisions = msg.Decisions
 		m.err = nil
+		m.scroll = 0
+		m.contentLines = m.estimateContentLines()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -82,7 +85,11 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 				m.scroll--
 			}
 		case key.Matches(msg, m.keys.Down):
+			// Clamp scroll to content length in update (not view) so it persists.
 			m.scroll++
+			if max := m.maxScroll(); m.scroll > max {
+				m.scroll = max
+			}
 		case key.Matches(msg, m.keys.Back):
 			return m, func() tea.Msg { return navigateBackMsg{} }
 		}
@@ -187,24 +194,23 @@ func (m specDetailModel) view() string {
 		b.WriteString("\n")
 	}
 
-	// Apply scrolling
+	// Apply scroll — direct viewport offset (not centered like list views).
 	lines := splitLines(b.String())
-	if m.scroll >= len(lines) {
-		m.scroll = max(0, len(lines)-1)
+
+	visible := m.height
+	if visible < 3 {
+		visible = 3
 	}
-	visibleLines := m.height - 2
-	if visibleLines < 3 {
-		visibleLines = 3
+
+	start := m.scroll
+	if start > len(lines) {
+		start = len(lines)
 	}
-	end := m.scroll + visibleLines
+	end := start + visible
 	if end > len(lines) {
 		end = len(lines)
 	}
-	if m.scroll < end {
-		lines = lines[m.scroll:end]
-	}
-
-	return strings.Join(lines, "\n")
+	return strings.Join(lines[start:end], "\n")
 }
 
 func (m specDetailModel) metaLine(label, value string) string {
@@ -233,6 +239,64 @@ func stepIcon(status string) string {
 func (m *specDetailModel) setSize(w, h int) {
 	m.width = w
 	m.height = h
+	if mx := m.maxScroll(); m.scroll > mx {
+		m.scroll = mx
+	}
+}
+
+// maxScroll returns the furthest scroll position that still shows content.
+func (m specDetailModel) maxScroll() int {
+	if m.contentLines == 0 {
+		return 0
+	}
+	visible := m.height
+	if visible < 3 {
+		visible = 3
+	}
+	mx := m.contentLines - visible
+	if mx < 0 {
+		return 0
+	}
+	return mx
+}
+
+// estimateContentLines counts how many lines the rendered content will produce.
+func (m specDetailModel) estimateContentLines() int {
+	if m.meta == nil {
+		return 1
+	}
+	lines := 5 // title block + blank lines
+	lines += 3 // status, author, updated (always present)
+	if m.meta.Version != "" {
+		lines++
+	}
+	if m.meta.Cycle != "" {
+		lines++
+	}
+	if len(m.meta.Repos) > 0 {
+		lines++
+	}
+	lines++ // blank after meta
+	if len(m.meta.Steps) > 0 {
+		lines += 1 + len(m.meta.Steps) + 1 // header + steps + blank
+	}
+	if len(m.decisions) > 0 {
+		lines++ // header
+		for _, d := range m.decisions {
+			lines++ // question
+			if d.Decision != "" {
+				lines++ // resolution
+			}
+		}
+		lines++ // blank
+	}
+	lines++ // sections header
+	for _, sec := range m.sections {
+		if sec.Level <= 3 {
+			lines++
+		}
+	}
+	return lines
 }
 
 func (m specDetailModel) fetchData() tea.Cmd {

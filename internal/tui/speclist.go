@@ -168,7 +168,7 @@ func (m specListModel) view() string {
 		spec := m.filtered[i]
 		line := m.formatRow(spec.ID, spec.Title, spec.Status, spec.Author, spec.Updated, contentWidth)
 		if i == m.cursor {
-			b.WriteString(m.styles.RowSelected.Width(contentWidth).Render(line))
+			b.WriteString(m.styles.RowSelected.Render(line))
 		} else {
 			b.WriteString(m.styles.RowNormal.Render(line))
 		}
@@ -181,26 +181,49 @@ func (m specListModel) view() string {
 func (m specListModel) formatRow(id, title, status, author, updated string, width int) string {
 	compact := width < 70
 
+	// Fixed column widths. The title column absorbs whatever is left.
+	// The total must not exceed width so the styled row never wraps.
+	const (
+		indent    = 2
+		idCol     = 11
+		statusCol = 12
+		authorCol = 10
+		updateCol = 10
+		gaps      = 4 // spaces between columns
+	)
+
 	if compact {
-		titleMax := width - len(id) - len(status) - 6
+		fixed := indent + idCol + 1 + len(truncate(status, statusCol))
+		titleMax := width - fixed - 1
 		if titleMax < 8 {
 			titleMax = 8
 		}
-		return fmt.Sprintf("  %-11s %-*s %s", id, titleMax, truncate(title, titleMax), status)
+		return fmt.Sprintf("  %-*s %-*s %s",
+			idCol, truncate(id, idCol),
+			titleMax, truncate(title, titleMax),
+			truncate(status, statusCol),
+		)
 	}
 
-	// Wide: all columns
-	titleMax := width - 48 // id(11) + status(12) + author(10) + updated(10) + spacing(5)
+	// Wide: all columns. Compute title width so total == width exactly.
+	// Layout: indent + id + gap + title + gap + status + gap + author + gap + updated
+	fixed := indent + idCol + 1 + 1 + statusCol + 1 + authorCol + 1 + updateCol
+	titleMax := width - fixed
 	if titleMax < 10 {
 		titleMax = 10
 	}
-	return fmt.Sprintf("  %-11s %-*s %-12s %-10s %s",
-		id,
+	return fmt.Sprintf("  %-*s %-*s %-*s %-*s %-*s",
+		idCol, truncate(id, idCol),
 		titleMax, truncate(title, titleMax),
-		truncate(status, 12),
-		truncate(author, 10),
-		truncate(updated, 10),
+		statusCol, truncate(status, statusCol),
+		authorCol, truncate(author, authorCol),
+		updateCol, truncate(updated, updateCol),
 	)
+}
+
+// isInputActive returns true when the search bar is capturing keystrokes.
+func (m specListModel) isInputActive() bool {
+	return m.searchActive
 }
 
 func (m specListModel) selectedSpecID() string {
@@ -279,6 +302,8 @@ func loadAllSpecs(_ context.Context, rc *config.ResolvedConfig) ([]specListItem,
 }
 
 // scrollWindow computes the visible slice for a scrollable list.
+// cursor is the selected item index, total is the number of items,
+// visible is how many items fit on screen.
 func scrollWindow(cursor, total, visible int) (start, end int) {
 	if total <= visible {
 		return 0, total
@@ -294,4 +319,11 @@ func scrollWindow(cursor, total, visible int) (start, end int) {
 		start = end - visible
 	}
 	return start, end
+}
+
+// scrollWindowAround is like scrollWindow but operates on rendered line
+// indices rather than item indices. Used when items produce varying
+// numbers of lines (e.g. section headers, blank separators).
+func scrollWindowAround(focusLine, totalLines, visible int) (start, end int) {
+	return scrollWindow(focusLine, totalLines, visible)
 }

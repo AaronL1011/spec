@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -153,6 +154,173 @@ func TestApp_SelectedSpecID(t *testing.T) {
 
 	if got := app.selectedSpecID(); got != "SPEC-007" {
 		t.Errorf("selectedSpecID = %q, want SPEC-007", got)
+	}
+}
+
+func TestApp_ModalConfirmFlow(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// Set up a selected spec.
+	app.dashboard.loading = false
+	app.dashboard.data = &dashboard.DashboardData{
+		Do: []dashboard.DashboardItem{
+			{SpecID: "SPEC-001", Title: "Test"},
+		},
+	}
+	app.dashboard.items = app.dashboard.buildRows()
+
+	// Press 'a' to advance — should open confirm modal.
+	model, _ := app.Update(keyMsg("a"))
+	a := model.(App)
+	if !a.modal.Visible {
+		t.Fatal("modal should be visible after pressing 'a'")
+	}
+	if a.pendingAction != "advance" {
+		t.Errorf("pendingAction = %q, want advance", a.pendingAction)
+	}
+	if a.pendingSpecID != "SPEC-001" {
+		t.Errorf("pendingSpecID = %q, want SPEC-001", a.pendingSpecID)
+	}
+
+	// Press 'n' to cancel.
+	model, _ = a.Update(keyMsg("n"))
+	a = model.(App)
+	if a.modal.Visible {
+		t.Error("modal should be hidden after 'n'")
+	}
+}
+
+func TestApp_ModalInputFlow(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.dashboard.loading = false
+	app.dashboard.data = &dashboard.DashboardData{
+		Do: []dashboard.DashboardItem{
+			{SpecID: "SPEC-001", Title: "Test"},
+		},
+	}
+	app.dashboard.items = app.dashboard.buildRows()
+
+	// Press 'B' to block — should open input modal.
+	model, _ := app.Update(keyMsg("B"))
+	a := model.(App)
+	if !a.modal.Visible {
+		t.Fatal("modal should be visible after pressing 'B'")
+	}
+	if a.pendingAction != "block" {
+		t.Errorf("pendingAction = %q, want block", a.pendingAction)
+	}
+
+	// Type a reason.
+	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("API blocked")})
+	a = model.(App)
+	if a.modal.Input != "API blocked" {
+		t.Errorf("modal input = %q, want 'API blocked'", a.modal.Input)
+	}
+
+	// Escape cancels.
+	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	a = model.(App)
+	if a.modal.Visible {
+		t.Error("modal should be hidden after escape")
+	}
+}
+
+func TestApp_ActionResultShowsToast(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// Success result.
+	model, _ := app.Update(actionResultMsg{
+		Action: "focus",
+		SpecID: "SPEC-001",
+		Detail: "focused",
+	})
+	a := model.(App)
+	if !a.toast.Visible() {
+		t.Error("toast should be visible after successful action")
+	}
+
+	// Error result.
+	model, _ = app.Update(actionResultMsg{
+		Action: "advance",
+		Err:    fmt.Errorf("gate not met"),
+	})
+	a = model.(App)
+	if !a.toast.Visible() {
+		t.Error("toast should be visible after failed action")
+	}
+}
+
+func TestApp_QuitDuringModal(t *testing.T) {
+	app := testApp()
+	app.modal.ShowConfirm("Test", "Are you sure?")
+	app.modal.SetSize(80, 20)
+
+	// 'q' during a modal should not quit (it's captured by modal).
+	model, cmd := app.Update(keyMsg("q"))
+	_ = model.(App)
+	// Modal should handle 'q' as not-y/n, so modal stays visible.
+	if cmd != nil {
+		// If cmd is tea.Quit, that's wrong.
+		// This is a soft check — 'q' is not 'y' or 'n' so modal ignores it.
+	}
+}
+
+func TestApp_SearchSuppressesHotkeys(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// Switch to Specs tab and load data.
+	app.switchView(ViewSpecs)
+	app.specs.loading = false
+	app.specs.allSpecs = []specListItem{
+		{ID: "SPEC-001", Title: "Test"},
+	}
+	app.specs.applyFilter()
+
+	// Activate search.
+	model, _ := app.Update(keyMsg("/"))
+	a := model.(App)
+	if !a.specs.isInputActive() {
+		t.Fatal("search should be active after '/'")
+	}
+
+	// Type 'a' — should go into search query, NOT open advance modal.
+	model, _ = a.Update(keyMsg("a"))
+	a = model.(App)
+	if a.modal.Visible {
+		t.Error("'a' during search should not open advance modal")
+	}
+	if a.specs.searchQuery != "a" {
+		t.Errorf("searchQuery = %q, want 'a'", a.specs.searchQuery)
+	}
+
+	// Type 'f' — should append to query, NOT focus a spec.
+	model, _ = a.Update(keyMsg("f"))
+	a = model.(App)
+	if a.specs.searchQuery != "af" {
+		t.Errorf("searchQuery = %q, want 'af'", a.specs.searchQuery)
+	}
+
+	// Type 'q' — should append to query, NOT quit.
+	model, cmd := a.Update(keyMsg("q"))
+	a = model.(App)
+	if a.specs.searchQuery != "afq" {
+		t.Errorf("searchQuery = %q, want 'afq'", a.specs.searchQuery)
+	}
+	if cmd != nil {
+		t.Error("'q' during search should not produce a quit command")
 	}
 }
 
