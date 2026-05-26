@@ -1,4 +1,4 @@
 {
-  "signature": "internal/tui/dashboard.go::Unresolved from this turn — internal/tui/dashboard.go:\n🔴 STOP — 3 issue(s) must be fixed:\n  L271: undefined: slices\n    💡 Fix: LSP quick fixes: Add import: \"github.com/charmbracelet/lipgloss\"; Add import: \"slices\"\n  L293: undefined: lipgloss\n    💡 Fix: LSP quick fixes: Add import: \"github.com/charmbracelet/lipgloss\"; Add import: \"slices\"\n  L293: undefined: lipgloss\n    💡 Fix: LSP quick fixes: Add import: \"github.com/charmbracelet/lipgloss\"; Add import: \"slices\"",
+  "signature": "internal/tui/pipeline_test.go::Unresolved from this turn — internal/tui/pipeline_test.go:\n🔴 STOP — 1 issue(s) must be fixed:\n  L9: undefined: testResolvedConfig\n    💡 Fix: LSP quick fixes: Create function testResolvedConfig",
   "sessionId": "lens-mpm71hqm-04c8067c"
 }

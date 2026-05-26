@@ -6,30 +6,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/aaronl1011/spec/internal/adapter"
-	"github.com/aaronl1011/spec/internal/adapter/noop"
-	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/dashboard"
 )
 
 func testApp() App {
-	rc := &config.ResolvedConfig{
-		User: &config.UserConfig{},
-		Team: &config.TeamConfig{},
-	}
-	rc.User.User.Name = "Test"
-	rc.User.User.OwnerRole = "engineer"
-
-	reg := adapter.NewRegistry(nil)
-	reg.WithComms(noop.Comms{}).
-		WithPM(noop.PM{}).
-		WithDocs(noop.Docs{}).
-		WithRepo(noop.Repo{}).
-		WithAgent(noop.Agent{}).
-		WithDeploy(noop.Deploy{}).
-		WithAI(noop.AI{})
-
-	return New(rc, reg, "engineer")
+	return New(testResolvedConfig(), testRegistry(), "engineer")
 }
 
 func TestApp_InitReturnsCmd(t *testing.T) {
@@ -107,6 +88,71 @@ func TestApp_DashboardDataMsg(t *testing.T) {
 
 	if a.dashboard.pendingCount() != 1 {
 		t.Errorf("pendingCount = %d, want 1", a.dashboard.pendingCount())
+	}
+}
+
+func TestApp_DrillDownAndBack(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// Open detail
+	cmd := app.openDetail("SPEC-042")
+	if cmd == nil {
+		t.Error("openDetail should return a fetch command")
+	}
+	if !app.showDetail {
+		t.Error("showDetail should be true")
+	}
+	if app.detail.specID != "SPEC-042" {
+		t.Errorf("detail.specID = %q, want SPEC-042", app.detail.specID)
+	}
+
+	// Close detail
+	app.closeDetail()
+	if app.showDetail {
+		t.Error("showDetail should be false after closeDetail")
+	}
+}
+
+func TestApp_ViewSwitchClosesDetail(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.openDetail("SPEC-001")
+	if !app.showDetail {
+		t.Fatal("detail should be open")
+	}
+
+	app.switchView(ViewPipeline)
+	if app.showDetail {
+		t.Error("switching view should close detail")
+	}
+	if app.activeView != ViewPipeline {
+		t.Errorf("activeView = %d, want ViewPipeline", app.activeView)
+	}
+}
+
+func TestApp_SelectedSpecID(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// Dashboard with data
+	app.dashboard.loading = false
+	app.dashboard.data = &dashboard.DashboardData{
+		Do: []dashboard.DashboardItem{
+			{SpecID: "SPEC-007", Title: "Bond"},
+		},
+	}
+	app.dashboard.items = app.dashboard.buildRows()
+
+	if got := app.selectedSpecID(); got != "SPEC-007" {
+		t.Errorf("selectedSpecID = %q, want SPEC-007", got)
 	}
 }
 

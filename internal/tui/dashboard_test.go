@@ -4,23 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aaronl1011/spec/internal/adapter"
-	"github.com/aaronl1011/spec/internal/adapter/noop"
-	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/dashboard"
 )
 
 func testDashboard() dashboardModel {
-	rc := &config.ResolvedConfig{
-		User: &config.UserConfig{},
-		Team: &config.TeamConfig{},
-	}
-	rc.User.User.Name = "Test"
-	rc.User.User.OwnerRole = "engineer"
-
-	reg := adapter.NewRegistry(nil)
-	reg.WithRepo(noop.Repo{})
-
+	rc := testResolvedConfig()
+	reg := testRegistry()
 	styles := NewStyles(ResolveTheme("catppuccin-mocha"))
 	keys := DefaultKeyMap()
 	return newDashboard(rc, reg, "engineer", styles, keys)
