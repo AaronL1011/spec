@@ -1,0 +1,63 @@
+package components
+
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+// Tab represents a single tab in the tab strip.
+type Tab struct {
+	Label    string
+	Shortcut string
+}
+
+// TabStrip renders a horizontal tab bar.
+type TabStrip struct {
+	tabs   []Tab
+	active int
+	width  int
+	styles TabStripStyles
+}
+
+// TabStripStyles holds the styles for the tab strip.
+type TabStripStyles struct {
+	Active    lipgloss.Style
+	Inactive  lipgloss.Style
+	Bar       lipgloss.Style
+	Separator lipgloss.Style
+}
+
+// NewTabStrip creates a new tab strip.
+func NewTabStrip(tabs []Tab, styles TabStripStyles) TabStrip {
+	return TabStrip{tabs: tabs, styles: styles}
+}
+
+// SetActive updates the active tab index.
+func (t *TabStrip) SetActive(idx int) {
+	if idx >= 0 && idx < len(t.tabs) {
+		t.active = idx
+	}
+}
+
+// SetWidth updates the tab strip width.
+func (t *TabStrip) SetWidth(w int) { t.width = w }
+
+// View renders the tab strip.
+func (t TabStrip) View() string {
+	var rendered []string
+
+	for i, tab := range t.tabs {
+		label := tab.Shortcut + " " + tab.Label
+		if i == t.active {
+			rendered = append(rendered, t.styles.Active.Render(label))
+		} else {
+			rendered = append(rendered, t.styles.Inactive.Render(label))
+		}
+	}
+
+	sep := t.styles.Separator.Render(" │ ")
+	strip := strings.Join(rendered, sep)
+
+	return t.styles.Bar.Width(t.width).Render(strip)
+}

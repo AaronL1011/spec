@@ -1,0 +1,4 @@
+{
+  "signature": "internal/tui/dashboard_test.go::Unresolved from this turn — internal/tui/dashboard_test.go:\n🔴 STOP — 3 issue(s) must be fixed:\n  L90: undefined: keyMsg\n    💡 Fix: LSP quick fixes: Create function keyMsg\n  L96: undefined: keyMsg\n    💡 Fix: LSP quick fixes: Create function keyMsg\n  L102: undefined: keyMsg\n    💡 Fix: LSP quick fixes: Create function keyMsg",
+  "sessionId": "lens-mpm71hqm-04c8067c"
+}

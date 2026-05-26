@@ -3,7 +3,10 @@ package cmd
 //go:generate go run ../tools/gen-man --output ../docs/man
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/aaronl1011/spec/internal/dashboard"
+	"github.com/aaronl1011/spec/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -14,7 +17,7 @@ var rootCmd = &cobra.Command{
 pipeline orchestration, build context, and team coordination
 into a single CLI. Run 'spec' with no arguments to see your
 personal dashboard.`,
-	Example: "  spec\n  spec list --mine\n  spec do SPEC-042",
+	Example:       "  spec\n  spec list --mine\n  spec do SPEC-042",
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -39,11 +42,23 @@ personal dashboard.`,
 		}
 
 		reg := buildRegistry(rc)
+
+		// --static flag bypasses the TUI for scripts and legacy usage.
+		staticMode, _ := cmd.Flags().GetBool("static")
+
+		// Interactive terminal → launch the persistent TUI.
+		// Non-interactive (piped, redirected) → static dashboard render.
+		if !staticMode && tui.IsInteractive() {
+			app := tui.New(rc, reg, role)
+			p := tea.NewProgram(app, tea.WithAltScreen())
+			_, err := p.Run()
+			return err
+		}
+
 		data, err := dashboard.Aggregate(ctx(), rc, reg, role)
 		if err != nil {
 			return err
 		}
-
 		dashboard.Render(data, rc.UserName(), role, rc.CycleLabel())
 		return nil
 	},
@@ -61,6 +76,7 @@ func RootCmd() *cobra.Command {
 
 func init() {
 	rootCmd.PersistentFlags().String("role", "", "temporarily override owner_role for this invocation")
+	rootCmd.Flags().Bool("static", false, "render static dashboard instead of interactive TUI")
 
 	// Passive awareness: print pending count before every subcommand.
 	// Does not apply to the root command itself (the dashboard) or completion.
