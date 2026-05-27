@@ -24,6 +24,7 @@ type StatusBarStyles struct {
 	Pending lipgloss.Style
 	Hint    lipgloss.Style
 	Clock   lipgloss.Style
+	Stale   lipgloss.Style
 }
 
 // NewStatusBar creates a new status bar.
@@ -52,6 +53,16 @@ func (s StatusBar) View() string {
 		parts = append(parts, s.styles.Pending.Render(
 			fmt.Sprintf(" ⚡ %d pending ", s.pendingCount),
 		))
+	}
+
+	// Stale indicator — show age if last refresh was >60s ago.
+	age := time.Since(s.lastRefresh)
+	if age > 60*time.Second {
+		staleLabel := fmt.Sprintf("%ds ago", int(age.Seconds()))
+		if age > 120*time.Second {
+			staleLabel = fmt.Sprintf("%dm ago", int(age.Minutes()))
+		}
+		parts = append(parts, s.styles.Stale.Render(" ⏳ "+staleLabel+" "))
 	}
 
 	hint := s.styles.Hint.Render(" ? help · q quit ")

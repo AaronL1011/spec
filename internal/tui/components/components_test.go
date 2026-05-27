@@ -129,6 +129,7 @@ func TestStatusBar_PendingShown(t *testing.T) {
 		Pending: lipgloss.NewStyle(),
 		Hint:    lipgloss.NewStyle(),
 		Clock:   lipgloss.NewStyle(),
+		Stale:   lipgloss.NewStyle(),
 	}
 	sb := NewStatusBar(styles)
 	sb.SetView("Dashboard")

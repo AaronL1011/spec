@@ -1,4 +1,4 @@
 {
-  "signature": "internal/tui/app.go::Unresolved from this turn — internal/tui/app.go:\n🔴 STOP — 1 issue(s) must be fixed:\n  L230: a.viewCapturingInput undefined (type App has no field or method viewCapturingInput)\n    💡 Fix: LSP quick fixes: Declare missing method App.viewCapturingInput",
+  "signature": "internal/tui/app.go::Unresolved from this turn — internal/tui/app.go:\n🔴 STOP — 1 issue(s) must be fixed:\n  L210: a.cycleTheme undefined (type App has no field or method cycleTheme)\n    💡 Fix: LSP quick fixes: Declare missing method App.cycleTheme",
   "sessionId": "lens-mpm71hqm-04c8067c"
 }

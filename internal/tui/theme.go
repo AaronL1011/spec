@@ -126,6 +126,24 @@ func NewStyles(t Theme) Styles {
 	}
 }
 
+// ThemeNames returns the ordered list of available named themes.
+func ThemeNames() []string {
+	return []string{
+		"auto",
+		"catppuccin-mocha",
+		"catppuccin-latte",
+		"catppuccin-macchiato",
+		"catppuccin-frappe",
+		"gruvbox-dark",
+		"dracula",
+		"tokyo-night",
+		"nord",
+		"solarized-dark",
+		"solarized-light",
+		"rose-pine",
+	}
+}
+
 // ResolveTheme returns a Theme for the given preference string.
 // An empty string or "auto" detects from the terminal.
 func ResolveTheme(pref string) Theme {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -321,6 +322,113 @@ func TestApp_SearchSuppressesHotkeys(t *testing.T) {
 	}
 	if cmd != nil {
 		t.Error("'q' during search should not produce a quit command")
+	}
+}
+
+func TestApp_HelpToggle(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// Press ? to open help.
+	model, _ := app.Update(keyMsg("?"))
+	a := model.(App)
+	if !a.help.visible {
+		t.Error("help should be visible after ?")
+	}
+
+	// Press ? again to close.
+	model, _ = a.Update(keyMsg("?"))
+	a = model.(App)
+	if a.help.visible {
+		t.Error("help should be hidden after second ?")
+	}
+}
+
+func TestParseRefreshInterval(t *testing.T) {
+	tests := []struct {
+		value string
+		want  time.Duration
+	}{
+		{"", 30 * time.Second},        // default
+		{"45s", 45 * time.Second},     // valid
+		{"2m", 2 * time.Minute},       // valid
+		{"1s", 30 * time.Second},      // too short, fallback
+		{"garbage", 30 * time.Second}, // invalid, fallback
+	}
+	for _, tt := range tests {
+		rc := testResolvedConfig()
+		rc.User.Preferences.RefreshInterval = tt.value
+		got := parseRefreshInterval(rc)
+		if got != tt.want {
+			t.Errorf("parseRefreshInterval(%q) = %v, want %v", tt.value, got, tt.want)
+		}
+	}
+}
+
+func TestApp_CycleTheme(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// Default theme is auto (empty pref in test config).
+	originalTheme := app.theme
+
+	// Cycle once.
+	app.cycleTheme()
+	if app.theme == originalTheme {
+		// Theme values should differ (auto → catppuccin-mocha).
+		if app.rc.User.Preferences.Theme == "" {
+			t.Error("theme pref should be set after cycling")
+		}
+	}
+	firstCycled := app.rc.User.Preferences.Theme
+
+	// Cycle again — should advance to next.
+	app.cycleTheme()
+	if app.rc.User.Preferences.Theme == firstCycled {
+		t.Error("theme should change on each cycle")
+	}
+
+	// Styles should be propagated.
+	if app.dashboard.styles.Title.GetBold() != app.styles.Title.GetBold() {
+		t.Error("dashboard styles should match app styles after theme change")
+	}
+}
+
+func TestApp_CycleThemeFromSettings(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+	app.switchView(ViewSettings)
+
+	// Send cycleThemeMsg (as settings view would produce).
+	model, _ := app.Update(cycleThemeMsg{})
+	a := model.(App)
+
+	// Should have applied a new theme.
+	if a.rc.User.Preferences.Theme == "" {
+		t.Error("theme should be set after cycleThemeMsg")
+	}
+	if !a.toast.Visible() {
+		t.Error("toast should show after theme change")
+	}
+}
+
+func TestThemeNames(t *testing.T) {
+	names := ThemeNames()
+	if len(names) < 10 {
+		t.Errorf("expected at least 10 themes, got %d", len(names))
+	}
+	if names[0] != "auto" {
+		t.Errorf("first theme should be 'auto', got %q", names[0])
+	}
+	// Every name should resolve without panic.
+	for _, name := range names {
+		ResolveTheme(name)
 	}
 }
 

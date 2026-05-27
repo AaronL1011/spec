@@ -45,7 +45,8 @@ type App struct {
 	specs      specListModel
 	triage     triageModel
 	reviews    reviewModel
-	settings   placeholderModel
+	settings   settingsModel
+	help       helpModel
 
 	// Detail drill-down
 	showDetail bool
@@ -100,6 +101,7 @@ func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
 		Pending: styles.Warning,
 		Hint:    styles.Muted,
 		Clock:   styles.Subtitle,
+		Stale:   styles.Muted,
 	}
 	sb := components.NewStatusBar(sbStyles)
 	sb.SetView(ViewDashboard.Label())
@@ -120,7 +122,8 @@ func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
 		specs:      newSpecList(rc, styles, keys),
 		triage:     newTriage(rc, styles, keys),
 		reviews:    newReview(rc, reg, styles, keys),
-		settings:   newPlaceholder("Settings", styles),
+		settings:   newSettings(rc, styles, keys),
+		help:       newHelp(keys, styles),
 		modal: components.NewModal(components.ModalStyles{
 			Border:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(theme.Accent),
 			Title:   styles.Title,
@@ -133,8 +136,19 @@ func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
 			Error:   lipgloss.NewStyle().Foreground(theme.Base).Background(theme.Error).Padding(0, 1),
 			Info:    lipgloss.NewStyle().Foreground(theme.Base).Background(theme.Accent).Padding(0, 1),
 		}),
-		refreshInterval: defaultRefreshInterval,
+		refreshInterval: parseRefreshInterval(rc),
 	}
+}
+
+// parseRefreshInterval reads the user's preferred refresh interval or
+// returns the default.
+func parseRefreshInterval(rc *config.ResolvedConfig) time.Duration {
+	if rc.User != nil && rc.User.Preferences.RefreshInterval != "" {
+		if d, err := time.ParseDuration(rc.User.Preferences.RefreshInterval); err == nil && d >= 5*time.Second {
+			return d
+		}
+	}
+	return defaultRefreshInterval
 }
 
 // Init runs the initial commands — fetch data + start tick.
@@ -191,6 +205,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.detail, cmd = a.detail.update(msg)
 		return a, cmd
 
+	// Theme cycling from settings view.
+	case cycleThemeMsg:
+		a.cycleTheme()
+		return a, nil
+
 	// Navigation messages from views.
 	case navigateToSpecMsg:
 		return a, a.openDetail(msg.SpecID)
@@ -215,6 +234,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.refreshActiveView()
 
 	case tea.KeyMsg:
+		// Help overlay absorbs all keys when visible.
+		if a.help.visible {
+			a.help, _ = a.help.update(msg)
+			return a, nil
+		}
+
 		// Modal gets absolute priority when visible.
 		if a.modal.Visible {
 			return a.updateModal(msg)
@@ -239,6 +264,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Quit
 
 		case key.Matches(msg, a.keys.Help):
+			a.help.setContext(a.activeView.Label())
+			a.help.toggle()
 			return a, nil
 
 		case key.Matches(msg, a.keys.Refresh):
@@ -350,7 +377,9 @@ func (a App) View() string {
 	}
 
 	var content string
-	if a.modal.Visible {
+	if a.help.visible {
+		content = a.help.view()
+	} else if a.modal.Visible {
 		content = a.modal.View()
 	} else if a.showDetail {
 		content = a.detail.view()
@@ -636,6 +665,8 @@ func (a *App) delegateToActive(msg tea.Msg) tea.Cmd {
 		a.triage, cmd = a.triage.update(msg)
 	case ViewReviews:
 		a.reviews, cmd = a.reviews.update(msg)
+	case ViewSettings:
+		a.settings, cmd = a.settings.update(msg)
 	}
 	return cmd
 }
@@ -656,6 +687,102 @@ func (a *App) propagateSize() {
 		a.detail.setSize(a.width, ch)
 	}
 	a.modal.SetSize(a.width, ch)
+	a.help.setSize(a.width, ch)
+}
+
+// cycleTheme advances to the next theme, applies it, and persists the choice.
+func (a *App) cycleTheme() {
+	names := ThemeNames()
+	current := "auto"
+	if a.rc.User != nil && a.rc.User.Preferences.Theme != "" {
+		current = a.rc.User.Preferences.Theme
+	}
+
+	// Find current index, advance to next.
+	next := 0
+	for i, name := range names {
+		if name == current {
+			next = (i + 1) % len(names)
+			break
+		}
+	}
+
+	newName := names[next]
+	a.applyTheme(newName)
+
+	// Persist to user config.
+	if a.rc.User != nil {
+		a.rc.User.Preferences.Theme = newName
+		_ = config.WriteUserConfig(a.rc.UserConfigPath, a.rc.User)
+	}
+
+	a.toast.Show("Theme: "+newName, components.ToastInfo, 2*time.Second)
+}
+
+// applyTheme rebuilds all styles from a named theme and propagates to
+// every view and component.
+func (a *App) applyTheme(name string) {
+	a.theme = ResolveTheme(name)
+	a.styles = NewStyles(a.theme)
+
+	// Rebuild components that store individual style values.
+	a.header = components.NewHeader(
+		a.rc.UserName(), a.role, a.rc.CycleLabel(),
+		components.HeaderStyles{
+			Bar:      a.styles.Header,
+			Greeting: a.styles.Title,
+			Meta:     a.styles.Subtitle,
+		},
+	)
+
+	tabItems := make([]components.Tab, ViewCount)
+	for i := range ViewCount {
+		v := View(i)
+		tabItems[i] = components.Tab{Label: v.Label(), Shortcut: v.Shortcut()}
+	}
+	a.tabs = components.NewTabStrip(tabItems, components.TabStripStyles{
+		Active:    a.styles.TabActive,
+		Inactive:  a.styles.TabNormal,
+		Bar:       a.styles.StatusBar,
+		Separator: a.styles.Muted,
+	})
+	a.tabs.SetActive(int(a.activeView))
+
+	a.statusBar = components.NewStatusBar(components.StatusBarStyles{
+		Bar:     a.styles.StatusBar,
+		Label:   a.styles.TabActive,
+		Pending: a.styles.Warning,
+		Hint:    a.styles.Muted,
+		Clock:   a.styles.Subtitle,
+		Stale:   a.styles.Muted,
+	})
+	a.statusBar.SetView(a.activeView.Label())
+	a.statusBar.SetPending(a.dashboard.pendingCount())
+
+	a.modal = components.NewModal(components.ModalStyles{
+		Border:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(a.theme.Accent),
+		Title:   a.styles.Title,
+		Message: a.styles.Subtitle,
+		Input:   lipgloss.NewStyle().Foreground(a.theme.Text).Background(a.theme.Surface).Padding(0, 1),
+		Hint:    a.styles.Muted,
+	})
+
+	a.toast = components.NewToast(components.ToastStyles{
+		Success: lipgloss.NewStyle().Foreground(a.theme.Base).Background(a.theme.Success).Padding(0, 1),
+		Error:   lipgloss.NewStyle().Foreground(a.theme.Base).Background(a.theme.Error).Padding(0, 1),
+		Info:    lipgloss.NewStyle().Foreground(a.theme.Base).Background(a.theme.Accent).Padding(0, 1),
+	})
+
+	// Propagate styles to all views.
+	a.dashboard.styles = a.styles
+	a.pipeline.styles = a.styles
+	a.specs.styles = a.styles
+	a.triage.styles = a.styles
+	a.reviews.styles = a.styles
+	a.settings.styles = a.styles
+	a.help.styles = a.styles
+
+	a.propagateSize()
 }
 
 func (a App) contentHeight() int {
