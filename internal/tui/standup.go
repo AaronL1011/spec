@@ -96,19 +96,22 @@ func (s standupOverlay) view() string {
 }
 
 // generateStandup produces standup text from activity and spec state.
-func generateStandup(rc *config.ResolvedConfig, reg *adapter.Registry) tea.Cmd {
+func generateStandup(rc *config.ResolvedConfig, reg *adapter.Registry, db *store.DB) tea.Cmd {
 	return func() tea.Msg {
-		text, err := buildStandupText(rc, reg)
+		text, err := buildStandupText(rc, reg, db)
 		return standupDataMsg{Text: text, Err: err}
 	}
 }
 
-func buildStandupText(rc *config.ResolvedConfig, reg *adapter.Registry) (string, error) {
-	db, err := store.Open(store.DefaultDBPath())
-	if err != nil {
-		return "", err
+func buildStandupText(rc *config.ResolvedConfig, reg *adapter.Registry, db *store.DB) (string, error) {
+	if db == nil {
+		opened, err := store.Open(store.DefaultDBPath())
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = opened.Close() }()
+		db = opened
 	}
-	defer func() { _ = db.Close() }()
 
 	since := time.Now().Add(-24 * time.Hour)
 	entries, err := db.ActivitySince(since)

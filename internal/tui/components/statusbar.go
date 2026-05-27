@@ -15,6 +15,9 @@ type StatusBar struct {
 	scrollPos    string // e.g. "3/12" — set by the active view
 	lastRefresh  time.Time
 	width        int
+	busy         bool
+	busyLabel    string
+	spinnerFrame int
 	styles       StatusBarStyles
 }
 
@@ -48,6 +51,17 @@ func (s *StatusBar) SetScroll(pos string) { s.scrollPos = pos }
 // SetWidth updates the status bar width.
 func (s *StatusBar) SetWidth(w int) { s.width = w }
 
+// SetBusy updates whether the status bar should show an inline busy indicator.
+func (s *StatusBar) SetBusy(active bool, label string) {
+	s.busy = active
+	s.busyLabel = strings.TrimSpace(label)
+}
+
+// NextSpinner advances the spinner animation frame.
+func (s *StatusBar) NextSpinner() {
+	s.spinnerFrame = (s.spinnerFrame + 1) % len(spinnerFrames)
+}
+
 // View renders the status bar.
 func (s StatusBar) View() string {
 	viewPart := s.styles.Label.Render(" " + s.viewLabel + " ")
@@ -67,6 +81,14 @@ func (s StatusBar) View() string {
 			staleLabel = fmt.Sprintf("%dm ago", int(age.Minutes()))
 		}
 		parts = append(parts, s.styles.Stale.Render(" ⏳ "+staleLabel+" "))
+	}
+	if s.busy {
+		label := s.busyLabel
+		if label == "" {
+			label = "working"
+		}
+		spinner := spinnerFrames[s.spinnerFrame%len(spinnerFrames)]
+		parts = append(parts, s.styles.Pending.Render(fmt.Sprintf(" %s %s ", spinner, label)))
 	}
 
 	var scrollPart string
@@ -90,3 +112,5 @@ func (s StatusBar) View() string {
 	bar := left + strings.Repeat(" ", gap) + right
 	return s.styles.Bar.Width(s.width).Render(bar)
 }
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}

@@ -1,4 +1,6 @@
 {
-  "signature": "internal/tui/specdetail.go::📐 Cascade errors in 1 neighbor file(s) — fix before finishing turn:\n<diagnostics file=\"internal/tui/app.go\" reason=\"fallback\">\n  line 234, col 7 rule=cascade:UndeclaredName: undefined: readerReadyMsg\n</diagnostics>\n\n🧪 Likely tests for affected neighbors:\n  internal/tui/app_test.go (go)",
-  "sessionId": "lens-mpnnscfc-8e799d39"
+  "signature": "internal/tui/specdetail_test.go::ℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 1 across 1 file(s).\nTop rules: go-ignored-call-result×1\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
+  "sessionId": "lens-mpnyac16-c98584a1",
+  "projectSeqStart": 33,
+  "projectSeqEnd": 34
 }

@@ -3,15 +3,17 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aaronl1011/spec/internal/markdown"
 )
 
 func testSpecDetailModel() specDetailModel {
 	rc := testResolvedConfig()
-	styles := NewStyles(ResolveTheme("catppuccin-mocha"))
+	theme := ResolveTheme("catppuccin-mocha")
+	styles := NewStyles(theme)
 	keys := DefaultKeyMap()
-	m := newSpecDetail(rc, "SPEC-001", styles, keys)
+	m := newSpecDetail(rc, "SPEC-001", styles, keys, theme)
 	m.loading = false
 	m.width = 100
 	m.height = 30
@@ -20,9 +22,10 @@ func testSpecDetailModel() specDetailModel {
 
 func TestSpecDetail_LoadingView(t *testing.T) {
 	rc := testResolvedConfig()
-	styles := NewStyles(ResolveTheme("catppuccin-mocha"))
+	theme := ResolveTheme("catppuccin-mocha")
+	styles := NewStyles(theme)
 	keys := DefaultKeyMap()
-	m := newSpecDetail(rc, "SPEC-001", styles, keys)
+	m := newSpecDetail(rc, "SPEC-001", styles, keys, theme)
 
 	got := m.view()
 	if !strings.Contains(got, "Loading") {
@@ -165,11 +168,13 @@ func TestSpecDetail_ReaderModeToggle(t *testing.T) {
 		t.Errorf("sectionIdx = %d, want 0", m.sectionIdx)
 	}
 	if cmd == nil {
-		t.Error("entering reader mode should return a non-nil cmd to trigger repaint")
+		t.Error("entering reader mode should return a non-nil render command")
 	}
-	if m.contentLines != len(m.readerLines) {
-		t.Errorf("contentLines = %d, want %d (reader line count)", m.contentLines, len(m.readerLines))
+	if m.readerState != readerPending {
+		t.Errorf("readerState = %d, want pending", m.readerState)
 	}
+
+	m, _ = m.update(cmd())
 
 	// Reader view should show section content.
 	got = m.view()
@@ -275,21 +280,192 @@ func TestSpecDetail_ReaderRenderOnDemand(t *testing.T) {
 	})
 
 	// Press 'o' — renders on demand, no cache needed.
-	m, _ = m.update(keyMsg("o"))
+	m, cmd := m.update(keyMsg("o"))
 	if !m.readerMode {
 		t.Fatal("should be in reader mode")
 	}
-	if len(m.readerLines) == 0 {
-		t.Fatal("readerLines should be populated")
+	if cmd == nil {
+		t.Fatal("expected async render command")
+	}
+	m, _ = m.update(cmd())
+	if strings.TrimSpace(m.readerContent) == "" {
+		t.Fatal("reader content should be populated")
 	}
 
 	// Navigate to next section.
-	m, _ = m.update(keyMsg("n"))
+	m, cmd = m.update(keyMsg("n"))
 	if m.sectionIdx != 1 {
 		t.Errorf("sectionIdx = %d, want 1", m.sectionIdx)
 	}
-	if len(m.readerLines) == 0 {
-		t.Error("section 2 readerLines should be populated")
+	if cmd == nil {
+		t.Fatal("expected async render command for next section")
+	}
+	m, _ = m.update(cmd())
+	if strings.TrimSpace(m.readerContent) == "" {
+		t.Error("section 2 reader content should be populated")
+	}
+}
+
+func TestSpecDetail_ReaderIgnoresStaleRender(t *testing.T) {
+	m := testSpecDetailModel()
+	m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test"}
+	m.sections = []markdown.Section{
+		{Slug: "problem", Heading: "## Problem", Level: 2, Content: "Problem content."},
+		{Slug: "solution", Heading: "## Solution", Level: 2, Content: "Solution content."},
+	}
+
+	m, firstCmd := m.update(keyMsg("o"))
+	firstMsg := firstCmd().(sectionRenderedMsg)
+	m, secondCmd := m.update(keyMsg("n"))
+	if secondCmd != nil {
+		t.Fatal("second render should be queued while first is in flight")
+	}
+
+	m, cmd := m.update(firstMsg)
+	if m.readerState != readerPending {
+		t.Fatalf("stale render should keep pending state, state = %d", m.readerState)
+	}
+	if cmd == nil {
+		t.Fatal("queued render should start after stale result is processed")
+	}
+
+	m, _ = m.update(cmd())
+	if m.sectionIdx != 1 {
+		t.Fatalf("sectionIdx = %d, want 1", m.sectionIdx)
+	}
+	if !strings.Contains(m.view(), "Solution") {
+		t.Fatalf("reader should show latest section, got: %s", m.view())
+	}
+}
+
+func TestSpecDetail_ReaderUsesCacheForRenderedSection(t *testing.T) {
+	m := testSpecDetailModel()
+	m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test"}
+	m.sections = []markdown.Section{
+		{Slug: "problem", Heading: "## Problem", Level: 2, Content: "Problem content."},
+		{Slug: "solution", Heading: "## Solution", Level: 2, Content: "Solution content."},
+	}
+
+	m, cmd := m.update(keyMsg("o"))
+	m, _ = m.update(cmd())
+	m, cmd = m.update(keyMsg("n"))
+	m, _ = m.update(cmd())
+	m, cmd = m.update(keyMsg("p"))
+	if cmd != nil {
+		t.Fatal("returning to a rendered section should use the cache")
+	}
+	if !strings.Contains(m.view(), "Problem") {
+		t.Fatalf("reader should show cached section, got: %s", m.view())
+	}
+}
+
+func TestSpecDetail_KeyHandlingSchedulesAsyncRender(t *testing.T) {
+	m := testSpecDetailModel()
+	m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test"}
+	m.sections = []markdown.Section{
+		{Slug: "large", Heading: "## Large", Level: 2, Content: strings.Repeat("Long paragraph with **formatting** and [links](https://example.com).\n", 5000)},
+	}
+
+	start := time.Now()
+	m, cmd := m.update(keyMsg("o"))
+	elapsed := time.Since(start)
+	if cmd == nil {
+		t.Fatal("expected async render command")
+	}
+	if elapsed > 20*time.Millisecond {
+		t.Fatalf("key handling took %v, want under 20ms", elapsed)
+	}
+	if strings.TrimSpace(m.readerContent) != "" {
+		t.Fatal("key handling should not synchronously render reader content")
+	}
+}
+
+func TestSpecDetail_ViewDoesNotRenderMissingReaderContent(t *testing.T) {
+	m := testSpecDetailModel()
+	m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test"}
+	m.sections = []markdown.Section{
+		{Slug: "large", Heading: "## Large", Level: 2, Content: strings.Repeat("content\n", 1000)},
+	}
+	m.readerMode = true
+	m.readerState = readerIdle
+	m.readerContent = ""
+
+	got := m.view()
+	if !strings.Contains(got, "no content") {
+		t.Fatalf("view should not render missing content synchronously, got: %s", got)
+	}
+	if strings.TrimSpace(m.readerContent) != "" {
+		t.Fatal("view should not mutate reader content")
+	}
+}
+
+func TestSpecDetail_ResizeDuringRenderRerendersCurrentSection(t *testing.T) {
+	m := testSpecDetailModel()
+	m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test"}
+	m.sections = []markdown.Section{
+		{Slug: "problem", Heading: "## Problem", Level: 2, Content: strings.Repeat("Problem content line\n", 200)},
+	}
+
+	m, cmd := m.update(keyMsg("o"))
+	if cmd == nil {
+		t.Fatal("expected render cmd")
+	}
+	m, _ = m.update(cmd())
+	before := m.readerContent
+	if before == "" {
+		t.Fatal("expected rendered content")
+	}
+
+	m.setSize(60, 20)
+	m, cmd = m.requestCurrentSectionRender()
+	if cmd == nil {
+		t.Fatal("expected rerender cmd after resize")
+	}
+	m, _ = m.update(cmd())
+	after := m.readerContent
+	if after == "" {
+		t.Fatal("expected rerendered content")
+	}
+	if before == after {
+		t.Fatal("expected content to change after width resize rerender")
+	}
+}
+
+func TestSpecDetail_FastNavSpamDoesNotLeavePendingArtifacts(t *testing.T) {
+	m := testSpecDetailModel()
+	m.width = 100
+	m.height = 20
+	m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test"}
+	m.sections = []markdown.Section{
+		{Slug: "one", Heading: "## One", Level: 2, Content: strings.Repeat("One\n", 40)},
+		{Slug: "two", Heading: "## Two", Level: 2, Content: strings.Repeat("Two\n", 40)},
+		{Slug: "three", Heading: "## Three", Level: 2, Content: strings.Repeat("Three\n", 40)},
+	}
+
+	m, cmd := m.update(keyMsg("o"))
+	if cmd == nil {
+		t.Fatal("expected initial render cmd")
+	}
+	first := cmd().(sectionRenderedMsg)
+
+	m, _ = m.update(keyMsg("n"))
+	m, _ = m.update(keyMsg("n"))
+	m, _ = m.update(keyMsg("p"))
+	m, _ = m.update(keyMsg("n"))
+	m, _ = m.update(first)
+
+	// Drain final active render if any.
+	if m.renderResultCmd != nil {
+		m, _ = m.update(m.renderResultCmd())
+	}
+
+	m, _ = m.update(keyMsg("o"))
+	m, _ = m.update(keyMsg("esc"))
+	if m.readerMode {
+		t.Fatal("expected reader mode to be closed")
+	}
+	if strings.Contains(m.view(), "Rendering section") {
+		t.Fatal("view should not contain stale rendering placeholder")
 	}
 }
 

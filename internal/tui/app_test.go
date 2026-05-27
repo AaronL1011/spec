@@ -6,14 +6,21 @@ import (
 	"testing"
 	"time"
 
+	xansi "github.com/charmbracelet/x/ansi"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/aaronl1011/spec/internal/dashboard"
 	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/store"
 )
 
 func testApp() App {
-	return New(testResolvedConfig(), testRegistry(), "engineer")
+	db, err := store.OpenMemory()
+	if err != nil {
+		panic(err)
+	}
+	return newAppWithDB(testResolvedConfig(), testRegistry(), "engineer", db)
 }
 
 func TestApp_InitReturnsCmd(t *testing.T) {
@@ -378,7 +385,7 @@ func TestApp_CycleTheme(t *testing.T) {
 	originalTheme := app.theme
 
 	// Cycle once.
-	app.cycleTheme()
+	_ = app.cycleTheme()
 	if app.theme == originalTheme {
 		// Theme values should differ (auto → catppuccin-mocha).
 		if app.rc.User.Preferences.Theme == "" {
@@ -388,7 +395,7 @@ func TestApp_CycleTheme(t *testing.T) {
 	firstCycled := app.rc.User.Preferences.Theme
 
 	// Cycle again — should advance to next.
-	app.cycleTheme()
+	_ = app.cycleTheme()
 	if app.rc.User.Preferences.Theme == firstCycled {
 		t.Error("theme should change on each cycle")
 	}
@@ -407,7 +414,7 @@ func TestApp_CycleThemeFromSettings(t *testing.T) {
 	app.switchView(ViewSettings)
 
 	// Send cycleThemeMsg (as settings view would produce).
-	model, _ := app.Update(cycleThemeMsg{})
+	model, cmd := app.Update(cycleThemeMsg{})
 	a := model.(App)
 
 	// Should have applied a new theme.
@@ -416,6 +423,43 @@ func TestApp_CycleThemeFromSettings(t *testing.T) {
 	}
 	if !a.toast.Visible() {
 		t.Error("toast should show after theme change")
+	}
+	if cmd == nil {
+		t.Error("theme persistence should be scheduled asynchronously")
+	}
+}
+
+func TestApp_ScheduleRefreshCoalescesInFlightWork(t *testing.T) {
+	app := testApp()
+	cmd := func() tea.Msg {
+		return dashboardDataMsg{}
+	}
+
+	first := app.scheduleRefresh(refreshKeyDashboard, cmd)
+	if first == nil {
+		t.Fatal("first refresh should be scheduled")
+	}
+	second := app.scheduleRefresh(refreshKeyDashboard, cmd)
+	if second != nil {
+		t.Fatal("second refresh should be coalesced while in flight")
+	}
+
+	model, _ := app.Update(dashboardDataMsg{})
+	app = model.(App)
+	third := app.scheduleRefresh(refreshKeyDashboard, cmd)
+	if third == nil {
+		t.Fatal("refresh should be schedulable after data arrives")
+	}
+}
+
+func TestApp_ReaderModeSkipsTickRefresh(t *testing.T) {
+	app := testApp()
+	app.showDetail = true
+	app.detail = newSpecDetail(app.rc, "SPEC-001", app.styles, app.keys, app.theme)
+	app.detail.readerMode = true
+
+	if cmd := app.refreshActiveView(); cmd != nil {
+		t.Fatal("reader mode should not schedule periodic detail refresh")
 	}
 }
 
@@ -452,6 +496,54 @@ func TestSplitLines(t *testing.T) {
 	}
 }
 
+func TestNormalizeContentLines_FixedHeightWidth(t *testing.T) {
+	lines := normalizeContentLines("abc\n", 6, 3)
+	if len(lines) != 3 {
+		t.Fatalf("len(lines) = %d, want 3", len(lines))
+	}
+	for i, line := range lines {
+		if got := xansi.StringWidth(line); got != 6 {
+			t.Fatalf("line %d width = %d, want 6", i, got)
+		}
+	}
+}
+
+func TestNormalizeLineWidth_TruncatesANSIText(t *testing.T) {
+	line := "\x1b[31mhello world\x1b[0m"
+	norm := normalizeLineWidth(line, 5)
+	if got := xansi.StringWidth(norm); got != 5 {
+		t.Fatalf("normalized width = %d, want 5", got)
+	}
+	if !strings.Contains(norm, "\x1b[") {
+		t.Fatal("normalized line should retain ANSI styling")
+	}
+}
+
+func TestApp_ReaderPendingKeepsPreviousContent(t *testing.T) {
+	m := testSpecDetailModel()
+	m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test"}
+	m.sections = []markdown.Section{
+		{Slug: "problem", Heading: "## Problem", Level: 2, Content: "Problem content."},
+		{Slug: "solution", Heading: "## Solution", Level: 2, Content: "Solution content."},
+	}
+
+	m, cmd := m.update(keyMsg("o"))
+	m, _ = m.update(cmd())
+	before := m.view()
+	if !strings.Contains(before, "Problem") {
+		t.Fatalf("expected initial section content, got: %s", before)
+	}
+
+	m, _ = m.update(keyMsg("n"))
+	during := m.view()
+	if !strings.Contains(during, "Problem") {
+		t.Fatalf("pending render should keep previous content visible, got: %s", during)
+	}
+	if strings.Contains(during, "Rendering section") {
+		t.Fatalf("pending view should not show transient rendering label, got: %s", during)
+	}
+}
+
 func TestApp_ReaderModeImmediateRender(t *testing.T) {
 	// Simulate the exact Bubbletea runtime: store model as tea.Model
 	// and drive all transitions through Update.
@@ -481,8 +573,9 @@ func TestApp_ReaderModeImmediateRender(t *testing.T) {
 		t.Fatal("readerMode should be true after 'o'")
 	}
 	if cmd == nil {
-		t.Error("entering reader mode should return a non-nil cmd")
+		t.Fatal("entering reader mode should return a non-nil render cmd")
 	}
+	model, _ = model.Update(cmd())
 
 	readerView := model.View()
 	if overviewView == readerView {

@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
@@ -16,9 +17,24 @@ import (
 )
 
 const defaultRefreshInterval = 30 * time.Second
+const spinnerInterval = 100 * time.Millisecond
+
+const (
+	refreshKeyDashboard = "dashboard"
+	refreshKeyPipeline  = "pipeline"
+	refreshKeySpecs     = "specs"
+	refreshKeyTriage    = "triage"
+	refreshKeyReviews   = "reviews"
+)
 
 // tickMsg fires on each refresh interval.
 type tickMsg time.Time
+
+type spinnerTickMsg time.Time
+
+type themePersistedMsg struct {
+	Err error
+}
 
 // App is the top-level Bubble Tea model. It owns the tab strip, header,
 // status bar, and delegates to the active view.
@@ -26,6 +42,7 @@ type App struct {
 	rc   *config.ResolvedConfig
 	reg  *adapter.Registry
 	role string
+	db   *store.DB
 
 	// Layout
 	width  int
@@ -71,10 +88,17 @@ type App struct {
 
 	// Refresh
 	refreshInterval time.Duration
+	refreshInFlight map[string]bool
+	spinnerOn       bool
 }
 
 // New creates a new App ready to run as a tea.Program.
 func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
+	db, _ := store.Open(store.DefaultDBPath())
+	return newAppWithDB(rc, reg, role, db)
+}
+
+func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string, db *store.DB) App {
 	themePref := ""
 	if rc.User != nil {
 		themePref = rc.User.Preferences.Theme
@@ -118,6 +142,7 @@ func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
 		rc:         rc,
 		reg:        reg,
 		role:       role,
+		db:         db,
 		theme:      theme,
 		styles:     styles,
 		keys:       keys,
@@ -145,17 +170,16 @@ func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
 			Info:    lipgloss.NewStyle().Foreground(theme.Base).Background(theme.Accent).Padding(0, 1),
 		}),
 		refreshInterval: parseRefreshInterval(rc),
-		focusedSpecID:   loadFocusedSpec(),
+		refreshInFlight: make(map[string]bool),
+		focusedSpecID:   loadFocusedSpec(db),
 	}
 }
 
 // loadFocusedSpec reads the focused spec ID from the store.
-func loadFocusedSpec() string {
-	db, err := store.Open(store.DefaultDBPath())
-	if err != nil {
+func loadFocusedSpec(db *store.DB) string {
+	if db == nil {
 		return ""
 	}
-	defer func() { _ = db.Close() }()
 	id, _ := db.FocusedSpecGet()
 	return id
 }
@@ -181,6 +205,7 @@ func (a App) Init() tea.Cmd {
 	return tea.Batch(
 		a.dashboard.init(),
 		a.tick(),
+		a.spinnerTick(),
 	)
 }
 
@@ -191,14 +216,27 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.propagateSize()
+		if a.showDetail && a.detail.readerMode {
+			var cmd tea.Cmd
+			a.detail, cmd = a.detail.requestCurrentSectionRender()
+			a.syncBusyState()
+			return a, cmd
+		}
 		return a, nil
 
 	case tickMsg:
 		cmd := a.refreshActiveView()
 		return a, tea.Batch(cmd, a.tick())
 
+	case spinnerTickMsg:
+		if a.spinnerOn {
+			a.statusBar.NextSpinner()
+		}
+		return a, a.spinnerTick()
+
 	// Data messages — route to the owning view regardless of which is active.
 	case dashboardDataMsg:
+		a.markRefreshDone(refreshKeyDashboard)
 		var cmd tea.Cmd
 		a.dashboard, cmd = a.dashboard.update(msg)
 		a.statusBar.SetPending(a.dashboard.pendingCount())
@@ -206,33 +244,49 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 
 	case pipelineDataMsg:
+		a.markRefreshDone(refreshKeyPipeline)
 		var cmd tea.Cmd
 		a.pipeline, cmd = a.pipeline.update(msg)
 		return a, cmd
 
 	case specListDataMsg:
+		a.markRefreshDone(refreshKeySpecs)
 		var cmd tea.Cmd
 		a.specs, cmd = a.specs.update(msg)
 		return a, cmd
 
 	case triageDataMsg:
+		a.markRefreshDone(refreshKeyTriage)
 		var cmd tea.Cmd
 		a.triage, cmd = a.triage.update(msg)
 		return a, cmd
 
 	case reviewDataMsg:
+		a.markRefreshDone(refreshKeyReviews)
 		var cmd tea.Cmd
 		a.reviews, cmd = a.reviews.update(msg)
 		return a, cmd
 
 	case specDetailDataMsg:
+		a.markDetailRefreshDone()
 		var cmd tea.Cmd
 		a.detail, cmd = a.detail.update(msg)
 		return a, cmd
 
+	case sectionRenderedMsg:
+		var cmd tea.Cmd
+		a.detail, cmd = a.detail.update(msg)
+		a.syncBusyState()
+		return a, cmd
+
 	// Theme cycling from settings view.
 	case cycleThemeMsg:
-		a.cycleTheme()
+		return a, a.cycleTheme()
+
+	case themePersistedMsg:
+		if msg.Err != nil {
+			a.toast.Show(msg.Err.Error(), components.ToastError, 5*time.Second)
+		}
 		return a, nil
 
 	// Standup data arrived.
@@ -267,7 +321,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Refresh focused spec after focus/unfocus actions.
 		if msg.Action == "focus" || msg.Action == "unfocus" {
-			a.focusedSpecID = loadFocusedSpec()
+			a.focusedSpecID = loadFocusedSpec(a.db)
 		}
 		return a, a.refreshActiveView()
 
@@ -362,7 +416,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.modal.SetSize(a.width, a.contentHeight())
 		return a, nil
 	case key.Matches(msg, a.keys.Standup):
-		return a, generateStandup(a.rc, a.reg)
+		return a, generateStandup(a.rc, a.reg, a.db)
 
 	// Enter drills into spec detail.
 	case key.Matches(msg, a.keys.Enter):
@@ -438,13 +492,7 @@ func (a App) View() string {
 		content = a.activeViewContent()
 	}
 
-	lines := splitLines(content)
-	for len(lines) < contentHeight {
-		lines = append(lines, "")
-	}
-	if len(lines) > contentHeight {
-		lines = lines[:contentHeight]
-	}
+	lines := normalizeContentLines(content, a.width, contentHeight)
 
 	var out string
 	out += header + "\n"
@@ -564,10 +612,15 @@ func (a App) activeViewContent() string {
 
 func (a *App) switchView(v View) tea.Cmd {
 	// Close detail if switching views.
+	a.markDetailRefreshDone()
+	if a.showDetail {
+		a.detail.cancelRender()
+	}
 	a.showDetail = false
 	a.activeView = v
 	a.tabs.SetActive(int(v))
 	a.statusBar.SetView(v.Label())
+	a.syncBusyState()
 	return a.initAndRefreshView(v)
 }
 
@@ -575,27 +628,27 @@ func (a *App) switchView(v View) tea.Cmd {
 func (a *App) initAndRefreshView(v View) tea.Cmd {
 	switch v {
 	case ViewDashboard:
-		return a.dashboard.refresh()
+		return a.scheduleRefresh(refreshKeyDashboard, a.dashboard.refresh())
 	case ViewPipeline:
 		if a.pipeline.loading {
-			return a.pipeline.init()
+			return a.scheduleRefresh(refreshKeyPipeline, a.pipeline.init())
 		}
-		return a.pipeline.refresh()
+		return a.scheduleRefresh(refreshKeyPipeline, a.pipeline.refresh())
 	case ViewSpecs:
 		if a.specs.loading {
-			return a.specs.init()
+			return a.scheduleRefresh(refreshKeySpecs, a.specs.init())
 		}
-		return a.specs.refresh()
+		return a.scheduleRefresh(refreshKeySpecs, a.specs.refresh())
 	case ViewTriage:
 		if a.triage.loading {
-			return a.triage.init()
+			return a.scheduleRefresh(refreshKeyTriage, a.triage.init())
 		}
-		return a.triage.refresh()
+		return a.scheduleRefresh(refreshKeyTriage, a.triage.refresh())
 	case ViewReviews:
 		if a.reviews.loading {
-			return a.reviews.init()
+			return a.scheduleRefresh(refreshKeyReviews, a.reviews.init())
 		}
-		return a.reviews.refresh()
+		return a.scheduleRefresh(refreshKeyReviews, a.reviews.refresh())
 	default:
 		return nil
 	}
@@ -603,23 +656,68 @@ func (a *App) initAndRefreshView(v View) tea.Cmd {
 
 func (a *App) refreshActiveView() tea.Cmd {
 	if a.showDetail {
-		return a.detail.fetchData()
+		if a.detail.readerMode {
+			return nil
+		}
+		return a.scheduleRefresh(a.detailRefreshKey(), a.detail.fetchData())
 	}
 	return a.initAndRefreshView(a.activeView)
+}
+
+func (a *App) scheduleRefresh(key string, cmd tea.Cmd) tea.Cmd {
+	if key == "" || cmd == nil {
+		return nil
+	}
+	if a.refreshInFlight == nil {
+		a.refreshInFlight = make(map[string]bool)
+	}
+	if a.refreshInFlight[key] {
+		return nil
+	}
+	a.refreshInFlight[key] = true
+	return cmd
+}
+
+func (a *App) markRefreshDone(key string) {
+	if a.refreshInFlight != nil {
+		a.refreshInFlight[key] = false
+	}
+}
+
+func (a *App) markDetailRefreshDone() {
+	if a.refreshInFlight == nil {
+		return
+	}
+	for key := range a.refreshInFlight {
+		if key == "detail" || strings.HasPrefix(key, "detail:") {
+			a.refreshInFlight[key] = false
+		}
+	}
+}
+
+func (a App) detailRefreshKey() string {
+	if !a.showDetail || a.detail.specID == "" {
+		return "detail"
+	}
+	return "detail:" + a.detail.specID
 }
 
 func (a *App) openDetail(specID string) tea.Cmd {
 	a.showDetail = true
 	a.detailFrom = a.activeView
-	a.detail = newSpecDetail(a.rc, specID, a.styles, a.keys)
+	a.detail = newSpecDetail(a.rc, specID, a.styles, a.keys, a.theme)
 	a.detail.setSize(a.width, a.contentHeight())
 	a.statusBar.SetView(a.activeView.Label() + " › " + specID)
+	a.syncBusyState()
 	return a.detail.init()
 }
 
 func (a *App) closeDetail() tea.Cmd {
+	a.markDetailRefreshDone()
+	a.detail.cancelRender()
 	a.showDetail = false
 	a.statusBar.SetView(a.activeView.Label())
+	a.syncBusyState()
 	return nil
 }
 
@@ -702,9 +800,9 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 		a.modal.SetSize(a.width, a.contentHeight())
 		return nil, true
 	case key.Matches(msg, a.keys.Focus) && specID != "":
-		return focusSpec(specID), true
+		return focusSpec(a.db, specID), true
 	case key.Matches(msg, a.keys.Unfocus):
-		return unfocusSpec(), true
+		return unfocusSpec(a.db), true
 	case key.Matches(msg, a.keys.Yank) && specID != "":
 		return yankSpecID(specID), true
 	case key.Matches(msg, a.keys.Edit) && isSpecID(specID):
@@ -934,7 +1032,7 @@ func (a *App) propagateSize() {
 }
 
 // cycleTheme advances to the next theme, applies it, and persists the choice.
-func (a *App) cycleTheme() {
+func (a *App) cycleTheme() tea.Cmd {
 	names := ThemeNames()
 	current := "auto"
 	if a.rc.User != nil && a.rc.User.Preferences.Theme != "" {
@@ -956,10 +1054,16 @@ func (a *App) cycleTheme() {
 	// Persist to user config.
 	if a.rc.User != nil {
 		a.rc.User.Preferences.Theme = newName
-		_ = config.WriteUserConfig(a.rc.UserConfigPath, a.rc.User)
+		userConfig := *a.rc.User
+		userConfigPath := a.rc.UserConfigPath
+		a.toast.Show("Theme: "+newName, components.ToastInfo, 2*time.Second)
+		return func() tea.Msg {
+			return themePersistedMsg{Err: config.WriteUserConfig(userConfigPath, &userConfig)}
+		}
 	}
 
 	a.toast.Show("Theme: "+newName, components.ToastInfo, 2*time.Second)
+	return nil
 }
 
 // applyTheme rebuilds all styles from a named theme and propagates to
@@ -1024,6 +1128,12 @@ func (a *App) applyTheme(name string) {
 	a.reviews.styles = a.styles
 	a.settings.styles = a.styles
 	a.help.styles = a.styles
+	if a.showDetail {
+		a.detail.styles = a.styles
+		a.detail.theme = a.theme
+		a.detail.readerCache = make(map[string]string)
+		a.detail.readerGen++
+	}
 
 	a.propagateSize()
 }
@@ -1037,10 +1147,57 @@ func (a App) contentHeight() int {
 	return ch
 }
 
+func (a *App) syncBusyState() {
+	busy := a.showDetail && a.detail.readerMode && (a.detail.renderInFlight || a.detail.renderQueued)
+	a.spinnerOn = busy
+	if !busy {
+		a.statusBar.SetBusy(false, "")
+		return
+	}
+	label := "rendering section"
+	sections := a.detail.readableSections()
+	if a.detail.sectionIdx >= 0 && a.detail.sectionIdx < len(sections) {
+		label = "rendering § " + sections[a.detail.sectionIdx].Slug
+	}
+	a.statusBar.SetBusy(true, label)
+}
+
 func (a App) tick() tea.Cmd {
 	return tea.Tick(a.refreshInterval, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+func (a App) spinnerTick() tea.Cmd {
+	return tea.Tick(spinnerInterval, func(t time.Time) tea.Msg {
+		return spinnerTickMsg(t)
+	})
+}
+
+func normalizeContentLines(content string, width, height int) []string {
+	lines := splitLines(content)
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for i := range lines {
+		lines[i] = normalizeLineWidth(lines[i], width)
+	}
+	return lines
+}
+
+func normalizeLineWidth(line string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	line = xansi.Truncate(line, width, "")
+	w := xansi.StringWidth(line)
+	if w < width {
+		line += strings.Repeat(" ", width-w)
+	}
+	return line
 }
 
 func splitLines(s string) []string {

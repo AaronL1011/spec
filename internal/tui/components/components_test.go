@@ -147,3 +147,35 @@ func TestStatusBar_PendingShown(t *testing.T) {
 		t.Errorf("status bar should show '5 pending', got: %q", got)
 	}
 }
+
+func TestStatusBar_BusySpinnerShown(t *testing.T) {
+	styles := StatusBarStyles{
+		Bar:     lipgloss.NewStyle(),
+		Label:   lipgloss.NewStyle(),
+		Pending: lipgloss.NewStyle(),
+		Hint:    lipgloss.NewStyle(),
+		Clock:   lipgloss.NewStyle(),
+		Stale:   lipgloss.NewStyle(),
+	}
+	sb := NewStatusBar(styles)
+	sb.SetView("Specs")
+	sb.SetWidth(100)
+	sb.SetBusy(true, "rendering § problem_statement")
+
+	got := sb.View()
+	if !strings.Contains(got, "rendering § problem_statement") {
+		t.Fatalf("busy label should be visible, got: %q", got)
+	}
+
+	sb.NextSpinner()
+	got2 := sb.View()
+	if got == got2 {
+		t.Fatal("spinner frame advance should change rendered status bar")
+	}
+
+	sb.SetBusy(false, "")
+	got3 := sb.View()
+	if strings.Contains(got3, "rendering §") {
+		t.Fatalf("busy label should clear when not busy, got: %q", got3)
+	}
+}

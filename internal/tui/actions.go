@@ -154,13 +154,11 @@ func revertSpec(rc *config.ResolvedConfig, specID, targetStage, reason, user str
 }
 
 // focusSpec sets the focused spec in the local store.
-func focusSpec(specID string) tea.Cmd {
+func focusSpec(db *store.DB, specID string) tea.Cmd {
 	return func() tea.Msg {
-		db, err := store.Open(store.DefaultDBPath())
-		if err != nil {
-			return actionResultMsg{Action: "focus", SpecID: specID, Err: err}
+		if db == nil {
+			return actionResultMsg{Action: "focus", SpecID: specID, Err: fmt.Errorf("local store unavailable")}
 		}
-		defer func() { _ = db.Close() }()
 
 		if err := db.FocusedSpecSet(specID); err != nil {
 			return actionResultMsg{Action: "focus", SpecID: specID, Err: err}
@@ -170,13 +168,11 @@ func focusSpec(specID string) tea.Cmd {
 }
 
 // unfocusSpec clears the focused spec.
-func unfocusSpec() tea.Cmd {
+func unfocusSpec(db *store.DB) tea.Cmd {
 	return func() tea.Msg {
-		db, err := store.Open(store.DefaultDBPath())
-		if err != nil {
-			return actionResultMsg{Action: "unfocus", Err: err}
+		if db == nil {
+			return actionResultMsg{Action: "unfocus", Err: fmt.Errorf("local store unavailable")}
 		}
-		defer func() { _ = db.Close() }()
 
 		if err := db.FocusedSpecClear(); err != nil {
 			return actionResultMsg{Action: "unfocus", Err: err}

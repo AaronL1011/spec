@@ -1,12 +1,19 @@
 package tui
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -14,59 +21,125 @@ import (
 	"github.com/aaronl1011/spec/internal/markdown"
 )
 
-// specDetailDataMsg carries loaded spec detail.
 type specDetailDataMsg struct {
 	Meta      *markdown.SpecMeta
 	Sections  []markdown.Section
 	Decisions []markdown.DecisionEntry
+	Hash      string
 	Err       error
 }
 
-// navigateToSpecMsg requests the app open a spec detail view.
-type navigateToSpecMsg struct {
-	SpecID string
+type sectionRenderedMsg struct {
+	SpecID       string
+	SectionIdx   int
+	CacheKey     string
+	Gen          uint64
+	Content      string
+	Err          error
+	RenderMillis int64
+	Prefetch     bool
 }
 
-// navigateBackMsg requests the app return to the previous view.
+type renderRequest struct {
+	Ctx        context.Context
+	SpecID     string
+	SectionIdx int
+	CacheKey   string
+	Gen        uint64
+	Heading    string
+	Owner      string
+	Body       string
+	Total      int
+	Width      int
+	Styles     Styles
+	Prefetch   bool
+}
+
+type navigateToSpecMsg struct{ SpecID string }
 type navigateBackMsg struct{}
 
-// specDetailModel shows a read-only deep-dive of a single spec.
 type specDetailModel struct {
 	rc     *config.ResolvedConfig
 	specID string
 
-	meta         *markdown.SpecMeta
-	sections     []markdown.Section
-	decisions    []markdown.DecisionEntry
-	loading      bool
-	err          error
+	meta      *markdown.SpecMeta
+	sections  []markdown.Section
+	decisions []markdown.DecisionEntry
+	loading   bool
+	err       error
+
+	// Overview scroll.
 	scroll       int
-	contentLines int // cached line count for scroll clamping
+	contentLines int
 
-	// Reader mode
-	readerMode  bool
-	sectionIdx  int      // which section is being read
-	readerLines []string // rendered lines for current section
+	// Reader state.
+	readerMode     bool
+	sectionIdx     int
+	readerContent  string
+	readerViewport viewport.Model
+	readerState    readerRenderState
+	readerErr      error
+	readerGen      uint64
+	readerCache    map[string]string
+	contentHash    string
 
+	renderInFlight  bool
+	renderQueued    bool
+	renderCancel    context.CancelFunc
+	queuedRequest   *renderRequest
+	renderQueue     chan renderRequest
+	renderResult    chan sectionRenderedMsg
+	renderResultCmd tea.Cmd
+	renderer        Renderer
+
+	metrics renderMetrics
+
+	theme  Theme
 	width  int
 	height int
 	styles Styles
 	keys   KeyMap
 }
 
-func newSpecDetail(rc *config.ResolvedConfig, specID string, styles Styles, keys KeyMap) specDetailModel {
-	return specDetailModel{
-		rc:      rc,
-		specID:  specID,
-		loading: true,
-		styles:  styles,
-		keys:    keys,
-	}
+type renderMetrics struct {
+	total    int64
+	canceled int64
+	slow     int64
 }
 
-func (m specDetailModel) init() tea.Cmd {
-	return m.fetchData()
+type readerRenderState int
+
+const (
+	readerIdle readerRenderState = iota
+	readerPending
+	readerReady
+	readerFailed
+)
+
+const slowRenderThreshold = 300 * time.Millisecond
+
+func newSpecDetail(rc *config.ResolvedConfig, specID string, styles Styles, keys KeyMap, theme Theme) specDetailModel {
+	vp := viewport.New(80, 20)
+	vp.KeyMap = viewport.KeyMap{}
+	m := specDetailModel{
+		rc:             rc,
+		specID:         specID,
+		loading:        true,
+		styles:         styles,
+		keys:           keys,
+		theme:          theme,
+		readerCache:    make(map[string]string),
+		renderQueue:    make(chan renderRequest, 8),
+		renderResult:   make(chan sectionRenderedMsg, 8),
+		renderer:       NewGlamourRenderer(),
+		readerViewport: vp,
+	}
+	m.startRenderWorker()
+	m.renderResultCmd = m.awaitRenderResult()
+	return m
 }
+
+func (m specDetailModel) init() tea.Cmd { return m.fetchData() }
 
 func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -78,23 +151,101 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 		}
 		wasReading := m.readerMode
 		secIdx := m.sectionIdx
-
+		if msg.Hash != "" && msg.Hash == m.contentHash && m.meta != nil {
+			m.err = nil
+			return m, nil
+		}
 		m.meta = msg.Meta
 		m.sections = msg.Sections
 		m.decisions = msg.Decisions
 		m.err = nil
+		m.contentHash = msg.Hash
+		m.readerCache = make(map[string]string)
 		m.contentLines = m.estimateContentLines()
-
-		// Preserve reader mode across data refreshes.
 		if wasReading {
 			m.readerMode = true
 			m.sectionIdx = secIdx
-			m = m.withRenderedSection()
-			m.contentLines = len(m.readerLines)
-		} else {
-			m.scroll = 0
+			if sections := m.readableSections(); m.sectionIdx >= len(sections) {
+				m.sectionIdx = max(0, len(sections)-1)
+			}
+			m.cancelRender()
+			return m.requestCurrentSectionRender()
 		}
+		m.scroll = 0
 		return m, nil
+
+	case sectionRenderedMsg:
+		m.renderInFlight = false
+		m.renderCancel = nil
+		if msg.Err == context.Canceled {
+			atomic.AddInt64(&m.metrics.canceled, 1)
+		}
+		if msg.Prefetch {
+			if msg.Err == nil && msg.SpecID == m.specID && msg.Content != "" {
+				if _, ok := m.readerCache[msg.CacheKey]; !ok {
+					m.readerCache[msg.CacheKey] = msg.Content
+				}
+			}
+			if m.renderQueued && m.queuedRequest != nil {
+				req := *m.queuedRequest
+				m.renderQueued = false
+				m.queuedRequest = nil
+				return m.startRender(req)
+			}
+			return m, nil
+		}
+
+		if msg.SpecID != m.specID || msg.Gen != m.readerGen || msg.SectionIdx != m.sectionIdx {
+			if m.renderQueued && m.queuedRequest != nil {
+				req := *m.queuedRequest
+				m.renderQueued = false
+				m.queuedRequest = nil
+				return m.startRender(req)
+			}
+			return m, nil
+		}
+
+		if msg.Err != nil {
+			if msg.Err == context.Canceled {
+				if m.renderQueued && m.queuedRequest != nil {
+					req := *m.queuedRequest
+					m.renderQueued = false
+					m.queuedRequest = nil
+					return m.startRender(req)
+				}
+				if m.readerContent != "" {
+					m.readerState = readerReady
+				}
+				return m, nil
+			}
+			m.readerErr = msg.Err
+			m.readerState = readerFailed
+			if m.renderQueued && m.queuedRequest != nil {
+				req := *m.queuedRequest
+				m.renderQueued = false
+				m.queuedRequest = nil
+				return m.startRender(req)
+			}
+			return m, nil
+		}
+
+		atomic.AddInt64(&m.metrics.total, 1)
+		if time.Duration(msg.RenderMillis)*time.Millisecond > slowRenderThreshold {
+			atomic.AddInt64(&m.metrics.slow, 1)
+		}
+
+		m.readerCache[msg.CacheKey] = msg.Content
+		m.applyReaderContent(msg.Content)
+		m.readerState = readerReady
+		m.readerErr = nil
+
+		if m.renderQueued && m.queuedRequest != nil {
+			req := *m.queuedRequest
+			m.renderQueued = false
+			m.queuedRequest = nil
+			return m.startRender(req)
+		}
+		return m, m.prefetchAdjacentSections()
 
 	case tea.KeyMsg:
 		if m.readerMode {
@@ -117,13 +268,10 @@ func (m specDetailModel) updateOverview(msg tea.KeyMsg) (specDetailModel, tea.Cm
 			m.scroll = mx
 		}
 	case key.Matches(msg, m.keys.Open):
-		// Enter reader mode.
 		m.readerMode = true
-		m.sectionIdx = 0
+		m.sectionIdx = m.firstReadableSectionIndex()
 		m.scroll = 0
-		m = m.withRenderedSection()
-		m.contentLines = len(m.readerLines)
-		return m, tea.ClearScreen
+		return m.requestCurrentSectionRender()
 	case key.Matches(msg, m.keys.Back):
 		return m, func() tea.Msg { return navigateBackMsg{} }
 	}
@@ -133,151 +281,271 @@ func (m specDetailModel) updateOverview(msg tea.KeyMsg) (specDetailModel, tea.Cm
 func (m specDetailModel) updateReader(msg tea.KeyMsg) (specDetailModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Up):
-		if m.scroll > 0 {
-			m.scroll--
-		}
+		m.readerViewport.LineUp(1)
 	case key.Matches(msg, m.keys.Down):
-		m.scroll++
-		mx := len(m.readerLines) - m.height
-		if mx < 0 {
-			mx = 0
-		}
-		if m.scroll > mx {
-			m.scroll = mx
-		}
+		m.readerViewport.LineDown(1)
+	case msg.Type == tea.KeyPgUp:
+		m.readerViewport.PageUp()
+	case msg.Type == tea.KeyPgDown:
+		m.readerViewport.PageDown()
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "n":
-		m = m.withNextSection()
+		return m.withNextSection()
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "p":
-		m = m.withPrevSection()
+		return m.withPrevSection()
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "g":
-		m.scroll = 0
+		m.readerViewport.GotoTop()
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "G":
-		mx := len(m.readerLines) - m.height
-		if mx < 0 {
-			mx = 0
-		}
-		m.scroll = mx
+		m.readerViewport.GotoBottom()
 	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9':
-		idx := int(msg.Runes[0]-'0') - 1
-		m = m.withSection(idx)
+		return m.withSection(int(msg.Runes[0]-'0') - 1)
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "0":
-		// Jump to Decision Log.
 		for i, sec := range m.readableSections() {
 			if sec.Slug == "decision_log" {
-				m = m.withSection(i)
-				break
+				return m.withSection(i)
 			}
 		}
-	case key.Matches(msg, m.keys.Open):
-		// Back to overview.
+	case key.Matches(msg, m.keys.Open), key.Matches(msg, m.keys.Back):
+		m.cancelRender()
 		m.readerMode = false
 		m.scroll = 0
 		m.contentLines = m.estimateContentLines()
-		return m, tea.ClearScreen
-	case key.Matches(msg, m.keys.Back):
-		// Esc in reader goes to overview, not back to list.
-		m.readerMode = false
-		m.scroll = 0
-		m.contentLines = m.estimateContentLines()
-		return m, tea.ClearScreen
+		return m, nil
+	}
+	m.scroll = m.readerViewport.YOffset
+	m.contentLines = m.readerViewport.TotalLineCount()
+	if m.contentLines == 0 {
+		m.contentLines = 1
 	}
 	return m, nil
 }
 
-func (m specDetailModel) withSection(idx int) specDetailModel {
+func (m specDetailModel) withSection(idx int) (specDetailModel, tea.Cmd) {
 	sections := m.readableSections()
-	if idx >= 0 && idx < len(sections) {
-		m.sectionIdx = idx
-		m.scroll = 0
-		m = m.withRenderedSection()
-		m.contentLines = len(m.readerLines)
+	if idx < 0 || idx >= len(sections) {
+		return m, nil
 	}
-	return m
+	m.sectionIdx = idx
+	m.readerViewport.GotoTop()
+	return m.requestCurrentSectionRender()
 }
 
-func (m specDetailModel) withNextSection() specDetailModel {
+func (m specDetailModel) withNextSection() (specDetailModel, tea.Cmd) {
 	return m.withSection(m.sectionIdx + 1)
 }
-
-func (m specDetailModel) withPrevSection() specDetailModel {
+func (m specDetailModel) withPrevSection() (specDetailModel, tea.Cmd) {
 	return m.withSection(m.sectionIdx - 1)
 }
 
-// readableSections returns sections with level 2-3 (the main spec sections).
 func (m specDetailModel) readableSections() []markdown.Section {
 	return readableSectionsFrom(m.sections)
 }
 
-// readableSectionsFrom filters sections to level 2-3 (usable outside the model).
 func readableSectionsFrom(sections []markdown.Section) []markdown.Section {
 	var out []markdown.Section
 	for _, sec := range sections {
-		if sec.Level <= 3 {
+		if sec.Level == 2 || sec.Level == 3 {
 			out = append(out, sec)
 		}
 	}
 	return out
 }
 
-// effectiveWidth returns the content width for the reader, accounting for sidebar.
+func (m specDetailModel) firstReadableSectionIndex() int {
+	sections := m.readableSections()
+	for i, sec := range sections {
+		if sec.Level == 2 {
+			return i
+		}
+	}
+	if len(sections) > 0 {
+		return 0
+	}
+	return 0
+}
+
 func (m specDetailModel) effectiveWidth() int {
 	w := m.width
 	if w >= 100 {
-		w = w - 23 // sidebar(22) + separator(1)
+		w -= 23
+	}
+	if w < 20 {
+		w = 20
 	}
 	return w
 }
 
-// renderSectionLines produces the display lines for a single section.
-func renderSectionLines(renderer *mdRenderer, styles Styles, heading, owner, content string, idx, total, effWidth int) []string {
-	var lines []string
-
-	// Section header.
-	lines = append(lines, "")
-	lines = append(lines, styles.Title.Render(fmt.Sprintf("  %s", heading)))
-	if owner != "" && owner != "auto" {
-		lines = append(lines, styles.Muted.Render(fmt.Sprintf("  [%s]", owner)))
+func renderSectionContent(ctx context.Context, renderer Renderer, req renderRequest) (string, error) {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(req.Styles.Title.Render(fmt.Sprintf("  %s", req.Heading)))
+	b.WriteString("\n")
+	if req.Owner != "" && req.Owner != "auto" {
+		b.WriteString(req.Styles.Muted.Render(fmt.Sprintf("  [%s]", req.Owner)))
+		b.WriteString("\n")
 	}
-	sepWidth := effWidth - 4
+	sepWidth := req.Width - 4
 	if sepWidth < 10 {
 		sepWidth = 10
 	}
-	lines = append(lines, styles.Separator.Render(strings.Repeat("─", sepWidth)))
-	lines = append(lines, "")
+	b.WriteString(req.Styles.Separator.Render(strings.Repeat("─", sepWidth)))
+	b.WriteString("\n\n")
 
-	// Render content via glamour.
-	trimmed := strings.TrimSpace(content)
+	trimmed := strings.TrimSpace(req.Body)
 	if trimmed == "" {
-		lines = append(lines, styles.Muted.Render("  (empty section)"))
+		b.WriteString(req.Styles.Muted.Render("  (empty section)"))
+		b.WriteString("\n")
 	} else {
-		for _, l := range renderer.render(trimmed) {
-			lines = append(lines, "  "+l)
+		rendered, err := renderer.Render(ctx, trimmed, req.Width-2)
+		if err != nil {
+			return "", err
+		}
+		for _, line := range splitLines(rendered) {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteString("\n")
 		}
 	}
 
-	// Footer with nav hints.
-	lines = append(lines, "")
-	nav := fmt.Sprintf("  § %d/%d", idx+1, total)
+	nav := fmt.Sprintf("  § %d/%d", req.SectionIdx+1, req.Total)
 	hints := "n next · p prev · 1-9 jump · o overview"
-	lines = append(lines, styles.Muted.Render(nav+"  "+hints))
-
-	return lines
+	b.WriteString("\n")
+	b.WriteString(req.Styles.Muted.Render(nav + "  " + hints))
+	return strings.TrimRight(b.String(), "\n"), nil
 }
 
-// withRenderedSection returns m with readerLines populated for the current section.
-// Uses the pre-rendered cache when available; falls back to synchronous render.
-func (m specDetailModel) withRenderedSection() specDetailModel {
+func (m specDetailModel) requestCurrentSectionRender() (specDetailModel, tea.Cmd) {
 	sections := m.readableSections()
 	if m.sectionIdx >= len(sections) {
-		m.readerLines = []string{"  (no sections)"}
-		return m
+		m.applyReaderContent("  (no sections)")
+		m.readerState = readerReady
+		return m, nil
 	}
 
 	effWidth := m.effectiveWidth()
-	renderer := newMDRenderer(ResolveTheme(""), effWidth)
 	sec := sections[m.sectionIdx]
-	m.readerLines = renderSectionLines(renderer, m.styles, sec.Heading, sec.Owner, sec.Content, m.sectionIdx, len(sections), effWidth)
-	return m
+	cacheKey := m.readerCacheKey(sec, m.sectionIdx, effWidth)
+	if content, ok := m.readerCache[cacheKey]; ok {
+		m.applyReaderContent(content)
+		m.readerState = readerReady
+		m.readerErr = nil
+		return m, nil
+	}
+
+	m.readerState = readerPending
+	m.readerErr = nil
+
+	req := renderRequest{
+		SpecID:     m.specID,
+		SectionIdx: m.sectionIdx,
+		CacheKey:   cacheKey,
+		Heading:    sec.Heading,
+		Owner:      sec.Owner,
+		Body:       sec.Content,
+		Total:      len(sections),
+		Width:      effWidth,
+		Styles:     m.styles,
+	}
+
+	if m.renderInFlight {
+		m.renderQueued = true
+		m.queuedRequest = &req
+		if m.renderCancel != nil {
+			m.renderCancel()
+		}
+		return m, nil
+	}
+	return m.startRender(req)
+}
+
+func (m specDetailModel) startRender(req renderRequest) (specDetailModel, tea.Cmd) {
+	m.cancelRender()
+	ctx, cancel := context.WithCancel(context.Background())
+	m.readerGen++
+	req.Gen = m.readerGen
+	req.Ctx = ctx
+
+	m.renderCancel = cancel
+	m.renderInFlight = true
+
+	select {
+	case m.renderQueue <- req:
+	default:
+		go func() { m.renderQueue <- req }()
+	}
+	return m, m.renderResultCmd
+}
+
+func (m specDetailModel) prefetchAdjacentSections() tea.Cmd {
+	if !m.readerMode || m.renderInFlight {
+		return nil
+	}
+	sections := m.readableSections()
+	if len(sections) == 0 {
+		return nil
+	}
+	effWidth := m.effectiveWidth()
+	mkReq := func(idx int) *renderRequest {
+		if idx < 0 || idx >= len(sections) {
+			return nil
+		}
+		sec := sections[idx]
+		key := m.readerCacheKey(sec, idx, effWidth)
+		if _, ok := m.readerCache[key]; ok {
+			return nil
+		}
+		return &renderRequest{
+			SpecID:     m.specID,
+			SectionIdx: idx,
+			CacheKey:   key,
+			Heading:    sec.Heading,
+			Owner:      sec.Owner,
+			Body:       sec.Content,
+			Total:      len(sections),
+			Width:      effWidth,
+			Styles:     m.styles,
+			Prefetch:   true,
+		}
+	}
+	left := mkReq(m.sectionIdx - 1)
+	right := mkReq(m.sectionIdx + 1)
+	if left == nil && right == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		if left != nil {
+			m.enqueuePrefetch(*left)
+		}
+		if right != nil {
+			m.enqueuePrefetch(*right)
+		}
+		return nil
+	}
+}
+
+func (m specDetailModel) enqueuePrefetch(req renderRequest) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req.Ctx = ctx
+	req.Gen = m.readerGen
+	req.Prefetch = true
+	select {
+	case m.renderQueue <- req:
+	default:
+	}
+}
+
+func (m specDetailModel) readerCacheKey(sec markdown.Section, idx, width int) string {
+	return strings.Join([]string{m.contentHash, strconv.Itoa(idx), strconv.Itoa(width), strconv.Itoa(len(sec.Content))}, ":")
+}
+
+func (m *specDetailModel) applyReaderContent(content string) {
+	m.readerContent = content
+	m.readerViewport.SetContent(content)
+	m.scroll = m.readerViewport.YOffset
+	m.contentLines = m.readerViewport.TotalLineCount()
+	if m.contentLines == 0 {
+		m.contentLines = 1
+	}
 }
 
 func (m specDetailModel) view() string {
@@ -290,61 +558,40 @@ func (m specDetailModel) view() string {
 	if m.meta == nil {
 		return m.styles.Muted.Render("  Spec not found")
 	}
-
 	if m.readerMode {
 		return m.viewReader()
 	}
 	return m.viewOverview()
 }
 
-// viewReader renders the full content of the current section.
 func (m specDetailModel) viewReader() string {
-	// Defensive: if reader mode is on but lines weren't rendered
-	// (e.g., value-receiver copy issue), render now.
-	if len(m.readerLines) == 0 && len(m.sections) > 0 {
-		m = m.withRenderedSection()
+	if m.readerState == readerFailed {
+		return m.styles.Error.Render(fmt.Sprintf("  Error: %v", m.readerErr))
 	}
-	if len(m.readerLines) == 0 {
+	if m.readerContent == "" {
 		return m.styles.Muted.Render("  (no content)")
 	}
-
 	visible := m.height
 	if visible < 3 {
 		visible = 3
 	}
-
-	// Wide terminals: show section sidebar.
 	if m.width >= 100 {
 		return m.viewReaderWithSidebar(visible)
 	}
-
-	start := m.scroll
-	if start > len(m.readerLines) {
-		start = len(m.readerLines)
-	}
-	end := start + visible
-	if end > len(m.readerLines) {
-		end = len(m.readerLines)
-	}
-	return strings.Join(m.readerLines[start:end], "\n")
+	return m.readerViewport.View()
 }
 
-// viewReaderWithSidebar renders reader mode with a section index on the left.
 func (m specDetailModel) viewReaderWithSidebar(visible int) string {
 	const sidebarWidth = 22
-
-	// Build sidebar lines.
 	sections := m.readableSections()
 	var sidebar []string
-	sidebar = append(sidebar, m.styles.SectionTitle.Render(" § Sections"))
-	sidebar = append(sidebar, "")
+	sidebar = append(sidebar, m.styles.SectionTitle.Render(" § Sections"), "")
 	for i, sec := range sections {
 		fill := "◻"
 		if len(strings.TrimSpace(sec.Content)) > 20 {
 			fill = "◼"
 		}
-		label := truncate(sec.Slug, sidebarWidth-5)
-		line := fmt.Sprintf(" %s %d %s", fill, i+1, label)
+		line := fmt.Sprintf(" %s %d %s", fill, i+1, truncate(sec.Slug, sidebarWidth-5))
 		if i == m.sectionIdx {
 			line = m.styles.Accent.Bold(true).Render(line)
 		} else {
@@ -352,35 +599,25 @@ func (m specDetailModel) viewReaderWithSidebar(visible int) string {
 		}
 		sidebar = append(sidebar, line)
 	}
-
-	// Pad sidebar to visible height.
 	for len(sidebar) < visible {
 		sidebar = append(sidebar, "")
 	}
 	if len(sidebar) > visible {
-		// Scroll sidebar to keep current section visible.
-		ss, se := scrollWindow(m.sectionIdx+2, len(sidebar), visible) // +2 for header
+		ss, se := scrollWindow(m.sectionIdx+2, len(sidebar), visible)
 		sidebar = sidebar[ss:se]
 	}
 
-	// Content slice.
-	start := m.scroll
-	if start > len(m.readerLines) {
-		start = len(m.readerLines)
-	}
-	end := start + visible
-	if end > len(m.readerLines) {
-		end = len(m.readerLines)
-	}
-	content := m.readerLines[start:end]
+	content := splitLines(m.readerViewport.View())
 	for len(content) < visible {
 		content = append(content, "")
 	}
+	if len(content) > visible {
+		content = content[:visible]
+	}
 
-	// Compose side by side.
 	sep := m.styles.Separator.Render("│")
 	var out []string
-	for i := range visible {
+	for i := 0; i < visible; i++ {
 		sl := ""
 		if i < len(sidebar) {
 			sl = sidebar[i]
@@ -389,7 +626,6 @@ func (m specDetailModel) viewReaderWithSidebar(visible int) string {
 		if i < len(content) {
 			cl = content[i]
 		}
-		// Pad sidebar to fixed width.
 		pad := sidebarWidth - lipgloss.Width(sl)
 		if pad < 0 {
 			pad = 0
@@ -399,24 +635,18 @@ func (m specDetailModel) viewReaderWithSidebar(visible int) string {
 	return strings.Join(out, "\n")
 }
 
-// viewOverview renders the metadata/outline view (original detail view).
 func (m specDetailModel) viewOverview() string {
 	if m.meta == nil {
 		return m.styles.Muted.Render("  Spec not found")
 	}
-
 	var b strings.Builder
 	contentWidth := m.width - 4
 	if contentWidth < 40 {
 		contentWidth = 40
 	}
-
-	// Title block
 	b.WriteString("\n")
 	b.WriteString(m.styles.Title.Render(fmt.Sprintf("  %s — %s", m.meta.ID, m.meta.Title)))
 	b.WriteString("\n\n")
-
-	// Metadata grid
 	b.WriteString(m.metaLine("Status", m.meta.Status))
 	b.WriteString(m.metaLine("Author", m.meta.Author))
 	if m.meta.Version != "" {
@@ -430,8 +660,6 @@ func (m specDetailModel) viewOverview() string {
 	}
 	b.WriteString(m.metaLine("Updated", m.meta.Updated))
 	b.WriteString("\n")
-
-	// Build steps
 	if len(m.meta.Steps) > 0 {
 		b.WriteString(m.styles.SectionTitle.Render("  Build Steps"))
 		b.WriteString("\n")
@@ -441,69 +669,49 @@ func (m specDetailModel) viewOverview() string {
 			if step.Repo != "" {
 				line += m.styles.Muted.Render(fmt.Sprintf("  (%s)", step.Repo))
 			}
-			b.WriteString(line)
-			b.WriteString("\n")
+			b.WriteString(line + "\n")
 		}
 		b.WriteString("\n")
 	}
-
-	// Decisions
 	if len(m.decisions) > 0 {
-		b.WriteString(m.styles.SectionTitle.Render("  Decisions"))
-		b.WriteString("\n")
+		b.WriteString(m.styles.SectionTitle.Render("  Decisions") + "\n")
 		for _, d := range m.decisions {
 			resolved := "○"
 			if d.Decision != "" {
 				resolved = "●"
 			}
-			line := fmt.Sprintf("    %s #%d %s", resolved, d.Number, truncate(d.Question, contentWidth-20))
-			b.WriteString(m.styles.RowNormal.Render(line))
-			b.WriteString("\n")
+			b.WriteString(m.styles.RowNormal.Render(fmt.Sprintf("    %s #%d %s", resolved, d.Number, truncate(d.Question, contentWidth-20))) + "\n")
 			if d.Decision != "" {
-				b.WriteString(m.styles.Success.Render(fmt.Sprintf("      → %s", truncate(d.Decision, contentWidth-10))))
-				b.WriteString("\n")
+				b.WriteString(m.styles.Success.Render(fmt.Sprintf("      → %s", truncate(d.Decision, contentWidth-10))) + "\n")
 			}
 		}
 		b.WriteString("\n")
 	}
-
-	// Section outline
-	b.WriteString(m.styles.SectionTitle.Render("  Sections"))
-	b.WriteString("\n")
+	b.WriteString(m.styles.SectionTitle.Render("  Sections") + "\n")
 	for _, sec := range m.sections {
 		if sec.Level > 3 {
-			continue // skip sub-sub-sections
+			continue
 		}
 		indent := "    "
 		if sec.Level == 3 {
 			indent = "      "
 		}
-		contentLen := strings.TrimSpace(sec.Content)
 		fillIcon := "◻"
-		if len(contentLen) > 20 {
+		if len(strings.TrimSpace(sec.Content)) > 20 {
 			fillIcon = "◼"
 		}
 		owner := ""
 		if sec.Owner != "" && sec.Owner != "auto" {
 			owner = m.styles.Muted.Render(fmt.Sprintf("  [%s]", sec.Owner))
 		}
-		b.WriteString(fmt.Sprintf("%s%s %s%s", indent, fillIcon, sec.Slug, owner))
-		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("%s%s %s%s\n", indent, fillIcon, sec.Slug, owner))
 	}
-
-	// Reader mode hint.
-	b.WriteString("\n")
-	b.WriteString(m.styles.Muted.Render("  o to read sections"))
-	b.WriteString("\n")
-
-	// Apply scroll — direct viewport offset (not centered like list views).
+	b.WriteString("\n" + m.styles.Muted.Render("  o to read sections") + "\n")
 	lines := splitLines(b.String())
-
 	visible := m.height
 	if visible < 3 {
 		visible = 3
 	}
-
 	start := m.scroll
 	if start > len(lines) {
 		start = len(lines)
@@ -519,10 +727,7 @@ func (m specDetailModel) metaLine(label, value string) string {
 	if value == "" {
 		value = "—"
 	}
-	return fmt.Sprintf("  %s  %s\n",
-		m.styles.Subtitle.Render(fmt.Sprintf("%-10s", label)),
-		m.styles.RowNormal.Render(value),
-	)
+	return fmt.Sprintf("  %s  %s\n", m.styles.Subtitle.Render(fmt.Sprintf("%-10s", label)), m.styles.RowNormal.Render(value))
 }
 
 func stepIcon(status string) string {
@@ -539,15 +744,36 @@ func stepIcon(status string) string {
 }
 
 func (m *specDetailModel) setSize(w, h int) {
+	oldWidth := m.effectiveWidth()
 	m.width = w
 	m.height = h
+	vh := h
+	if vh < 3 {
+		vh = 3
+	}
+	m.readerViewport.Width = m.effectiveWidth()
+	m.readerViewport.Height = vh
+	if m.readerMode && oldWidth != m.effectiveWidth() {
+		m.cancelRender()
+		if m.readerContent != "" {
+			m.readerCache = make(map[string]string)
+		}
+		m.readerState = readerIdle
+		m.readerGen++
+	}
 	if mx := m.maxScroll(); m.scroll > mx {
 		m.scroll = mx
 	}
 }
 
-// maxScroll returns the furthest scroll position that still shows content.
 func (m specDetailModel) maxScroll() int {
+	if m.readerMode {
+		mx := m.readerViewport.TotalLineCount() - m.readerViewport.Height
+		if mx < 0 {
+			return 0
+		}
+		return mx
+	}
 	if m.contentLines == 0 {
 		return 0
 	}
@@ -562,13 +788,11 @@ func (m specDetailModel) maxScroll() int {
 	return mx
 }
 
-// estimateContentLines counts how many lines the rendered content will produce.
 func (m specDetailModel) estimateContentLines() int {
 	if m.meta == nil {
 		return 1
 	}
-	lines := 5 // title block + blank lines
-	lines += 3 // status, author, updated (always present)
+	lines := 5 + 3
 	if m.meta.Version != "" {
 		lines++
 	}
@@ -578,69 +802,107 @@ func (m specDetailModel) estimateContentLines() int {
 	if len(m.meta.Repos) > 0 {
 		lines++
 	}
-	lines++ // blank after meta
+	lines++
 	if len(m.meta.Steps) > 0 {
-		lines += 1 + len(m.meta.Steps) + 1 // header + steps + blank
+		lines += 1 + len(m.meta.Steps) + 1
 	}
 	if len(m.decisions) > 0 {
-		lines++ // header
+		lines++
 		for _, d := range m.decisions {
-			lines++ // question
+			lines++
 			if d.Decision != "" {
-				lines++ // resolution
+				lines++
 			}
 		}
-		lines++ // blank
+		lines++
 	}
-	lines++ // sections header
+	lines++
 	for _, sec := range m.sections {
 		if sec.Level <= 3 {
 			lines++
 		}
 	}
-	// Generous padding — styled text can produce slightly more lines
-	// than the logical count due to ANSI codes affecting width calculations.
-	lines += 3
-	return lines
+	return lines + 3
 }
 
 func (m specDetailModel) fetchData() tea.Cmd {
 	rc := m.rc
 	specID := m.specID
-
 	return func() tea.Msg {
 		if rc.SpecsRepoDir == "" {
 			return specDetailDataMsg{Err: fmt.Errorf("specs repo not configured")}
 		}
-
-		// Find the spec file.
 		path := filepath.Join(rc.SpecsRepoDir, specID+".md")
 		if _, err := os.Stat(path); err != nil {
-			// Try triage/
 			path = filepath.Join(rc.SpecsRepoDir, "triage", specID+".md")
 			if _, err := os.Stat(path); err != nil {
 				return specDetailDataMsg{Err: fmt.Errorf("spec %s not found", specID)}
 			}
 		}
-
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return specDetailDataMsg{Err: err}
 		}
 		content := string(data)
-
 		meta, err := markdown.ParseMeta(content)
 		if err != nil {
 			return specDetailDataMsg{Err: err}
 		}
-
-		sections := markdown.ExtractSections(content)
-		decisions, _ := markdown.ParseDecisionLog(content)
-
 		return specDetailDataMsg{
 			Meta:      meta,
-			Sections:  sections,
-			Decisions: decisions,
+			Sections:  markdown.ExtractSections(content),
+			Decisions: mustDecisions(content),
+			Hash:      contentHash(data),
 		}
 	}
+}
+
+func mustDecisions(content string) []markdown.DecisionEntry {
+	d, _ := markdown.ParseDecisionLog(content)
+	return d
+}
+
+func (m *specDetailModel) startRenderWorker() {
+	if m.renderQueue == nil || m.renderResult == nil || m.renderer == nil {
+		return
+	}
+	go func(queue <-chan renderRequest, out chan<- sectionRenderedMsg, renderer Renderer) {
+		for req := range queue {
+			started := time.Now()
+			content, err := renderSectionContent(req.Ctx, renderer, req)
+			out <- sectionRenderedMsg{
+				SpecID:       req.SpecID,
+				SectionIdx:   req.SectionIdx,
+				CacheKey:     req.CacheKey,
+				Gen:          req.Gen,
+				Content:      content,
+				Err:          err,
+				RenderMillis: time.Since(started).Milliseconds(),
+				Prefetch:     req.Prefetch,
+			}
+		}
+	}(m.renderQueue, m.renderResult, m.renderer)
+}
+
+func (m specDetailModel) awaitRenderResult() tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-m.renderResult
+		if !ok {
+			return nil
+		}
+		return msg
+	}
+}
+
+func (m *specDetailModel) cancelRender() {
+	if m.renderCancel != nil {
+		m.renderCancel()
+		m.renderCancel = nil
+	}
+	m.renderInFlight = false
+}
+
+func contentHash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }

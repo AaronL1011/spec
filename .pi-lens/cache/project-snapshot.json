@@ -1,0 +1,1592 @@
+{
+  "version": 1,
+  "projectRoot": "/Users/aaron/code/spec-cli",
+  "generatedAt": "2026-05-27T11:59:38.598Z",
+  "seq": 0,
+  "files": {
+    "/Users/aaron/code/spec-cli/cmd/advance.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/advance.go",
+      "mtimeMs": 1779873808277.2476,
+      "size": 7784,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/build.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/build.go",
+      "mtimeMs": 1779873808277.3345,
+      "size": 1789,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/completion.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/completion.go",
+      "mtimeMs": 1779873808277.4048,
+      "size": 1871,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/config.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/config.go",
+      "mtimeMs": 1779873808277.488,
+      "size": 6967,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/context.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/context.go",
+      "mtimeMs": 1779873808277.556,
+      "size": 1561,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/decide.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/decide.go",
+      "mtimeMs": 1779873808277.638,
+      "size": 4412,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/deploy.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/deploy.go",
+      "mtimeMs": 1779873808277.7136,
+      "size": 2394,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/do.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/do.go",
+      "mtimeMs": 1779873808277.7783,
+      "size": 2148,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/draft.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/draft.go",
+      "mtimeMs": 1779873808277.8564,
+      "size": 6292,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/edit.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/edit.go",
+      "mtimeMs": 1779873808277.926,
+      "size": 1295,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/eject.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/eject.go",
+      "mtimeMs": 1779873808278.0176,
+      "size": 2416,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/fix.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/fix.go",
+      "mtimeMs": 1779873808278.1038,
+      "size": 5748,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/focus.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/focus.go",
+      "mtimeMs": 1779873808278.1792,
+      "size": 1669,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/helpers.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/helpers.go",
+      "mtimeMs": 1779873808278.275,
+      "size": 6582,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/history.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/history.go",
+      "mtimeMs": 1779873808278.349,
+      "size": 1445,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/intake.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/intake.go",
+      "mtimeMs": 1779873808278.4182,
+      "size": 2699,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/join.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/join.go",
+      "mtimeMs": 1779873808278.4907,
+      "size": 1424,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/link.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/link.go",
+      "mtimeMs": 1779873808278.5618,
+      "size": 2252,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/list.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/list.go",
+      "mtimeMs": 1779873808278.6433,
+      "size": 7070,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/mcp_server.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/mcp_server.go",
+      "mtimeMs": 1779873808278.7285,
+      "size": 6317,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/metrics_helpers_test.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/metrics_helpers_test.go",
+      "mtimeMs": 1779873808278.88,
+      "size": 2842,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/metrics.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/metrics.go",
+      "mtimeMs": 1779873808278.8105,
+      "size": 4256,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/new.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/new.go",
+      "mtimeMs": 1779873808278.9514,
+      "size": 3591,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/pipeline.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/pipeline.go",
+      "mtimeMs": 1779873808279.064,
+      "size": 26312,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/plan.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/plan.go",
+      "mtimeMs": 1779873808279.199,
+      "size": 8446,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/promote.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/promote.go",
+      "mtimeMs": 1779873808279.276,
+      "size": 3546,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/pull.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/pull.go",
+      "mtimeMs": 1779873808279.3413,
+      "size": 2141,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/push.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/push.go",
+      "mtimeMs": 1779873808279.4026,
+      "size": 1160,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/resume.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/resume.go",
+      "mtimeMs": 1779873808279.4685,
+      "size": 2788,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/retro_helpers_test.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/retro_helpers_test.go",
+      "mtimeMs": 1779873808279.5986,
+      "size": 2063,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/retro.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/retro.go",
+      "mtimeMs": 1779873808279.5288,
+      "size": 5794,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/revert.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/revert.go",
+      "mtimeMs": 1779873808279.6626,
+      "size": 4058,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/review.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/review.go",
+      "mtimeMs": 1779873808279.7363,
+      "size": 6550,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/root.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/root.go",
+      "mtimeMs": 1779873808279.8196,
+      "size": 3167,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/search.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/search.go",
+      "mtimeMs": 1779873808279.8857,
+      "size": 2616,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/standup_helpers_test.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/standup_helpers_test.go",
+      "mtimeMs": 1779873808280.0347,
+      "size": 3302,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/standup.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/standup.go",
+      "mtimeMs": 1779873808279.9648,
+      "size": 5816,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/status.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/status.go",
+      "mtimeMs": 1779873808280.1006,
+      "size": 2850,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/steps.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/steps.go",
+      "mtimeMs": 1779873808280.1995,
+      "size": 14044,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/sync.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/sync.go",
+      "mtimeMs": 1779873808280.2678,
+      "size": 4043,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/validate.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/validate.go",
+      "mtimeMs": 1779873808280.3376,
+      "size": 1882,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/version.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/version.go",
+      "mtimeMs": 1779873808280.407,
+      "size": 353,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/watch.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/watch.go",
+      "mtimeMs": 1779873808280.478,
+      "size": 1051,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/cmd/whoami.go": {
+      "path": "/Users/aaron/code/spec-cli/cmd/whoami.go",
+      "mtimeMs": 1779873808280.5486,
+      "size": 910,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/agent.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/agent.go",
+      "mtimeMs": 1779873808281.358,
+      "size": 479,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/ai.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/ai.go",
+      "mtimeMs": 1779873808281.4307,
+      "size": 482,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/anthropic/ai_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/anthropic/ai_test.go",
+      "mtimeMs": 1779873808281.619,
+      "size": 2978,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/anthropic/ai.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/anthropic/ai.go",
+      "mtimeMs": 1779873808281.5432,
+      "size": 3900,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/claude/agent_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/claude/agent_test.go",
+      "mtimeMs": 1779873808281.8015,
+      "size": 530,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/claude/agent.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/claude/agent.go",
+      "mtimeMs": 1779873808281.7314,
+      "size": 2094,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/comms.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/comms.go",
+      "mtimeMs": 1779873808281.867,
+      "size": 559,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/confluence/docs_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/confluence/docs_test.go",
+      "mtimeMs": 1779873808282.112,
+      "size": 7895,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/confluence/docs.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/confluence/docs.go",
+      "mtimeMs": 1779873808282.0083,
+      "size": 19805,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/deploy.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/deploy.go",
+      "mtimeMs": 1779873808282.1838,
+      "size": 400,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/docs.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/docs.go",
+      "mtimeMs": 1779873808282.2502,
+      "size": 571,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/github/deploy.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/github/deploy.go",
+      "mtimeMs": 1779873808282.3765,
+      "size": 4387,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/github/repo_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/github/repo_test.go",
+      "mtimeMs": 1779873808282.5212,
+      "size": 896,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/github/repo.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/github/repo.go",
+      "mtimeMs": 1779873808282.4565,
+      "size": 6893,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/intake.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/intake.go",
+      "mtimeMs": 1779873808282.583,
+      "size": 433,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/jira/pm_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/jira/pm_test.go",
+      "mtimeMs": 1779873808282.7986,
+      "size": 5402,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/jira/pm.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/jira/pm.go",
+      "mtimeMs": 1779873808282.7192,
+      "size": 8807,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/noop/noop.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/noop/noop.go",
+      "mtimeMs": 1779873808282.9062,
+      "size": 2805,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/ollama/ai_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/ollama/ai_test.go",
+      "mtimeMs": 1779873808283.0889,
+      "size": 3920,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/ollama/ai.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/ollama/ai.go",
+      "mtimeMs": 1779873808283.0195,
+      "size": 4488,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/pm.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/pm.go",
+      "mtimeMs": 1779873808283.1477,
+      "size": 538,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/registry.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/registry.go",
+      "mtimeMs": 1779873808283.2158,
+      "size": 2165,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/repo.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/repo.go",
+      "mtimeMs": 1779873808283.277,
+      "size": 709,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/resolve/resolve_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/resolve/resolve_test.go",
+      "mtimeMs": 1779873808283.4668,
+      "size": 5671,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/resolve/resolve.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/resolve/resolve.go",
+      "mtimeMs": 1779873808283.392,
+      "size": 8424,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/slack/comms_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/slack/comms_test.go",
+      "mtimeMs": 1779873808283.658,
+      "size": 1274,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/slack/comms.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/slack/comms.go",
+      "mtimeMs": 1779873808283.5767,
+      "size": 6006,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/teams/comms_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/teams/comms_test.go",
+      "mtimeMs": 1779873808283.8464,
+      "size": 5058,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/teams/comms.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/teams/comms.go",
+      "mtimeMs": 1779873808283.7805,
+      "size": 10159,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/adapter/types.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/adapter/types.go",
+      "mtimeMs": 1779873808283.9165,
+      "size": 1828,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/ai/prompt.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/ai/prompt.go",
+      "mtimeMs": 1779873808284.037,
+      "size": 2901,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/ai/review.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/ai/review.go",
+      "mtimeMs": 1779873808284.115,
+      "size": 2461,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/ai/service_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/ai/service_test.go",
+      "mtimeMs": 1779873808284.2615,
+      "size": 3878,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/ai/service.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/ai/service.go",
+      "mtimeMs": 1779873808284.1882,
+      "size": 2485,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/awareness/awareness_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/awareness/awareness_test.go",
+      "mtimeMs": 1779873808284.43,
+      "size": 2417,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/awareness/awareness.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/awareness/awareness.go",
+      "mtimeMs": 1779873808284.3682,
+      "size": 3442,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/config/config_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/config/config_test.go",
+      "mtimeMs": 1779873808285.0547,
+      "size": 13151,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/config/config.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/config/config.go",
+      "mtimeMs": 1779873808284.9683,
+      "size": 12541,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/config/pipeline_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/config/pipeline_test.go",
+      "mtimeMs": 1779873808285.2603,
+      "size": 16196,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/config/pipeline.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/config/pipeline.go",
+      "mtimeMs": 1779873808285.1465,
+      "size": 17204,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/config/resolve.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/config/resolve.go",
+      "mtimeMs": 1779873808285.324,
+      "size": 2423,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/config/user.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/config/user.go",
+      "mtimeMs": 1779873808285.4038,
+      "size": 7294,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/dashboard/awareness.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/dashboard/awareness.go",
+      "mtimeMs": 1779873808285.5078,
+      "size": 1262,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/dashboard/dashboard_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/dashboard/dashboard_test.go",
+      "mtimeMs": 1779873808285.6523,
+      "size": 2790,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/dashboard/dashboard.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/dashboard/dashboard.go",
+      "mtimeMs": 1779873808285.59,
+      "size": 7205,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/git/branch.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/git/branch.go",
+      "mtimeMs": 1779873808285.7527,
+      "size": 2675,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/git/git_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/git/git_test.go",
+      "mtimeMs": 1779873808285.9216,
+      "size": 6062,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/git/git.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/git/git.go",
+      "mtimeMs": 1779873808285.8384,
+      "size": 3589,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/git/specsrepo.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/git/specsrepo.go",
+      "mtimeMs": 1779873808286.0164,
+      "size": 11137,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/markdown/decisionlog.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/markdown/decisionlog.go",
+      "mtimeMs": 1779873808286.1262,
+      "size": 4744,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/markdown/frontmatter.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/markdown/frontmatter.go",
+      "mtimeMs": 1779873808286.2046,
+      "size": 8173,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/markdown/markdown_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/markdown/markdown_test.go",
+      "mtimeMs": 1779873808286.2966,
+      "size": 15932,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/markdown/sections.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/markdown/sections.go",
+      "mtimeMs": 1779873808286.365,
+      "size": 6265,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/markdown/template.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/markdown/template.go",
+      "mtimeMs": 1779873808286.427,
+      "size": 2605,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/mcp/handler_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/mcp/handler_test.go",
+      "mtimeMs": 1779873808286.629,
+      "size": 3222,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/mcp/handler.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/mcp/handler.go",
+      "mtimeMs": 1779873808286.5554,
+      "size": 17830,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/mcp/server_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/mcp/server_test.go",
+      "mtimeMs": 1779873808286.775,
+      "size": 8108,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/mcp/server.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/mcp/server.go",
+      "mtimeMs": 1779873808286.6995,
+      "size": 5635,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/mcp/transport.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/mcp/transport.go",
+      "mtimeMs": 1779873808286.8315,
+      "size": 1090,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/metrics/metrics_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/metrics/metrics_test.go",
+      "mtimeMs": 1779873808287.0017,
+      "size": 7542,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/metrics/metrics.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/metrics/metrics.go",
+      "mtimeMs": 1779873808286.935,
+      "size": 4515,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/metrics/spec_metrics_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/metrics/spec_metrics_test.go",
+      "mtimeMs": 1779873808287.128,
+      "size": 3524,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/metrics/spec_metrics.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/metrics/spec_metrics.go",
+      "mtimeMs": 1779873808287.0623,
+      "size": 3076,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/onboard/join_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/onboard/join_test.go",
+      "mtimeMs": 1779873808287.299,
+      "size": 3571,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/onboard/join.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/onboard/join.go",
+      "mtimeMs": 1779873808287.237,
+      "size": 4529,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/effects/adapters.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/effects/adapters.go",
+      "mtimeMs": 1779873808287.4426,
+      "size": 3391,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/effects/executor_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/effects/executor_test.go",
+      "mtimeMs": 1779873808287.5874,
+      "size": 6718,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/effects/executor.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/effects/executor.go",
+      "mtimeMs": 1779873808287.5215,
+      "size": 11201,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/expr/context.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/expr/context.go",
+      "mtimeMs": 1779873808287.6848,
+      "size": 3554,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/expr/expr_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/expr/expr_test.go",
+      "mtimeMs": 1779873808287.8232,
+      "size": 4883,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/expr/expr.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/expr/expr.go",
+      "mtimeMs": 1779873808287.7566,
+      "size": 4721,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/gates_expr_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/gates_expr_test.go",
+      "mtimeMs": 1779873808287.967,
+      "size": 3036,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/gates_time_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/gates_time_test.go",
+      "mtimeMs": 1779873808288.0352,
+      "size": 4951,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/gates.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/gates.go",
+      "mtimeMs": 1779873808287.9033,
+      "size": 10577,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/pipeline_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/pipeline_test.go",
+      "mtimeMs": 1779873808288.1045,
+      "size": 6739,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/resolve_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/resolve_test.go",
+      "mtimeMs": 1779873808288.3125,
+      "size": 12542,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/resolve.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/resolve.go",
+      "mtimeMs": 1779873808288.2,
+      "size": 16701,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/stages_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/stages_test.go",
+      "mtimeMs": 1779873808288.449,
+      "size": 1843,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/stages.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/stages.go",
+      "mtimeMs": 1779873808288.389,
+      "size": 4369,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/pipeline/transitions.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/pipeline/transitions.go",
+      "mtimeMs": 1779873808288.5166,
+      "size": 3752,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/planning/planning_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/planning/planning_test.go",
+      "mtimeMs": 1779873808288.7007,
+      "size": 10518,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/planning/planning.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/planning/planning.go",
+      "mtimeMs": 1779873808288.6292,
+      "size": 9495,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/steps/steps_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/steps/steps_test.go",
+      "mtimeMs": 1779873808288.8687,
+      "size": 7093,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/steps/steps.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/steps/steps.go",
+      "mtimeMs": 1779873808288.8032,
+      "size": 6700,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/store/activity.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/store/activity.go",
+      "mtimeMs": 1779873808288.9705,
+      "size": 3980,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/store/cache.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/store/cache.go",
+      "mtimeMs": 1779873808289.0342,
+      "size": 1996,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/store/db_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/store/db_test.go",
+      "mtimeMs": 1779873808289.1648,
+      "size": 4681,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/store/db.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/store/db.go",
+      "mtimeMs": 1779873808289.105,
+      "size": 5455,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/store/embeddings.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/store/embeddings.go",
+      "mtimeMs": 1779873808289.225,
+      "size": 3313,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/store/sessions.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/store/sessions.go",
+      "mtimeMs": 1779873808289.2788,
+      "size": 1969,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/store/settings.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/store/settings.go",
+      "mtimeMs": 1779873808289.3396,
+      "size": 1209,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/store/sync_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/store/sync_test.go",
+      "mtimeMs": 1779873808289.4695,
+      "size": 2563,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/store/sync.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/store/sync.go",
+      "mtimeMs": 1779873808289.4043,
+      "size": 2603,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/sync/engine_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/sync/engine_test.go",
+      "mtimeMs": 1779873808289.6575,
+      "size": 11697,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/sync/engine.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/sync/engine.go",
+      "mtimeMs": 1779873808289.5837,
+      "size": 11847,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/actions_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/actions_test.go",
+      "mtimeMs": 1779877260245.2588,
+      "size": 1394,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/actions.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/actions.go",
+      "mtimeMs": 1779877128282.3262,
+      "size": 7773,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/app_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/app_test.go",
+      "mtimeMs": 1779877446586.6184,
+      "size": 13426,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/app.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/app.go",
+      "mtimeMs": 1779877419283.4622,
+      "size": 31067,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/buildcmd_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/buildcmd_test.go",
+      "mtimeMs": 1779873808290.263,
+      "size": 482,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/buildcmd.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/buildcmd.go",
+      "mtimeMs": 1779873808290.2092,
+      "size": 2249,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/components/components_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/components/components_test.go",
+      "mtimeMs": 1779873808290.357,
+      "size": 3631,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/components/header.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/components/header.go",
+      "mtimeMs": 1779873808290.4214,
+      "size": 2713,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/components/modal_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/components/modal_test.go",
+      "mtimeMs": 1779873808290.5415,
+      "size": 2203,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/components/modal.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/components/modal.go",
+      "mtimeMs": 1779875497681.0378,
+      "size": 2776,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/components/statusbar.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/components/statusbar.go",
+      "mtimeMs": 1779875497681.2002,
+      "size": 2497,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/components/tabs.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/components/tabs.go",
+      "mtimeMs": 1779873808290.6658,
+      "size": 1661,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/components/toast_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/components/toast_test.go",
+      "mtimeMs": 1779873808290.7808,
+      "size": 1564,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/components/toast.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/components/toast.go",
+      "mtimeMs": 1779873808290.723,
+      "size": 1350,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/dashboard_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/dashboard_test.go",
+      "mtimeMs": 1779873808290.9216,
+      "size": 6112,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/dashboard.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/dashboard.go",
+      "mtimeMs": 1779875497681.376,
+      "size": 9465,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/decide.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/decide.go",
+      "mtimeMs": 1779873808290.9873,
+      "size": 999,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/help_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/help_test.go",
+      "mtimeMs": 1779873808291.099,
+      "size": 1995,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/help.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/help.go",
+      "mtimeMs": 1779873808291.0415,
+      "size": 2285,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/intake_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/intake_test.go",
+      "mtimeMs": 1779873808291.2087,
+      "size": 2234,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/intake.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/intake.go",
+      "mtimeMs": 1779873808291.151,
+      "size": 2727,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/keymap.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/keymap.go",
+      "mtimeMs": 1779875497681.848,
+      "size": 4337,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/mdrender_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/mdrender_test.go",
+      "mtimeMs": 1779875497682.092,
+      "size": 2672,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/mdrender.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/mdrender.go",
+      "mtimeMs": 1779875497681.9783,
+      "size": 7730,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/nav_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/nav_test.go",
+      "mtimeMs": 1779873808291.3782,
+      "size": 981,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/nav.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/nav.go",
+      "mtimeMs": 1779873808291.3237,
+      "size": 1076,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/newspec.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/newspec.go",
+      "mtimeMs": 1779873808291.4434,
+      "size": 1396,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/pipeline_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/pipeline_test.go",
+      "mtimeMs": 1779873808291.6099,
+      "size": 6090,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/pipeline.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/pipeline.go",
+      "mtimeMs": 1779875497682.268,
+      "size": 7730,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/placeholder.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/placeholder.go",
+      "mtimeMs": 1779873808291.6758,
+      "size": 777,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/prompts.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/prompts.go",
+      "mtimeMs": 1779873808291.7554,
+      "size": 11229,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/review_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/review_test.go",
+      "mtimeMs": 1779873808291.894,
+      "size": 1838,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/review.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/review.go",
+      "mtimeMs": 1779875497682.5288,
+      "size": 4264,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/scroll_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/scroll_test.go",
+      "mtimeMs": 1779873808291.978,
+      "size": 5501,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/settings_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/settings_test.go",
+      "mtimeMs": 1779873808292.151,
+      "size": 2676,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/settings.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/settings.go",
+      "mtimeMs": 1779873808292.0813,
+      "size": 4557,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/specdetail_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/specdetail_test.go",
+      "mtimeMs": 1779877452897.1443,
+      "size": 11652,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/specdetail.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/specdetail.go",
+      "mtimeMs": 1779880962475.0378,
+      "size": 19830,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/speclist_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/speclist_test.go",
+      "mtimeMs": 1779873808292.461,
+      "size": 4085,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/speclist.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/speclist.go",
+      "mtimeMs": 1779875497683.234,
+      "size": 8210,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/standup_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/standup_test.go",
+      "mtimeMs": 1779873808292.6155,
+      "size": 1961,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/standup.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/standup.go",
+      "mtimeMs": 1779877424714.236,
+      "size": 5150,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/testhelper_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/testhelper_test.go",
+      "mtimeMs": 1779873808292.6824,
+      "size": 983,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/theme_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/theme_test.go",
+      "mtimeMs": 1779873808292.8264,
+      "size": 1450,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/theme.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/theme.go",
+      "mtimeMs": 1779873808292.7588,
+      "size": 10151,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/triage_test.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/triage_test.go",
+      "mtimeMs": 1779873808292.9717,
+      "size": 1902,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/triage.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/triage.go",
+      "mtimeMs": 1779875497683.5718,
+      "size": 4816,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/main.go": {
+      "path": "/Users/aaron/code/spec-cli/main.go",
+      "mtimeMs": 1779873808293.0444,
+      "size": 190,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/tools/gen-man/main.go": {
+      "path": "/Users/aaron/code/spec-cli/tools/gen-man/main.go",
+      "mtimeMs": 1779873808293.2842,
+      "size": 608,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "/Users/aaron/code/spec-cli/internal/tui/renderer.go": {
+      "path": "/Users/aaron/code/spec-cli/internal/tui/renderer.go",
+      "mtimeMs": 1779883003979.8179,
+      "size": 1607,
+      "imports": [],
+      "lastSeq": 0
+    }
+  },
+  "symbols": {},
+  "reverseDeps": {
+    "/Users/aaron/code/spec-cli/cmd/advance.go": [],
+    "/Users/aaron/code/spec-cli/cmd/build.go": [],
+    "/Users/aaron/code/spec-cli/cmd/completion.go": [],
+    "/Users/aaron/code/spec-cli/cmd/config.go": [],
+    "/Users/aaron/code/spec-cli/cmd/context.go": [],
+    "/Users/aaron/code/spec-cli/cmd/decide.go": [],
+    "/Users/aaron/code/spec-cli/cmd/deploy.go": [],
+    "/Users/aaron/code/spec-cli/cmd/do.go": [],
+    "/Users/aaron/code/spec-cli/cmd/draft.go": [],
+    "/Users/aaron/code/spec-cli/cmd/edit.go": [],
+    "/Users/aaron/code/spec-cli/cmd/eject.go": [],
+    "/Users/aaron/code/spec-cli/cmd/fix.go": [],
+    "/Users/aaron/code/spec-cli/cmd/focus.go": [],
+    "/Users/aaron/code/spec-cli/cmd/helpers.go": [],
+    "/Users/aaron/code/spec-cli/cmd/history.go": [],
+    "/Users/aaron/code/spec-cli/cmd/intake.go": [],
+    "/Users/aaron/code/spec-cli/cmd/join.go": [],
+    "/Users/aaron/code/spec-cli/cmd/link.go": [],
+    "/Users/aaron/code/spec-cli/cmd/list.go": [],
+    "/Users/aaron/code/spec-cli/cmd/mcp_server.go": [],
+    "/Users/aaron/code/spec-cli/cmd/metrics_helpers_test.go": [],
+    "/Users/aaron/code/spec-cli/cmd/metrics.go": [],
+    "/Users/aaron/code/spec-cli/cmd/new.go": [],
+    "/Users/aaron/code/spec-cli/cmd/pipeline.go": [],
+    "/Users/aaron/code/spec-cli/cmd/plan.go": [],
+    "/Users/aaron/code/spec-cli/cmd/promote.go": [],
+    "/Users/aaron/code/spec-cli/cmd/pull.go": [],
+    "/Users/aaron/code/spec-cli/cmd/push.go": [],
+    "/Users/aaron/code/spec-cli/cmd/resume.go": [],
+    "/Users/aaron/code/spec-cli/cmd/retro_helpers_test.go": [],
+    "/Users/aaron/code/spec-cli/cmd/retro.go": [],
+    "/Users/aaron/code/spec-cli/cmd/revert.go": [],
+    "/Users/aaron/code/spec-cli/cmd/review.go": [],
+    "/Users/aaron/code/spec-cli/cmd/root.go": [],
+    "/Users/aaron/code/spec-cli/cmd/search.go": [],
+    "/Users/aaron/code/spec-cli/cmd/standup_helpers_test.go": [],
+    "/Users/aaron/code/spec-cli/cmd/standup.go": [],
+    "/Users/aaron/code/spec-cli/cmd/status.go": [],
+    "/Users/aaron/code/spec-cli/cmd/steps.go": [],
+    "/Users/aaron/code/spec-cli/cmd/sync.go": [],
+    "/Users/aaron/code/spec-cli/cmd/validate.go": [],
+    "/Users/aaron/code/spec-cli/cmd/version.go": [],
+    "/Users/aaron/code/spec-cli/cmd/watch.go": [],
+    "/Users/aaron/code/spec-cli/cmd/whoami.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/agent.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/ai.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/anthropic/ai_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/anthropic/ai.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/claude/agent_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/claude/agent.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/comms.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/confluence/docs_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/confluence/docs.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/deploy.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/docs.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/github/deploy.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/github/repo_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/github/repo.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/intake.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/jira/pm_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/jira/pm.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/noop/noop.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/ollama/ai_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/ollama/ai.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/pm.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/registry.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/repo.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/resolve/resolve_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/resolve/resolve.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/slack/comms_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/slack/comms.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/teams/comms_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/teams/comms.go": [],
+    "/Users/aaron/code/spec-cli/internal/adapter/types.go": [],
+    "/Users/aaron/code/spec-cli/internal/ai/prompt.go": [],
+    "/Users/aaron/code/spec-cli/internal/ai/review.go": [],
+    "/Users/aaron/code/spec-cli/internal/ai/service_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/ai/service.go": [],
+    "/Users/aaron/code/spec-cli/internal/awareness/awareness_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/awareness/awareness.go": [],
+    "/Users/aaron/code/spec-cli/internal/config/config_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/config/config.go": [],
+    "/Users/aaron/code/spec-cli/internal/config/pipeline_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/config/pipeline.go": [],
+    "/Users/aaron/code/spec-cli/internal/config/resolve.go": [],
+    "/Users/aaron/code/spec-cli/internal/config/user.go": [],
+    "/Users/aaron/code/spec-cli/internal/dashboard/awareness.go": [],
+    "/Users/aaron/code/spec-cli/internal/dashboard/dashboard_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/dashboard/dashboard.go": [],
+    "/Users/aaron/code/spec-cli/internal/git/branch.go": [],
+    "/Users/aaron/code/spec-cli/internal/git/git_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/git/git.go": [],
+    "/Users/aaron/code/spec-cli/internal/git/specsrepo.go": [],
+    "/Users/aaron/code/spec-cli/internal/markdown/decisionlog.go": [],
+    "/Users/aaron/code/spec-cli/internal/markdown/frontmatter.go": [],
+    "/Users/aaron/code/spec-cli/internal/markdown/markdown_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/markdown/sections.go": [],
+    "/Users/aaron/code/spec-cli/internal/markdown/template.go": [],
+    "/Users/aaron/code/spec-cli/internal/mcp/handler_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/mcp/handler.go": [],
+    "/Users/aaron/code/spec-cli/internal/mcp/server_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/mcp/server.go": [],
+    "/Users/aaron/code/spec-cli/internal/mcp/transport.go": [],
+    "/Users/aaron/code/spec-cli/internal/metrics/metrics_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/metrics/metrics.go": [],
+    "/Users/aaron/code/spec-cli/internal/metrics/spec_metrics_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/metrics/spec_metrics.go": [],
+    "/Users/aaron/code/spec-cli/internal/onboard/join_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/onboard/join.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/effects/adapters.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/effects/executor_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/effects/executor.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/expr/context.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/expr/expr_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/expr/expr.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/gates_expr_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/gates_time_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/gates.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/pipeline_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/resolve_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/resolve.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/stages_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/stages.go": [],
+    "/Users/aaron/code/spec-cli/internal/pipeline/transitions.go": [],
+    "/Users/aaron/code/spec-cli/internal/planning/planning_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/planning/planning.go": [],
+    "/Users/aaron/code/spec-cli/internal/steps/steps_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/steps/steps.go": [],
+    "/Users/aaron/code/spec-cli/internal/store/activity.go": [],
+    "/Users/aaron/code/spec-cli/internal/store/cache.go": [],
+    "/Users/aaron/code/spec-cli/internal/store/db_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/store/db.go": [],
+    "/Users/aaron/code/spec-cli/internal/store/embeddings.go": [],
+    "/Users/aaron/code/spec-cli/internal/store/sessions.go": [],
+    "/Users/aaron/code/spec-cli/internal/store/settings.go": [],
+    "/Users/aaron/code/spec-cli/internal/store/sync_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/store/sync.go": [],
+    "/Users/aaron/code/spec-cli/internal/sync/engine_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/sync/engine.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/actions_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/actions.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/app_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/app.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/buildcmd_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/buildcmd.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/components/components_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/components/header.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/components/modal_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/components/modal.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/components/statusbar.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/components/tabs.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/components/toast_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/components/toast.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/dashboard_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/dashboard.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/decide.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/help_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/help.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/intake_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/intake.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/keymap.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/mdrender_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/mdrender.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/nav_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/nav.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/newspec.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/pipeline_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/pipeline.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/placeholder.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/prompts.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/renderer.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/review_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/review.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/scroll_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/settings_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/settings.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/specdetail_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/specdetail.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/speclist_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/speclist.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/standup_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/standup.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/testhelper_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/theme_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/theme.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/triage_test.go": [],
+    "/Users/aaron/code/spec-cli/internal/tui/triage.go": [],
+    "/Users/aaron/code/spec-cli/main.go": [],
+    "/Users/aaron/code/spec-cli/tools/gen-man/main.go": []
+  },
+  "cachedExports": [],
+  "projectRulesScan": {
+    "rules": [
+      {
+        "source": "root",
+        "name": "AGENTS.md",
+        "filePath": "/Users/aaron/code/spec-cli/AGENTS.md",
+        "relativePath": "AGENTS.md"
+      }
+    ],
+    "hasCustomRules": true
+  },
+  "startupScan": {
+    "cwd": "/Users/aaron/code/spec-cli",
+    "scanRoot": "/Users/aaron/code/spec-cli",
+    "projectRoot": "/Users/aaron/code/spec-cli",
+    "canWarmCaches": true,
+    "sourceFileCount": 188
+  },
+  "languageProfile": {
+    "present": {
+      "jsts": false,
+      "python": false,
+      "go": true,
+      "rust": false,
+      "cxx": true,
+      "cmake": false,
+      "fish": false,
+      "shell": false,
+      "json": false,
+      "markdown": false,
+      "css": false,
+      "yaml": false,
+      "sql": false,
+      "ruby": false,
+      "html": false,
+      "docker": false,
+      "php": false,
+      "powershell": false,
+      "prisma": false,
+      "csharp": false,
+      "fsharp": false,
+      "java": false,
+      "kotlin": false,
+      "swift": false,
+      "dart": false,
+      "lua": false,
+      "zig": false,
+      "haskell": false,
+      "elixir": false,
+      "gleam": false,
+      "ocaml": false,
+      "clojure": false,
+      "terraform": false,
+      "nix": false,
+      "toml": false
+    },
+    "configured": {
+      "go": true,
+      "cxx": true
+    },
+    "counts": {
+      "go": 188
+    },
+    "detectedKinds": [
+      "go",
+      "cxx"
+    ]
+  }
+}

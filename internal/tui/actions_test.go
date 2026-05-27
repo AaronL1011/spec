@@ -2,6 +2,8 @@ package tui
 
 import (
 	"testing"
+
+	"github.com/aaronl1011/spec/internal/store"
 )
 
 func TestYankSpecID(t *testing.T) {
@@ -13,7 +15,13 @@ func TestYankSpecID(t *testing.T) {
 }
 
 func TestFocusSpec(t *testing.T) {
-	cmd := focusSpec("SPEC-001")
+	db, err := store.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	cmd := focusSpec(db, "SPEC-001")
 	if cmd == nil {
 		t.Error("focusSpec should return a non-nil command")
 	}
