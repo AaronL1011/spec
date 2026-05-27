@@ -91,6 +91,7 @@ type specDetailModel struct {
 	renderResult    chan sectionRenderedMsg
 	renderResultCmd tea.Cmd
 	renderer        Renderer
+	openedReader    bool
 
 	metrics renderMetrics
 
@@ -164,6 +165,7 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 		m.contentLines = m.estimateContentLines()
 		if wasReading {
 			m.readerMode = true
+			m.openedReader = true
 			m.sectionIdx = secIdx
 			if sections := m.readableSections(); m.sectionIdx >= len(sections) {
 				m.sectionIdx = max(0, len(sections)-1)
@@ -196,9 +198,6 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 			return m, nil
 		}
 
-		m.renderInFlight = false
-		m.renderCancel = nil
-
 		if msg.SpecID != m.specID || msg.Gen != m.readerGen || msg.SectionIdx != m.sectionIdx {
 			if m.renderQueued && m.queuedRequest != nil {
 				req := *m.queuedRequest
@@ -211,6 +210,9 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 			}
 			return m, nil
 		}
+
+		m.renderInFlight = false
+		m.renderCancel = nil
 
 		if msg.Err != nil {
 			if msg.Err == context.Canceled {
@@ -252,7 +254,7 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 			m.queuedRequest = nil
 			return m.startRender(req)
 		}
-		return m, m.prefetchAdjacentSections()
+		return m, nil
 
 	case tea.KeyMsg:
 		if m.readerMode {
@@ -276,6 +278,7 @@ func (m specDetailModel) updateOverview(msg tea.KeyMsg) (specDetailModel, tea.Cm
 		}
 	case key.Matches(msg, m.keys.Open):
 		m.readerMode = true
+		m.openedReader = true
 		m.sectionIdx = m.firstReadableSectionIndex()
 		m.scroll = 0
 		return m.requestCurrentSectionRender()
@@ -314,6 +317,7 @@ func (m specDetailModel) updateReader(msg tea.KeyMsg) (specDetailModel, tea.Cmd)
 	case key.Matches(msg, m.keys.Open), key.Matches(msg, m.keys.Back):
 		m.cancelRender()
 		m.readerMode = false
+		m.openedReader = false
 		m.scroll = 0
 		m.contentLines = m.estimateContentLines()
 		return m, nil
@@ -350,7 +354,7 @@ func (m specDetailModel) readableSections() []markdown.Section {
 func readableSectionsFrom(sections []markdown.Section) []markdown.Section {
 	var out []markdown.Section
 	for _, sec := range sections {
-		if sec.Level == 2 || sec.Level == 3 {
+		if sec.Level == 2 {
 			out = append(out, sec)
 		}
 	}
@@ -373,7 +377,7 @@ func (m specDetailModel) firstReadableSectionIndex() int {
 func (m specDetailModel) effectiveWidth() int {
 	w := m.width
 	if w >= 100 {
-		w -= 23
+		w -= 27
 	}
 	if w < 20 {
 		w = 20
@@ -414,7 +418,7 @@ func renderSectionContent(ctx context.Context, renderer Renderer, req renderRequ
 	}
 
 	nav := fmt.Sprintf("  § %d/%d", req.SectionIdx+1, req.Total)
-	hints := "n next · p prev · 1-9 jump · o overview"
+	hints := "n next · p prev · 1-9 jump · o overview · tab switch view"
 	b.WriteString("\n")
 	b.WriteString(req.Styles.Muted.Render(nav + "  " + hints))
 	return strings.TrimRight(b.String(), "\n"), nil
@@ -459,13 +463,12 @@ func (m specDetailModel) requestCurrentSectionRender() (specDetailModel, tea.Cmd
 		if m.renderCancel != nil {
 			m.renderCancel()
 		}
-		return m, nil
+		return m, m.awaitRenderResult()
 	}
 	return m.startRender(req)
 }
 
 func (m specDetailModel) startRender(req renderRequest) (specDetailModel, tea.Cmd) {
-	m.cancelRender()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.readerGen++
 	req.Gen = m.readerGen
@@ -483,62 +486,11 @@ func (m specDetailModel) startRender(req renderRequest) (specDetailModel, tea.Cm
 }
 
 func (m specDetailModel) prefetchAdjacentSections() tea.Cmd {
-	if !m.readerMode || m.renderInFlight {
-		return nil
-	}
-	sections := m.readableSections()
-	if len(sections) == 0 {
-		return nil
-	}
-	effWidth := m.effectiveWidth()
-	mkReq := func(idx int) *renderRequest {
-		if idx < 0 || idx >= len(sections) {
-			return nil
-		}
-		sec := sections[idx]
-		key := m.readerCacheKey(sec, idx, effWidth)
-		if _, ok := m.readerCache[key]; ok {
-			return nil
-		}
-		return &renderRequest{
-			SpecID:     m.specID,
-			SectionIdx: idx,
-			CacheKey:   key,
-			Heading:    sec.Heading,
-			Owner:      sec.Owner,
-			Body:       sec.Content,
-			Total:      len(sections),
-			Width:      effWidth,
-			Styles:     m.styles,
-			Prefetch:   true,
-		}
-	}
-	left := mkReq(m.sectionIdx - 1)
-	right := mkReq(m.sectionIdx + 1)
-	if left == nil && right == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		if left != nil {
-			m.enqueuePrefetch(*left)
-		}
-		if right != nil {
-			m.enqueuePrefetch(*right)
-		}
-		return nil
-	}
-}
-
-func (m specDetailModel) enqueuePrefetch(req renderRequest) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	req.Ctx = ctx
-	req.Gen = m.readerGen
-	req.Prefetch = true
-	select {
-	case m.renderQueue <- req:
-	default:
-	}
+	// Prefetch temporarily disabled: background worker results were sharing
+	// the same channel as foreground renders and could starve visible updates.
+	// We prefer deterministic foreground rendering correctness over speculative
+	// cache warmups.
+	return nil
 }
 
 func (m specDetailModel) readerCacheKey(sec markdown.Section, idx, width int) string {
@@ -576,6 +528,9 @@ func (m specDetailModel) viewReader() string {
 		return m.styles.Error.Render(fmt.Sprintf("  Error: %v", m.readerErr))
 	}
 	if m.readerContent == "" {
+		if m.openedReader {
+			return ""
+		}
 		return m.styles.Muted.Render("  (no content)")
 	}
 	visible := m.height
@@ -589,7 +544,7 @@ func (m specDetailModel) viewReader() string {
 }
 
 func (m specDetailModel) viewReaderWithSidebar(visible int) string {
-	const sidebarWidth = 22
+	const sidebarWidth = 26
 	sections := m.readableSections()
 	var sidebar []string
 	sidebar = append(sidebar, m.styles.SectionTitle.Render(" § Sections"), "")

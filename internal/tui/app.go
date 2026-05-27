@@ -727,6 +727,28 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 		return a, tea.Quit
 	}
 
+	// Help.
+	if key.Matches(msg, a.keys.Help) {
+		a.help.setContext("Detail: " + a.detail.specID)
+		a.help.toggle()
+		return a, nil
+	}
+
+	// In reader mode, reserve digit keys for section jumps.
+	// Keep tab/shift+tab view switching available.
+	if a.detail.readerMode {
+		switch {
+		case key.Matches(msg, a.keys.NextTab):
+			return a, a.switchView(a.activeView.Next())
+		case key.Matches(msg, a.keys.PrevTab):
+			return a, a.switchView(a.activeView.Prev())
+		}
+		var cmd tea.Cmd
+		a.detail, cmd = a.detail.update(msg)
+		a.syncBusyState()
+		return a, cmd
+	}
+
 	// View switching closes detail and switches.
 	switch {
 	case key.Matches(msg, a.keys.Tab1):
@@ -743,23 +765,6 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 		return a, a.switchView(ViewSettings)
 	}
 
-	// Help.
-	if key.Matches(msg, a.keys.Help) {
-		a.help.setContext("Detail: " + a.detail.specID)
-		a.help.toggle()
-		return a, nil
-	}
-
-	// In reader mode, delegate to the detail model FIRST so that
-	// reader nav keys (n/p/g/G/1-9/o) are handled before action keys.
-	// This prevents 'n' (next section) from being swallowed by
-	// 'n' (new spec) at the action layer.
-	if a.detail.readerMode {
-		var cmd tea.Cmd
-		a.detail, cmd = a.detail.update(msg)
-		return a, cmd
-	}
-
 	// Overview mode: Esc goes back to the list.
 	if key.Matches(msg, a.keys.Back) {
 		a.closeDetail()
@@ -774,6 +779,7 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 	// Delegate remaining keys (j/k scroll, o for reader) to detail.
 	var cmd tea.Cmd
 	a.detail, cmd = a.detail.update(msg)
+	a.syncBusyState()
 	return a, cmd
 }
 

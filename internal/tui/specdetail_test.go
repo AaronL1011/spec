@@ -264,8 +264,11 @@ func TestSpecDetail_ReadableSections(t *testing.T) {
 	}
 
 	got := m.readableSections()
-	if len(got) != 3 {
-		t.Errorf("readableSections = %d, want 3 (level 4 excluded)", len(got))
+	if len(got) != 2 {
+		t.Errorf("readableSections = %d, want 2 (only level 2)", len(got))
+	}
+	if got[0].Slug != "a" || got[1].Slug != "d" {
+		t.Fatalf("unexpected readable section slugs: %#v", got)
 	}
 }
 
@@ -317,8 +320,8 @@ func TestSpecDetail_ReaderIgnoresStaleRender(t *testing.T) {
 	m, firstCmd := m.update(keyMsg("o"))
 	firstMsg := firstCmd().(sectionRenderedMsg)
 	m, secondCmd := m.update(keyMsg("n"))
-	if secondCmd != nil {
-		t.Fatal("second render should be queued while first is in flight")
+	if secondCmd == nil {
+		t.Fatal("second render should continue waiting for render results")
 	}
 
 	m, cmd := m.update(firstMsg)
@@ -380,19 +383,20 @@ func TestSpecDetail_KeyHandlingSchedulesAsyncRender(t *testing.T) {
 	}
 }
 
-func TestSpecDetail_ViewDoesNotRenderMissingReaderContent(t *testing.T) {
+func TestSpecDetail_FirstOpenReaderDoesNotShowNoContentPlaceholder(t *testing.T) {
 	m := testSpecDetailModel()
 	m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test"}
 	m.sections = []markdown.Section{
 		{Slug: "large", Heading: "## Large", Level: 2, Content: strings.Repeat("content\n", 1000)},
 	}
 	m.readerMode = true
-	m.readerState = readerIdle
+	m.openedReader = true
+	m.readerState = readerPending
 	m.readerContent = ""
 
 	got := m.view()
-	if !strings.Contains(got, "no content") {
-		t.Fatalf("view should not render missing content synchronously, got: %s", got)
+	if strings.Contains(got, "no content") {
+		t.Fatalf("first open pending state should not show no-content placeholder, got: %s", got)
 	}
 	if strings.TrimSpace(m.readerContent) != "" {
 		t.Fatal("view should not mutate reader content")
@@ -454,8 +458,7 @@ func TestSpecDetail_FastNavSpamDoesNotLeavePendingArtifacts(t *testing.T) {
 	m, _ = m.update(keyMsg("n"))
 	m, _ = m.update(first)
 
-	// Drain final active render if any.
-	if m.renderResultCmd != nil {
+	for i := 0; i < 4 && m.renderInFlight; i++ {
 		m, _ = m.update(m.renderResultCmd())
 	}
 

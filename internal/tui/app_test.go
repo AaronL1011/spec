@@ -544,6 +544,31 @@ func TestApp_ReaderPendingKeepsPreviousContent(t *testing.T) {
 	}
 }
 
+func TestApp_FirstReaderOpenShowsSpinnerNotNoContent(t *testing.T) {
+	var model tea.Model = testApp()
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model, _ = model.Update(navigateToSpecMsg{SpecID: "SPEC-001"})
+	model, _ = model.Update(specDetailDataMsg{
+		Meta:     &markdown.SpecMeta{ID: "SPEC-001", Title: "Test Spec", Status: "build", Author: "alice", Updated: "2026-05-20"},
+		Sections: []markdown.Section{{Slug: "problem", Heading: "## Problem Statement", Level: 2, Content: "Some problem."}},
+	})
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	app := model.(App)
+	app.detail.readerContent = ""
+	app.detail.readerState = readerPending
+	app.detail.openedReader = true
+	app.syncBusyState()
+
+	view := app.View()
+	if strings.Contains(view, "(no content)") {
+		t.Fatal("first open should not show no-content placeholder")
+	}
+	if !strings.Contains(view, "rendering §") {
+		t.Fatal("status bar should show rendering spinner label")
+	}
+}
+
 func TestApp_ReaderModeImmediateRender(t *testing.T) {
 	// Simulate the exact Bubbletea runtime: store model as tea.Model
 	// and drive all transitions through Update.
