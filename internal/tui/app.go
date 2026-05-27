@@ -1137,8 +1137,8 @@ func (a *App) applyTheme(name string) {
 	if a.showDetail {
 		a.detail.styles = a.styles
 		a.detail.theme = a.theme
+		a.detail.renderer = NewGlamourRenderer(a.theme)
 		a.detail.readerCache = make(map[string]string)
-		a.detail.readerGen++
 	}
 
 	a.propagateSize()
@@ -1154,7 +1154,7 @@ func (a App) contentHeight() int {
 }
 
 func (a *App) syncBusyState() {
-	busy := a.showDetail && a.detail.readerMode && (a.detail.renderInFlight || a.detail.renderQueued)
+	busy := a.showDetail && a.detail.readerMode && a.detail.renderInFlight
 	a.spinnerOn = busy
 	if !busy {
 		a.statusBar.SetBusy(false, "")

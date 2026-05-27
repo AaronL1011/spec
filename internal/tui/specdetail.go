@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -37,22 +36,18 @@ type sectionRenderedMsg struct {
 	Content      string
 	Err          error
 	RenderMillis int64
-	Prefetch     bool
 }
 
-type renderRequest struct {
-	Ctx        context.Context
+type pendingRenderRequest struct {
 	SpecID     string
 	SectionIdx int
 	CacheKey   string
-	Gen        uint64
 	Heading    string
 	Owner      string
 	Body       string
 	Total      int
 	Width      int
 	Styles     Styles
-	Prefetch   bool
 }
 
 type navigateToSpecMsg struct{ SpecID string }
@@ -68,32 +63,28 @@ type specDetailModel struct {
 	loading   bool
 	err       error
 
-	// Overview scroll.
 	scroll       int
 	contentLines int
 
-	// Reader state.
 	readerMode     bool
 	sectionIdx     int
 	readerContent  string
 	readerViewport viewport.Model
 	readerState    readerRenderState
 	readerErr      error
-	readerGen      uint64
 	readerCache    map[string]string
 	contentHash    string
+	openedReader   bool
 
-	renderInFlight  bool
-	renderQueued    bool
-	renderCancel    context.CancelFunc
-	queuedRequest   *renderRequest
-	renderQueue     chan renderRequest
-	renderResult    chan sectionRenderedMsg
-	renderResultCmd tea.Cmd
-	renderer        Renderer
-	openedReader    bool
+	renderInFlight     bool
+	renderGen          uint64
+	activeRenderGen    uint64
+	activeRenderKey    string
+	pendingRequest     *pendingRenderRequest
+	canceledThroughGen uint64
 
-	metrics renderMetrics
+	renderer Renderer
+	metrics  renderMetrics
 
 	theme  Theme
 	width  int
@@ -122,7 +113,7 @@ const slowRenderThreshold = 300 * time.Millisecond
 func newSpecDetail(rc *config.ResolvedConfig, specID string, styles Styles, keys KeyMap, theme Theme) specDetailModel {
 	vp := viewport.New(80, 20)
 	vp.KeyMap = viewport.KeyMap{}
-	m := specDetailModel{
+	return specDetailModel{
 		rc:             rc,
 		specID:         specID,
 		loading:        true,
@@ -130,14 +121,9 @@ func newSpecDetail(rc *config.ResolvedConfig, specID string, styles Styles, keys
 		keys:           keys,
 		theme:          theme,
 		readerCache:    make(map[string]string),
-		renderQueue:    make(chan renderRequest, 8),
-		renderResult:   make(chan sectionRenderedMsg, 8),
-		renderer:       NewGlamourRenderer(),
+		renderer:       NewGlamourRenderer(theme),
 		readerViewport: vp,
 	}
-	m.startRenderWorker()
-	m.renderResultCmd = m.awaitRenderResult()
-	return m
 }
 
 func (m specDetailModel) init() tea.Cmd { return m.fetchData() }
@@ -177,50 +163,25 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 		return m, nil
 
 	case sectionRenderedMsg:
-		if msg.Err == context.Canceled {
-			atomic.AddInt64(&m.metrics.canceled, 1)
-		}
-		if msg.Prefetch {
-			if msg.Err == nil && msg.SpecID == m.specID && msg.Content != "" {
-				if _, ok := m.readerCache[msg.CacheKey]; !ok {
-					m.readerCache[msg.CacheKey] = msg.Content
-				}
-			}
-			if m.renderQueued && m.queuedRequest != nil {
-				req := *m.queuedRequest
-				m.renderQueued = false
-				m.queuedRequest = nil
-				return m.startRender(req)
-			}
-			if m.renderInFlight {
-				return m, m.awaitRenderResult()
-			}
+		if msg.SpecID != m.specID {
 			return m, nil
 		}
-
-		if msg.SpecID != m.specID || msg.Gen != m.readerGen || msg.SectionIdx != m.sectionIdx {
-			if m.renderQueued && m.queuedRequest != nil {
-				req := *m.queuedRequest
-				m.renderQueued = false
-				m.queuedRequest = nil
-				return m.startRender(req)
-			}
-			if m.renderInFlight {
-				return m, m.awaitRenderResult()
-			}
+		if msg.Gen <= m.canceledThroughGen {
+			return m, nil
+		}
+		if msg.Gen != m.activeRenderGen {
 			return m, nil
 		}
 
 		m.renderInFlight = false
-		m.renderCancel = nil
+		m.activeRenderGen = 0
+		m.activeRenderKey = ""
 
 		if msg.Err != nil {
 			if msg.Err == context.Canceled {
-				if m.renderQueued && m.queuedRequest != nil {
-					req := *m.queuedRequest
-					m.renderQueued = false
-					m.queuedRequest = nil
-					return m.startRender(req)
+				m.metrics.canceled++
+				if next := m.dequeuePending(); next != nil {
+					return m.startRender(*next)
 				}
 				if m.readerContent != "" {
 					m.readerState = readerReady
@@ -229,31 +190,27 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 			}
 			m.readerErr = msg.Err
 			m.readerState = readerFailed
-			if m.renderQueued && m.queuedRequest != nil {
-				req := *m.queuedRequest
-				m.renderQueued = false
-				m.queuedRequest = nil
-				return m.startRender(req)
+			if next := m.dequeuePending(); next != nil {
+				return m.startRender(*next)
 			}
 			return m, nil
 		}
 
-		atomic.AddInt64(&m.metrics.total, 1)
+		m.metrics.total++
 		if time.Duration(msg.RenderMillis)*time.Millisecond > slowRenderThreshold {
-			atomic.AddInt64(&m.metrics.slow, 1)
+			m.metrics.slow++
+		}
+		m.readerCache[msg.CacheKey] = msg.Content
+
+		if next := m.dequeuePending(); next != nil {
+			if next.CacheKey != msg.CacheKey {
+				return m.startRender(*next)
+			}
 		}
 
-		m.readerCache[msg.CacheKey] = msg.Content
 		m.applyReaderContent(msg.Content)
 		m.readerState = readerReady
 		m.readerErr = nil
-
-		if m.renderQueued && m.queuedRequest != nil {
-			req := *m.queuedRequest
-			m.renderQueued = false
-			m.queuedRequest = nil
-			return m.startRender(req)
-		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -363,11 +320,6 @@ func readableSectionsFrom(sections []markdown.Section) []markdown.Section {
 
 func (m specDetailModel) firstReadableSectionIndex() int {
 	sections := m.readableSections()
-	for i, sec := range sections {
-		if sec.Level == 2 {
-			return i
-		}
-	}
 	if len(sections) > 0 {
 		return 0
 	}
@@ -385,28 +337,28 @@ func (m specDetailModel) effectiveWidth() int {
 	return w
 }
 
-func renderSectionContent(ctx context.Context, renderer Renderer, req renderRequest) (string, error) {
+func renderSectionContent(ctx context.Context, renderer Renderer, specID string, sectionIdx int, heading, owner, body string, total, width int, styles Styles) (string, error) {
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString(req.Styles.Title.Render(fmt.Sprintf("  %s", req.Heading)))
+	b.WriteString(styles.Title.Render(fmt.Sprintf("  %s", heading)))
 	b.WriteString("\n")
-	if req.Owner != "" && req.Owner != "auto" {
-		b.WriteString(req.Styles.Muted.Render(fmt.Sprintf("  [%s]", req.Owner)))
+	if owner != "" && owner != "auto" {
+		b.WriteString(styles.Muted.Render(fmt.Sprintf("  [%s]", owner)))
 		b.WriteString("\n")
 	}
-	sepWidth := req.Width - 4
+	sepWidth := width - 4
 	if sepWidth < 10 {
 		sepWidth = 10
 	}
-	b.WriteString(req.Styles.Separator.Render(strings.Repeat("─", sepWidth)))
+	b.WriteString(styles.Separator.Render(strings.Repeat("─", sepWidth)))
 	b.WriteString("\n\n")
 
-	trimmed := strings.TrimSpace(req.Body)
+	trimmed := strings.TrimSpace(body)
 	if trimmed == "" {
-		b.WriteString(req.Styles.Muted.Render("  (empty section)"))
+		b.WriteString(styles.Muted.Render("  (empty section)"))
 		b.WriteString("\n")
 	} else {
-		rendered, err := renderer.Render(ctx, trimmed, req.Width-2)
+		rendered, err := renderer.Render(ctx, trimmed, width-2)
 		if err != nil {
 			return "", err
 		}
@@ -417,10 +369,11 @@ func renderSectionContent(ctx context.Context, renderer Renderer, req renderRequ
 		}
 	}
 
-	nav := fmt.Sprintf("  § %d/%d", req.SectionIdx+1, req.Total)
+	nav := fmt.Sprintf("  § %d/%d", sectionIdx+1, total)
 	hints := "n next · p prev · 1-9 jump · o overview · tab switch view"
 	b.WriteString("\n")
-	b.WriteString(req.Styles.Muted.Render(nav + "  " + hints))
+	b.WriteString(styles.Muted.Render(nav + "  " + hints))
+	_ = specID
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
@@ -435,17 +388,7 @@ func (m specDetailModel) requestCurrentSectionRender() (specDetailModel, tea.Cmd
 	effWidth := m.effectiveWidth()
 	sec := sections[m.sectionIdx]
 	cacheKey := m.readerCacheKey(sec, m.sectionIdx, effWidth)
-	if content, ok := m.readerCache[cacheKey]; ok {
-		m.applyReaderContent(content)
-		m.readerState = readerReady
-		m.readerErr = nil
-		return m, nil
-	}
-
-	m.readerState = readerPending
-	m.readerErr = nil
-
-	req := renderRequest{
+	pending := pendingRenderRequest{
 		SpecID:     m.specID,
 		SectionIdx: m.sectionIdx,
 		CacheKey:   cacheKey,
@@ -456,41 +399,69 @@ func (m specDetailModel) requestCurrentSectionRender() (specDetailModel, tea.Cmd
 		Width:      effWidth,
 		Styles:     m.styles,
 	}
-
-	if m.renderInFlight {
-		m.renderQueued = true
-		m.queuedRequest = &req
-		if m.renderCancel != nil {
-			m.renderCancel()
-		}
-		return m, m.awaitRenderResult()
+	if content, ok := m.readerCache[cacheKey]; ok {
+		m.applyReaderContent(content)
+		m.readerState = readerReady
+		m.readerErr = nil
+		return m, nil
 	}
-	return m.startRender(req)
+
+	m.readerState = readerPending
+	m.readerErr = nil
+	if m.renderInFlight {
+		if pending.CacheKey == m.activeRenderKey {
+			return m, nil
+		}
+		copyReq := pending
+		m.pendingRequest = &copyReq
+		return m, nil
+	}
+
+	return m.startRender(pending)
 }
 
-func (m specDetailModel) startRender(req renderRequest) (specDetailModel, tea.Cmd) {
-	ctx, cancel := context.WithCancel(context.Background())
-	m.readerGen++
-	req.Gen = m.readerGen
-	req.Ctx = ctx
-
-	m.renderCancel = cancel
+func (m specDetailModel) startRender(req pendingRenderRequest) (specDetailModel, tea.Cmd) {
+	m.renderGen++
+	gen := m.renderGen
+	m.activeRenderGen = gen
+	m.activeRenderKey = req.CacheKey
 	m.renderInFlight = true
 
-	select {
-	case m.renderQueue <- req:
-	default:
-		go func() { m.renderQueue <- req }()
+	specID := req.SpecID
+	sectionIdx := req.SectionIdx
+	cacheKey := req.CacheKey
+	total := req.Total
+	heading := req.Heading
+	owner := req.Owner
+	body := req.Body
+	width := req.Width
+	styles := req.Styles
+	renderer := m.renderer
+
+	return m, func() tea.Msg {
+		started := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		content, err := renderSectionContent(ctx, renderer, specID, sectionIdx, heading, owner, body, total, width, styles)
+		return sectionRenderedMsg{
+			SpecID:       specID,
+			SectionIdx:   sectionIdx,
+			CacheKey:     cacheKey,
+			Gen:          gen,
+			Content:      content,
+			Err:          err,
+			RenderMillis: time.Since(started).Milliseconds(),
+		}
 	}
-	return m, m.renderResultCmd
 }
 
-func (m specDetailModel) prefetchAdjacentSections() tea.Cmd {
-	// Prefetch temporarily disabled: background worker results were sharing
-	// the same channel as foreground renders and could starve visible updates.
-	// We prefer deterministic foreground rendering correctness over speculative
-	// cache warmups.
-	return nil
+func (m *specDetailModel) dequeuePending() *pendingRenderRequest {
+	if m.pendingRequest == nil {
+		return nil
+	}
+	req := *m.pendingRequest
+	m.pendingRequest = nil
+	return &req
 }
 
 func (m specDetailModel) readerCacheKey(sec markdown.Section, idx, width int) string {
@@ -721,7 +692,6 @@ func (m *specDetailModel) setSize(w, h int) {
 			m.readerCache = make(map[string]string)
 		}
 		m.readerState = readerIdle
-		m.readerGen++
 	}
 	if mx := m.maxScroll(); m.scroll > mx {
 		m.scroll = mx
@@ -810,58 +780,22 @@ func (m specDetailModel) fetchData() tea.Cmd {
 		if err != nil {
 			return specDetailDataMsg{Err: err}
 		}
+		decisions, _ := markdown.ParseDecisionLog(content)
 		return specDetailDataMsg{
 			Meta:      meta,
 			Sections:  markdown.ExtractSections(content),
-			Decisions: mustDecisions(content),
+			Decisions: decisions,
 			Hash:      contentHash(data),
 		}
 	}
 }
 
-func mustDecisions(content string) []markdown.DecisionEntry {
-	d, _ := markdown.ParseDecisionLog(content)
-	return d
-}
-
-func (m *specDetailModel) startRenderWorker() {
-	if m.renderQueue == nil || m.renderResult == nil || m.renderer == nil {
-		return
-	}
-	go func(queue <-chan renderRequest, out chan<- sectionRenderedMsg, renderer Renderer) {
-		for req := range queue {
-			started := time.Now()
-			content, err := renderSectionContent(req.Ctx, renderer, req)
-			out <- sectionRenderedMsg{
-				SpecID:       req.SpecID,
-				SectionIdx:   req.SectionIdx,
-				CacheKey:     req.CacheKey,
-				Gen:          req.Gen,
-				Content:      content,
-				Err:          err,
-				RenderMillis: time.Since(started).Milliseconds(),
-				Prefetch:     req.Prefetch,
-			}
-		}
-	}(m.renderQueue, m.renderResult, m.renderer)
-}
-
-func (m specDetailModel) awaitRenderResult() tea.Cmd {
-	return func() tea.Msg {
-		msg, ok := <-m.renderResult
-		if !ok {
-			return nil
-		}
-		return msg
-	}
-}
-
 func (m *specDetailModel) cancelRender() {
-	if m.renderCancel != nil {
-		m.renderCancel()
-		m.renderCancel = nil
-	}
+	m.canceledThroughGen = m.renderGen
+	m.pendingRequest = nil
 	m.renderInFlight = false
+	m.activeRenderGen = 0
+	m.activeRenderKey = ""
 }
 
 func contentHash(data []byte) string {

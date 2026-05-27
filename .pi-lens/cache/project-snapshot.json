@@ -1,8 +1,8 @@
 {
   "version": 1,
   "projectRoot": "/Users/aaron/code/spec-cli",
-  "generatedAt": "2026-05-27T12:43:48.434Z",
-  "seq": 0,
+  "generatedAt": "2026-05-27T13:15:33.648Z",
+  "seq": 67,
   "files": {
     "/Users/aaron/code/spec-cli/cmd/advance.go": {
       "path": "/Users/aaron/code/spec-cli/cmd/advance.go",
@@ -1537,7 +1537,7 @@
     "scanRoot": "/Users/aaron/code/spec-cli",
     "projectRoot": "/Users/aaron/code/spec-cli",
     "canWarmCaches": true,
-    "sourceFileCount": 188
+    "sourceFileCount": 189
   },
   "languageProfile": {
     "present": {
@@ -1582,7 +1582,7 @@
       "cxx": true
     },
     "counts": {
-      "go": 188
+      "go": 189
     },
     "detectedKinds": [
       "go",

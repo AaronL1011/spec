@@ -320,19 +320,19 @@ func TestSpecDetail_ReaderIgnoresStaleRender(t *testing.T) {
 	m, firstCmd := m.update(keyMsg("o"))
 	firstMsg := firstCmd().(sectionRenderedMsg)
 	m, secondCmd := m.update(keyMsg("n"))
-	if secondCmd == nil {
-		t.Fatal("second render should continue waiting for render results")
+	if secondCmd != nil {
+		t.Fatal("second render should be coalesced into pending latest intent")
 	}
 
 	m, cmd := m.update(firstMsg)
 	if m.readerState != readerPending {
 		t.Fatalf("stale render should keep pending state, state = %d", m.readerState)
 	}
-	if cmd == nil {
-		t.Fatal("queued render should start after stale result is processed")
+	if cmd != nil {
+		m, _ = m.update(cmd())
+	} else {
+		m, _ = m.update(secondCmd())
 	}
-
-	m, _ = m.update(cmd())
 	if m.sectionIdx != 1 {
 		t.Fatalf("sectionIdx = %d, want 1", m.sectionIdx)
 	}
@@ -459,7 +459,9 @@ func TestSpecDetail_FastNavSpamDoesNotLeavePendingArtifacts(t *testing.T) {
 	m, _ = m.update(first)
 
 	for i := 0; i < 4 && m.renderInFlight; i++ {
-		m, _ = m.update(m.renderResultCmd())
+		if cmd != nil {
+			m, cmd = m.update(cmd())
+		}
 	}
 
 	m, _ = m.update(keyMsg("o"))
