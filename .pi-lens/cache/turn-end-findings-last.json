@@ -1,6 +1,6 @@
 {
-  "signature": "internal/tui/renderer.go::ℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 1 across 1 file(s).\nTop rules: go-vet×1\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
+  "signature": "internal/tui/specdetail.go::ℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 7 across 1 file(s).\nTop rules: go-ignored-call-result×3, go-bare-error×1, go-context-background-handler×1\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
   "sessionId": "lens-mpnyac16-c98584a1",
-  "projectSeqStart": 73,
-  "projectSeqEnd": 74
+  "projectSeqStart": 76,
+  "projectSeqEnd": 77
 }

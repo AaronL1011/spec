@@ -1,6 +1,17 @@
 {
-  "files": {},
+  "files": {
+    "internal/tui/specdetail.go": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 751
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-27T13:26:08.422Z"
+    }
+  },
   "turnCycles": 0,
   "maxCycles": 3,
-  "lastUpdated": "2026-05-27T13:15:33.657Z"
+  "lastUpdated": "2026-05-27T13:26:08.422Z"
 }

@@ -555,9 +555,9 @@ func TestApp_FirstReaderOpenShowsSpinnerNotNoContent(t *testing.T) {
 
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
 	app := model.(App)
+	// Simulate pending state — render in flight, no content yet.
 	app.detail.readerContent = ""
-	app.detail.readerState = readerPending
-	app.detail.openedReader = true
+	app.detail.renderInFlight = true
 	app.syncBusyState()
 
 	view := app.View()

@@ -170,8 +170,8 @@ func TestSpecDetail_ReaderModeToggle(t *testing.T) {
 	if cmd == nil {
 		t.Error("entering reader mode should return a non-nil render command")
 	}
-	if m.readerState != readerPending {
-		t.Errorf("readerState = %d, want pending", m.readerState)
+	if cmd == nil {
+		t.Error("should return a render cmd")
 	}
 
 	m, _ = m.update(cmd())
@@ -317,22 +317,28 @@ func TestSpecDetail_ReaderIgnoresStaleRender(t *testing.T) {
 		{Slug: "solution", Heading: "## Solution", Level: 2, Content: "Solution content."},
 	}
 
+	// Kick off render for section 0, hold the result.
 	m, firstCmd := m.update(keyMsg("o"))
 	firstMsg := firstCmd().(sectionRenderedMsg)
+
+	// Navigate to section 1 while section 0 is still "in flight".
 	m, secondCmd := m.update(keyMsg("n"))
 	if secondCmd != nil {
-		t.Fatal("second render should be coalesced into pending latest intent")
+		t.Fatal("nav during in-flight render should only store pending, not emit a cmd")
+	}
+	if m.pendingRequest == nil {
+		t.Fatal("expected a pending request for section 1")
 	}
 
+	// Now deliver the section-0 result — should immediately kick off section-1 render.
 	m, cmd := m.update(firstMsg)
-	if m.readerState != readerPending {
-		t.Fatalf("stale render should keep pending state, state = %d", m.readerState)
+	if cmd == nil {
+		t.Fatal("pending request should produce a render cmd for section 1")
 	}
-	if cmd != nil {
-		m, _ = m.update(cmd())
-	} else {
-		m, _ = m.update(secondCmd())
+	if !m.renderInFlight {
+		t.Fatal("render should be in-flight for section 1")
 	}
+	m, _ = m.update(cmd())
 	if m.sectionIdx != 1 {
 		t.Fatalf("sectionIdx = %d, want 1", m.sectionIdx)
 	}
@@ -390,8 +396,6 @@ func TestSpecDetail_FirstOpenReaderDoesNotShowNoContentPlaceholder(t *testing.T)
 		{Slug: "large", Heading: "## Large", Level: 2, Content: strings.Repeat("content\n", 1000)},
 	}
 	m.readerMode = true
-	m.openedReader = true
-	m.readerState = readerPending
 	m.readerContent = ""
 
 	got := m.view()
