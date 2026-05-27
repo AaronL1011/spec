@@ -146,6 +146,7 @@ func TestSessionPersistence(t *testing.T) {
 	}
 	if loaded == nil {
 		t.Fatal("loaded session is nil")
+		return
 	}
 	if loaded.SpecID != "SPEC-001" {
 		t.Errorf("SpecID = %q, want SPEC-001", loaded.SpecID)

@@ -394,6 +394,7 @@ preferences:
 	pa := cfg.Preferences.PassiveAwareness
 	if pa == nil {
 		t.Fatal("PassiveAwareness should not be nil")
+		return
 	}
 
 	if len(pa.Show) != 2 {
@@ -490,6 +491,7 @@ fast_track:
 	ft := cfg.FastTrack
 	if ft == nil {
 		t.Fatal("FastTrack should not be nil")
+		return
 	}
 
 	if !ft.IsEnabled() {

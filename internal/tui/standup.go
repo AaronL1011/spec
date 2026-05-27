@@ -132,7 +132,7 @@ func buildStandupText(rc *config.ResolvedConfig, reg *adapter.Registry, db *stor
 		b.WriteString("    (no tracked activity)\n")
 	} else {
 		for _, e := range entries {
-			b.WriteString(fmt.Sprintf("    • %s: %s\n", e.SpecID, e.Summary))
+			fmt.Fprintf(&b, "    • %s: %s\n", e.SpecID, e.Summary)
 		}
 	}
 
@@ -142,13 +142,13 @@ func buildStandupText(rc *config.ResolvedConfig, reg *adapter.Registry, db *stor
 
 	recent, _ := db.SessionMostRecent()
 	if recent != "" {
-		b.WriteString(fmt.Sprintf("    • Continue %s\n", recent))
+		fmt.Fprintf(&b, "    • Continue %s\n", recent)
 		todayItems++
 	}
 
 	owned := standupOwnedSpecs(rc.SpecsRepoDir, userRole, rc.Pipeline())
 	for _, s := range owned {
-		b.WriteString(fmt.Sprintf("    • %s: %s [%s]\n", s.id, s.title, s.stage))
+		fmt.Fprintf(&b, "    • %s: %s [%s]\n", s.id, s.title, s.stage)
 		todayItems++
 	}
 
