@@ -221,9 +221,9 @@ func (m specDetailModel) updateOverview(msg tea.KeyMsg) (specDetailModel, tea.Cm
 func (m specDetailModel) updateReader(msg tea.KeyMsg) (specDetailModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Up):
-		m.readerViewport.LineUp(1)
+		m.readerViewport.ScrollUp(1)
 	case key.Matches(msg, m.keys.Down):
-		m.readerViewport.LineDown(1)
+		m.readerViewport.ScrollDown(1)
 	case msg.Type == tea.KeyPgUp:
 		m.readerViewport.PageUp()
 	case msg.Type == tea.KeyPgDown:
@@ -549,7 +549,7 @@ func (m specDetailModel) viewOverview() string {
 		if sec.Owner != "" && sec.Owner != "auto" {
 			owner = m.styles.Muted.Render(fmt.Sprintf("  [%s]", sec.Owner))
 		}
-		b.WriteString(fmt.Sprintf("%s%s %s%s\n", indent, fill, sec.Slug, owner))
+		fmt.Fprintf(&b, "%s%s %s%s\n", indent, fill, sec.Slug, owner)
 	}
 	b.WriteString("\n" + m.styles.Muted.Render("  o to read sections") + "\n")
 

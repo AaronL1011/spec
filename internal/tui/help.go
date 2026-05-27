@@ -84,11 +84,11 @@ func (m helpModel) section(title string, bindings []key.Binding) string {
 
 	for _, bind := range bindings {
 		help := bind.Help()
-		b.WriteString(fmt.Sprintf("    %s%s  %s\n",
+		fmt.Fprintf(&b, "    %s%s  %s\n",
 			m.styles.Accent.Render(help.Key),
 			strings.Repeat(" ", maxKey-len(help.Key)),
 			m.styles.RowNormal.Render(help.Desc),
-		))
+		)
 	}
 	b.WriteString("\n")
 	return b.String()

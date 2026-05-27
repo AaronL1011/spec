@@ -278,10 +278,8 @@ func TestApp_QuitDuringModal(t *testing.T) {
 	model, cmd := app.Update(keyMsg("q"))
 	_ = model.(App)
 	// Modal should handle 'q' as not-y/n, so modal stays visible.
-	if cmd != nil {
-		// If cmd is tea.Quit, that's wrong.
-		// This is a soft check — 'q' is not 'y' or 'n' so modal ignores it.
-	}
+	// cmd should not be tea.Quit — 'q' is not 'y' or 'n' so modal ignores it.
+	_ = cmd
 }
 
 func TestApp_SearchSuppressesHotkeys(t *testing.T) {

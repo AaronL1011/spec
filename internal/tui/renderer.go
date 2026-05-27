@@ -107,9 +107,9 @@ func isLightColour(hex string) bool {
 		return false
 	}
 	var r, g, b uint64
-	fmt.Sscanf(hex[0:2], "%x", &r)
-	fmt.Sscanf(hex[2:4], "%x", &g)
-	fmt.Sscanf(hex[4:6], "%x", &b)
+	_, _ = fmt.Sscanf(hex[0:2], "%x", &r)
+	_, _ = fmt.Sscanf(hex[2:4], "%x", &g)
+	_, _ = fmt.Sscanf(hex[4:6], "%x", &b)
 	// BT.601 perceived luminance.
 	return 0.299*float64(r)+0.587*float64(g)+0.114*float64(b) > 128
 }

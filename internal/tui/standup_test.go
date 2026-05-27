@@ -77,7 +77,7 @@ func TestApp_StandupOverlayFlow(t *testing.T) {
 	}
 
 	// Esc closes it.
-	model, _ = a.Update(keyMsg("\x1b")) // won't match Esc via keyMsg — use tea.KeyMsg
+	_, _ = a.Update(keyMsg("\x1b")) // won't match Esc via keyMsg — use tea.KeyMsg
 	// Use proper esc:
 	a.standup.hide()
 	if a.standup.visible {

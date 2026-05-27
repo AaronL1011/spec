@@ -124,7 +124,7 @@ func buildStandupText(rc *config.ResolvedConfig, reg *adapter.Registry, db *stor
 	date := time.Now().Format("2006-01-02")
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("  %s — %s\n\n", userName, date))
+	fmt.Fprintf(&b, "  %s — %s\n\n", userName, date)
 
 	// Yesterday
 	b.WriteString("  Yesterday:\n")
