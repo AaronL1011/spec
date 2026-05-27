@@ -175,8 +175,6 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 		return m, nil
 
 	case sectionRenderedMsg:
-		m.renderInFlight = false
-		m.renderCancel = nil
 		if msg.Err == context.Canceled {
 			atomic.AddInt64(&m.metrics.canceled, 1)
 		}
@@ -192,8 +190,14 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 				m.queuedRequest = nil
 				return m.startRender(req)
 			}
+			if m.renderInFlight {
+				return m, m.awaitRenderResult()
+			}
 			return m, nil
 		}
+
+		m.renderInFlight = false
+		m.renderCancel = nil
 
 		if msg.SpecID != m.specID || msg.Gen != m.readerGen || msg.SectionIdx != m.sectionIdx {
 			if m.renderQueued && m.queuedRequest != nil {
@@ -201,6 +205,9 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 				m.renderQueued = false
 				m.queuedRequest = nil
 				return m.startRender(req)
+			}
+			if m.renderInFlight {
+				return m, m.awaitRenderResult()
 			}
 			return m, nil
 		}

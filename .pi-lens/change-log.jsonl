@@ -37,3 +37,5 @@
 {"seq":37,"timestamp":"2026-05-27T11:59:30.491Z","sessionId":"lens-mpnyac16-c98584a1","turnIndex":153,"source":"agent-edit","filePath":"/Users/aaron/code/spec-cli/internal/tui/specdetail_test.go","fileSeq":6}
 {"seq":38,"timestamp":"2026-05-27T11:59:38.368Z","sessionId":"lens-mpnyac16-c98584a1","turnIndex":154,"source":"agent-edit","filePath":"/Users/aaron/code/spec-cli/internal/tui/app_test.go","fileSeq":3}
 {"seq":39,"timestamp":"2026-05-27T12:00:46.485Z","sessionId":"lens-mpnyac16-c98584a1","turnIndex":166,"source":"format","filePath":"/Users/aaron/code/spec-cli/internal/tui/specdetail.go","fileSeq":13}
+{"seq":40,"timestamp":"2026-05-27T12:07:19.776Z","sessionId":"lens-mpnyac16-c98584a1","turnIndex":170,"source":"agent-edit","filePath":"/Users/aaron/code/spec-cli/internal/tui/specdetail.go","fileSeq":14}
+{"seq":41,"timestamp":"2026-05-27T12:07:28.218Z","sessionId":"lens-mpnyac16-c98584a1","turnIndex":171,"source":"agent-edit","filePath":"/Users/aaron/code/spec-cli/internal/tui/specdetail.go","fileSeq":15}
