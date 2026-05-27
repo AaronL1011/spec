@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -54,8 +56,10 @@ type App struct {
 	detailFrom View // which view we drilled in from
 
 	// Overlays
-	modal components.Modal
-	toast components.Toast
+	modal   components.Modal
+	toast   components.Toast
+	standup standupOverlay
+	intake  intakeFormState
 
 	// Pending action context (for modal confirmations)
 	pendingAction string
@@ -210,6 +214,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.cycleTheme()
 		return a, nil
 
+	// Standup data arrived.
+	case standupDataMsg:
+		if msg.Err != nil {
+			a.toast.Show(msg.Err.Error(), components.ToastError, 5*time.Second)
+		} else {
+			a.standup.show(msg.Text)
+		}
+		return a, nil
+
 	// Navigation messages from views.
 	case navigateToSpecMsg:
 		return a, a.openDetail(msg.SpecID)
@@ -234,6 +247,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.refreshActiveView()
 
 	case tea.KeyMsg:
+		// Standup overlay absorbs keys.
+		if a.standup.visible {
+			return a.updateStandup(msg)
+		}
+
+		// Intake form absorbs keys.
+		if a.intake.active {
+			return a.updateIntake(msg)
+		}
+
 		// Help overlay absorbs all keys when visible.
 		if a.help.visible {
 			a.help, _ = a.help.update(msg)
@@ -311,6 +334,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, focusSpec(specID)
 			}
 
+		case key.Matches(msg, a.keys.Unfocus):
+			return a, unfocusSpec()
+
 		case key.Matches(msg, a.keys.Yank):
 			if specID := a.selectedSpecID(); specID != "" {
 				return a, yankSpecID(specID)
@@ -331,6 +357,33 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return a, editSpec(a.rc, specID, editor)
 			}
+
+		case key.Matches(msg, a.keys.Build):
+			if specID := a.selectedSpecID(); specID != "" {
+				return a, buildSpec(a.rc, specID)
+			}
+
+		case key.Matches(msg, a.keys.Decide):
+			if specID := a.selectedSpecID(); specID != "" {
+				a.pendingAction = "decide"
+				a.pendingSpecID = specID
+				a.modal.ShowInput("Record Decision — "+specID, "Question or decision to record:")
+				a.modal.SetSize(a.width, a.contentHeight())
+				return a, nil
+			}
+
+		case key.Matches(msg, a.keys.NewIntake):
+			a.intake.open()
+			return a, nil
+
+		case key.Matches(msg, a.keys.NewSpec):
+			a.pendingAction = "new"
+			a.modal.ShowInput("New Spec", "Title:")
+			a.modal.SetSize(a.width, a.contentHeight())
+			return a, nil
+
+		case key.Matches(msg, a.keys.Standup):
+			return a, generateStandup(a.rc, a.reg)
 
 		// View switching — number keys and tab.
 		case key.Matches(msg, a.keys.Tab1):
@@ -377,13 +430,18 @@ func (a App) View() string {
 	}
 
 	var content string
-	if a.help.visible {
+	switch {
+	case a.standup.visible:
+		content = a.standup.view()
+	case a.intake.active:
+		content = a.renderIntakeForm()
+	case a.help.visible:
 		content = a.help.view()
-	} else if a.modal.Visible {
+	case a.modal.Visible:
 		content = a.modal.View()
-	} else if a.showDetail {
+	case a.showDetail:
 		content = a.detail.view()
-	} else {
+	default:
 		content = a.activeViewContent()
 	}
 
@@ -568,6 +626,8 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 		return a, nil
 	case key.Matches(msg, a.keys.Focus):
 		return a, focusSpec(specID)
+	case key.Matches(msg, a.keys.Unfocus):
+		return a, unfocusSpec()
 	case key.Matches(msg, a.keys.Yank):
 		return a, yankSpecID(specID)
 	case key.Matches(msg, a.keys.Edit):
@@ -576,6 +636,14 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 			editor = a.rc.User.Preferences.Editor
 		}
 		return a, editSpec(a.rc, specID, editor)
+	case key.Matches(msg, a.keys.Build):
+		return a, buildSpec(a.rc, specID)
+	case key.Matches(msg, a.keys.Decide):
+		a.pendingAction = "decide"
+		a.pendingSpecID = specID
+		a.modal.ShowInput("Record Decision — "+specID, "Question or decision to record:")
+		a.modal.SetSize(a.width, a.contentHeight())
+		return a, nil
 	}
 
 	// Delegate to detail for scrolling etc.
@@ -640,16 +708,114 @@ func (a *App) executeAction() tea.Cmd {
 		if reason == "" {
 			reason = "reverted from TUI"
 		}
-		// Revert to the first stage as default.
 		pl := a.rc.Pipeline()
 		target := ""
 		if len(pl.Stages) > 0 {
 			target = pl.Stages[0].Name
 		}
 		return revertSpec(a.rc, specID, target, reason, a.rc.UserName())
+	case "decide":
+		question := a.modal.Input
+		if question == "" {
+			return nil
+		}
+		return recordDecision(a.rc, specID, question)
+	case "new":
+		title := a.modal.Input
+		if title == "" {
+			return nil
+		}
+		return createSpec(a.rc, title)
 	default:
 		return nil
 	}
+}
+
+// updateStandup handles keys within the standup overlay.
+func (a App) updateStandup(msg tea.KeyMsg) (App, tea.Cmd) {
+	switch {
+	case msg.Type == tea.KeyEscape:
+		a.standup.hide()
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "c":
+		// Copy standup text to clipboard.
+		a.standup.hide()
+		return a, yankText(a.standup.text)
+	case key.Matches(msg, a.keys.Up):
+		a.standup.scrollUp()
+	case key.Matches(msg, a.keys.Down):
+		a.standup.scrollDown()
+	case key.Matches(msg, a.keys.Quit):
+		return a, tea.Quit
+	}
+	return a, nil
+}
+
+// updateIntake handles keys within the inline intake form.
+func (a App) updateIntake(msg tea.KeyMsg) (App, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		a.intake.close()
+	case tea.KeyTab:
+		a.intake.nextField()
+	case tea.KeyShiftTab:
+		a.intake.prevField()
+	case tea.KeyEnter:
+		if a.intake.field == intakeFieldPriority {
+			// Enter on priority cycles the value.
+			a.intake.cyclePriority()
+		} else if a.intake.valid() {
+			// Submit.
+			title := a.intake.title
+			priority := a.intake.priority
+			source := a.intake.source
+			a.intake.close()
+			return a, createTriageItem(a.rc, title, priority, source)
+		}
+	case tea.KeyBackspace:
+		a.intake.backspaceField()
+	case tea.KeyRunes:
+		a.intake.appendToField(string(msg.Runes))
+	}
+	return a, nil
+}
+
+// renderIntakeForm draws the inline triage intake form.
+func (a App) renderIntakeForm() string {
+	f := a.intake
+	var b strings.Builder
+
+	b.WriteString(a.styles.Title.Render("  New Triage Item"))
+	b.WriteString("\n\n")
+
+	fields := []struct {
+		label string
+		value string
+		idx   int
+	}{
+		{"Title", f.title, intakeFieldTitle},
+		{"Priority", f.priority + "  " + a.styles.Muted.Render("(enter to cycle)"), intakeFieldPriority},
+		{"Source", f.source, intakeFieldSource},
+	}
+
+	for _, fld := range fields {
+		label := a.styles.Subtitle.Render(fmt.Sprintf("  %-10s", fld.label))
+		value := fld.value
+		if fld.idx == f.field {
+			value += a.styles.Accent.Render("▌")
+			b.WriteString(a.styles.Accent.Render("▸ "))
+		} else {
+			b.WriteString("  ")
+		}
+		b.WriteString(label)
+		b.WriteString("  ")
+		b.WriteString(a.styles.RowNormal.Render(value))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(a.styles.Muted.Render("  tab next field · enter submit/cycle · esc cancel"))
+
+	return b.String()
 }
 
 func (a *App) delegateToActive(msg tea.Msg) tea.Cmd {
@@ -688,6 +854,7 @@ func (a *App) propagateSize() {
 	}
 	a.modal.SetSize(a.width, ch)
 	a.help.setSize(a.width, ch)
+	a.standup.setSize(a.width, ch)
 }
 
 // cycleTheme advances to the next theme, applies it, and persists the choice.

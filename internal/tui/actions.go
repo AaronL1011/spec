@@ -169,6 +169,22 @@ func focusSpec(specID string) tea.Cmd {
 	}
 }
 
+// unfocusSpec clears the focused spec.
+func unfocusSpec() tea.Cmd {
+	return func() tea.Msg {
+		db, err := store.Open(store.DefaultDBPath())
+		if err != nil {
+			return actionResultMsg{Action: "unfocus", Err: err}
+		}
+		defer func() { _ = db.Close() }()
+
+		if err := db.FocusedSpecClear(); err != nil {
+			return actionResultMsg{Action: "unfocus", Err: err}
+		}
+		return actionResultMsg{Action: "unfocus", Detail: "focus cleared"}
+	}
+}
+
 // yankSpecID copies a spec ID to the clipboard.
 func yankSpecID(specID string) tea.Cmd {
 	return func() tea.Msg {
@@ -176,6 +192,16 @@ func yankSpecID(specID string) tea.Cmd {
 			return actionResultMsg{Action: "yank", SpecID: specID, Err: fmt.Errorf("clipboard: %w", err)}
 		}
 		return actionResultMsg{Action: "yank", SpecID: specID, Detail: "copied to clipboard"}
+	}
+}
+
+// yankText copies arbitrary text to the clipboard.
+func yankText(text string) tea.Cmd {
+	return func() tea.Msg {
+		if err := clipboard.WriteAll(text); err != nil {
+			return actionResultMsg{Action: "copy", Err: fmt.Errorf("clipboard: %w", err)}
+		}
+		return actionResultMsg{Action: "copy", Detail: "copied to clipboard"}
 	}
 }
 

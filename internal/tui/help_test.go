@@ -41,7 +41,7 @@ func TestHelp_RendersBindings(t *testing.T) {
 	styles := NewStyles(ResolveTheme("catppuccin-mocha"))
 	keys := DefaultKeyMap()
 	h := newHelp(keys, styles)
-	h.setSize(80, 40)
+	h.setSize(80, 60)
 	h.setContext("Dashboard")
 	h.visible = true
 

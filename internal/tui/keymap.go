@@ -35,6 +35,7 @@ type KeyMap struct {
 	Unblock key.Binding
 	Revert  key.Binding
 	Focus   key.Binding
+	Unfocus key.Binding
 	Open    key.Binding
 	Yank    key.Binding
 	Decide  key.Binding
@@ -42,6 +43,7 @@ type KeyMap struct {
 	// Creation
 	NewSpec   key.Binding
 	NewIntake key.Binding
+	Standup   key.Binding
 }
 
 // DefaultKeyMap returns the default keybindings.
@@ -143,6 +145,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("f"),
 			key.WithHelp("f", "focus"),
 		),
+		Unfocus: key.NewBinding(
+			key.WithKeys("F"),
+			key.WithHelp("F", "unfocus"),
+		),
 		Open: key.NewBinding(
 			key.WithKeys("o"),
 			key.WithHelp("o", "open"),
@@ -164,6 +170,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("i"),
 			key.WithHelp("i", "intake"),
 		),
+		Standup: key.NewBinding(
+			key.WithKeys("S"),
+			key.WithHelp("S", "standup"),
+		),
 	}
 }
 
@@ -179,7 +189,7 @@ func (k KeyMap) ViewBindings() []key.Binding {
 
 // ActionBindings returns the action bindings for help display.
 func (k KeyMap) ActionBindings() []key.Binding {
-	return []key.Binding{k.Advance, k.Edit, k.Build, k.Block, k.Focus, k.Open, k.Yank}
+	return []key.Binding{k.Advance, k.Edit, k.Build, k.Block, k.Focus, k.Open, k.Yank, k.Decide, k.NewSpec, k.NewIntake, k.Standup}
 }
 
 // GlobalBindings returns bindings shown in every context.

@@ -41,6 +41,10 @@ type PreferencesConfig struct {
 	// Defaults to 30s.
 	RefreshInterval string `yaml:"refresh_interval,omitempty"`
 
+	// Mouse enables mouse support in the TUI (click tabs, click items).
+	// Defaults to false.
+	Mouse bool `yaml:"mouse,omitempty"`
+
 	// Multiplexer specifies the terminal multiplexer for cross-repo navigation.
 	// Valid values: tmux, zellij, wezterm, iterm2, none
 	// If empty or "none", falls back to manual navigation prompts.
