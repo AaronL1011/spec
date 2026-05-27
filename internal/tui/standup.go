@@ -49,7 +49,19 @@ func (s *standupOverlay) scrollUp() {
 
 func (s *standupOverlay) scrollDown() {
 	s.scroll++
-	// Clamp in view()
+	// Clamp to prevent scrolling past content.
+	lines := len(splitLines(s.text)) + 5 // text + header/footer chrome
+	visible := s.height
+	if visible < 3 {
+		visible = 3
+	}
+	if mx := lines - visible; mx > 0 {
+		if s.scroll > mx {
+			s.scroll = mx
+		}
+	} else {
+		s.scroll = 0
+	}
 }
 
 func (s standupOverlay) view() string {
@@ -72,10 +84,10 @@ func (s standupOverlay) view() string {
 	if visible < 3 {
 		visible = 3
 	}
-	if s.scroll > len(lines)-visible {
-		s.scroll = max(0, len(lines)-visible)
-	}
 	start := s.scroll
+	if start > len(lines)-visible {
+		start = max(0, len(lines)-visible)
+	}
 	end := start + visible
 	if end > len(lines) {
 		end = len(lines)

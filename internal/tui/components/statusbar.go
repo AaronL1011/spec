@@ -12,6 +12,7 @@ import (
 type StatusBar struct {
 	viewLabel    string
 	pendingCount int
+	scrollPos    string // e.g. "3/12" — set by the active view
 	lastRefresh  time.Time
 	width        int
 	styles       StatusBarStyles
@@ -41,6 +42,9 @@ func (s *StatusBar) SetPending(count int) { s.pendingCount = count }
 // SetRefresh updates the last refresh time.
 func (s *StatusBar) SetRefresh(t time.Time) { s.lastRefresh = t }
 
+// SetScroll updates the scroll position indicator (e.g. "3/12").
+func (s *StatusBar) SetScroll(pos string) { s.scrollPos = pos }
+
 // SetWidth updates the status bar width.
 func (s *StatusBar) SetWidth(w int) { s.width = w }
 
@@ -65,6 +69,10 @@ func (s StatusBar) View() string {
 		parts = append(parts, s.styles.Stale.Render(" ⏳ "+staleLabel+" "))
 	}
 
+	var scrollPart string
+	if s.scrollPos != "" {
+		scrollPart = s.styles.Hint.Render(" " + s.scrollPos + " ")
+	}
 	hint := s.styles.Hint.Render(" ? help · q quit ")
 	clock := s.styles.Clock.Render(time.Now().Format(" 15:04 "))
 
@@ -72,7 +80,7 @@ func (s StatusBar) View() string {
 	if len(parts) > 0 {
 		left += " " + strings.Join(parts, " ")
 	}
-	right := hint + clock
+	right := scrollPart + hint + clock
 
 	gap := s.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 0 {

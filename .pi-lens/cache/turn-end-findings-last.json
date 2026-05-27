@@ -1,4 +1,4 @@
 {
-  "signature": "internal/tui/app.go::Unresolved from this turn — internal/tui/app.go:\n🔴 STOP — 2 issue(s) must be fixed:\n  L771: undefined: strings\n    💡 Fix: LSP quick fixes: Add import: \"fmt\"; Add import: \"strings\"\n  L787: undefined: fmt\n    💡 Fix: LSP quick fixes: Add import: \"fmt\"; Add import: \"strings\"",
-  "sessionId": "lens-mpm71hqm-04c8067c"
+  "signature": "internal/tui/specdetail.go::📐 Cascade errors in 1 neighbor file(s) — fix before finishing turn:\n<diagnostics file=\"internal/tui/app.go\" reason=\"fallback\">\n  line 234, col 7 rule=cascade:UndeclaredName: undefined: readerReadyMsg\n</diagnostics>\n\n🧪 Likely tests for affected neighbors:\n  internal/tui/app_test.go (go)",
+  "sessionId": "lens-mpnnscfc-8e799d39"
 }

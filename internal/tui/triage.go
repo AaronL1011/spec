@@ -154,7 +154,7 @@ func (m triageModel) renderTriageRow(item triageItem, selected bool, width int) 
 
 	switch {
 	case selected:
-		return m.styles.RowSelected.Width(width).Render(line)
+		return m.styles.RowSelected.Render(line)
 	case item.Priority == "critical" || item.Priority == "high":
 		return m.styles.Error.Render(line)
 	case item.Priority == "medium":

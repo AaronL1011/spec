@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/aaronl1011/spec/internal/dashboard"
+	"github.com/aaronl1011/spec/internal/markdown"
 )
 
 func testApp() App {
@@ -448,5 +449,46 @@ func TestSplitLines(t *testing.T) {
 		if len(got) != tt.want {
 			t.Errorf("splitLines(%q) = %d lines, want %d", tt.input, len(got), tt.want)
 		}
+	}
+}
+
+func TestApp_ReaderModeImmediateRender(t *testing.T) {
+	// Simulate the exact Bubbletea runtime: store model as tea.Model
+	// and drive all transitions through Update.
+	var model tea.Model = testApp()
+
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model, _ = model.Update(navigateToSpecMsg{SpecID: "SPEC-001"})
+	model, _ = model.Update(specDetailDataMsg{
+		Meta: &markdown.SpecMeta{
+			ID: "SPEC-001", Title: "Test Spec", Status: "build",
+			Author: "alice", Updated: "2026-05-20",
+		},
+		Sections: []markdown.Section{
+			{Slug: "problem", Heading: "## Problem Statement", Level: 2, Content: "Some problem."},
+			{Slug: "solution", Heading: "## Proposed Solution", Level: 2, Content: "Some solution."},
+		},
+	})
+
+	overviewView := model.View()
+
+	// Press 'o' to enter reader mode.
+	var cmd tea.Cmd
+	model, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+
+	app := model.(App)
+	if !app.detail.readerMode {
+		t.Fatal("readerMode should be true after 'o'")
+	}
+	if cmd == nil {
+		t.Error("entering reader mode should return a non-nil cmd")
+	}
+
+	readerView := model.View()
+	if overviewView == readerView {
+		t.Fatal("overview and reader views must produce different output")
+	}
+	if !strings.Contains(readerView, "Problem Statement") {
+		t.Error("reader view should contain the section heading")
 	}
 }

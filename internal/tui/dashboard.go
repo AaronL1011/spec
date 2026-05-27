@@ -28,15 +28,16 @@ type dashboardModel struct {
 	reg  *adapter.Registry
 	role string
 
-	data    *dashboard.DashboardData
-	loading bool
-	err     error
-	cursor  int
-	items   []dashboardRow
-	width   int
-	height  int
-	styles  Styles
-	keys    KeyMap
+	data          *dashboard.DashboardData
+	loading       bool
+	err           error
+	cursor        int
+	items         []dashboardRow
+	focusedSpecID string
+	width         int
+	height        int
+	styles        Styles
+	keys          KeyMap
 }
 
 type dashboardRow struct {
@@ -334,16 +335,21 @@ func (m dashboardModel) sectionHeader(section string, count, width int) string {
 func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) string {
 	compact := width < 60
 
+	// Focused spec indicator.
+	icon := row.icon
+	if m.focusedSpecID != "" && row.specID == m.focusedSpecID {
+		icon = "★"
+	}
+
 	var line string
 	if compact {
-		// Narrow: icon + id + truncated title, detail on same line if room.
 		idStr := row.specID
 		titleMax := width - len(idStr) - 6 // icon + spaces
 		if titleMax < 5 {
 			titleMax = 5
 		}
 		title := truncate(row.title, titleMax)
-		line = fmt.Sprintf("  %s %s %s", row.icon, idStr, title)
+		line = fmt.Sprintf("  %s %s %s", icon, idStr, title)
 	} else {
 		// Wide: columnar layout — icon | id (fixed) | title (flex) | detail (right).
 		idStr := fmt.Sprintf("%-11s", row.specID)
@@ -356,16 +362,16 @@ func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) st
 		title = fmt.Sprintf("%-*s", titleMax, title)
 
 		if detailLen > 0 {
-			line = fmt.Sprintf("  %s %s %s  %s", row.icon, idStr, title, row.detail)
+			line = fmt.Sprintf("  %s %s %s  %s", icon, idStr, title, row.detail)
 		} else {
-			line = fmt.Sprintf("  %s %s %s", row.icon, idStr, title)
+			line = fmt.Sprintf("  %s %s %s", icon, idStr, title)
 		}
 	}
 
 	// Apply urgency-aware styling.
 	switch {
 	case selected:
-		return m.styles.RowSelected.Width(width).Render(line)
+		return m.styles.RowSelected.Render(line)
 	case row.urgency == "critical":
 		return m.styles.Error.Render(line)
 	case row.urgency == "stale":

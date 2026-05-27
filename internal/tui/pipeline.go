@@ -75,7 +75,14 @@ func (m pipelineModel) update(msg tea.Msg) (pipelineModel, tea.Cmd) {
 		}
 		m.stages = msg.Stages
 		m.err = nil
-		m.clampCursor()
+		// Start on the first non-empty stage so the cursor is immediately
+		// on a selectable spec, not an empty "—" placeholder.
+		if first := m.nextNonEmptyStage(-1); first >= 0 {
+			m.stageIdx = first
+			m.specIdx = 0
+		} else {
+			m.clampCursor()
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -205,7 +212,7 @@ func (m pipelineModel) renderPipelineRow(spec pipelineSpec, selected bool) strin
 	}
 
 	if selected {
-		return m.styles.RowSelected.Width(m.width - 2).Render(line)
+		return m.styles.RowSelected.Render(line)
 	}
 	return m.styles.RowNormal.Render(line)
 }

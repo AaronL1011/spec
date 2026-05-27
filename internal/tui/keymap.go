@@ -62,7 +62,7 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("enter", "select"),
 		),
 		Back: key.NewBinding(
-			key.WithKeys("esc", "backspace"),
+			key.WithKeys("esc"),
 			key.WithHelp("esc", "back"),
 		),
 

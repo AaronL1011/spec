@@ -157,7 +157,7 @@ func (m reviewModel) renderReviewRow(item reviewItem, selected bool, width int) 
 	}
 
 	if selected {
-		return m.styles.RowSelected.Width(width).Render(line)
+		return m.styles.RowSelected.Render(line)
 	}
 	return m.styles.RowNormal.Render(line)
 }

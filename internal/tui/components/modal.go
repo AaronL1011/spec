@@ -93,6 +93,10 @@ func (m Modal) View() string {
 	if boxWidth > 60 {
 		boxWidth = 60
 	}
+	// Never exceed terminal width.
+	if m.width > 0 && boxWidth > m.width-2 {
+		boxWidth = m.width - 2
+	}
 	innerWidth := boxWidth - 4 // padding
 
 	var content strings.Builder

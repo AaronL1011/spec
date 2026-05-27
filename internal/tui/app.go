@@ -11,6 +11,7 @@ import (
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/store"
 	"github.com/aaronl1011/spec/internal/tui/components"
 )
 
@@ -64,6 +65,9 @@ type App struct {
 	// Pending action context (for modal confirmations)
 	pendingAction string
 	pendingSpecID string
+
+	// Focused spec ID — displayed with ★ in list views.
+	focusedSpecID string
 
 	// Refresh
 	refreshInterval time.Duration
@@ -141,7 +145,19 @@ func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
 			Info:    lipgloss.NewStyle().Foreground(theme.Base).Background(theme.Accent).Padding(0, 1),
 		}),
 		refreshInterval: parseRefreshInterval(rc),
+		focusedSpecID:   loadFocusedSpec(),
 	}
+}
+
+// loadFocusedSpec reads the focused spec ID from the store.
+func loadFocusedSpec() string {
+	db, err := store.Open(store.DefaultDBPath())
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = db.Close() }()
+	id, _ := db.FocusedSpecGet()
+	return id
 }
 
 // parseRefreshInterval reads the user's preferred refresh interval or
@@ -153,6 +169,11 @@ func parseRefreshInterval(rc *config.ResolvedConfig) time.Duration {
 		}
 	}
 	return defaultRefreshInterval
+}
+
+// isSpecID returns true if the ID looks like a spec (not a PR or triage item).
+func isSpecID(id string) bool {
+	return strings.HasPrefix(id, "SPEC-")
 }
 
 // Init runs the initial commands — fetch data + start tick.
@@ -244,171 +265,131 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			a.toast.Show(label, components.ToastSuccess, 3*time.Second)
 		}
+		// Refresh focused spec after focus/unfocus actions.
+		if msg.Action == "focus" || msg.Action == "unfocus" {
+			a.focusedSpecID = loadFocusedSpec()
+		}
 		return a, a.refreshActiveView()
 
 	case tea.KeyMsg:
-		// Standup overlay absorbs keys.
-		if a.standup.visible {
-			return a.updateStandup(msg)
-		}
+		return a.handleKey(msg)
+	}
 
-		// Intake form absorbs keys.
-		if a.intake.active {
-			return a.updateIntake(msg)
-		}
+	// Non-key messages — delegate to active view.
+	return a, a.delegateToActive(msg)
+}
 
-		// Help overlay absorbs all keys when visible.
-		if a.help.visible {
-			a.help, _ = a.help.update(msg)
-			return a, nil
-		}
+// handleKey is the single entry point for all keyboard input.
+// It follows a strict priority chain — the first match wins, no fall-through.
+func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// ── Layer 1: Overlays (absorb all keys) ──────────────────────────
+	// These are modal states that must capture every keystroke.
 
-		// Modal gets absolute priority when visible.
-		if a.modal.Visible {
-			return a.updateModal(msg)
-		}
+	if a.standup.visible {
+		return a.updateStandup(msg)
+	}
+	if a.intake.active {
+		return a.updateIntake(msg)
+	}
+	if a.help.visible {
+		a.help, _ = a.help.update(msg)
+		return a, nil
+	}
+	if a.modal.Visible {
+		return a.updateModal(msg)
+	}
 
-		// Detail view gets priority when open.
-		if a.showDetail {
-			return a.updateDetail(msg)
-		}
+	// ── Layer 2: Escape hatch (always works) ─────────────────────────
 
-		// When a view is capturing text input (e.g. search), delegate
-		// all keystrokes to the view. Only Ctrl+C force-quits.
-		if a.viewCapturingInput() {
-			if msg.Type == tea.KeyCtrlC {
-				return a, tea.Quit
-			}
-			return a, a.delegateToActive(msg)
-		}
+	if msg.Type == tea.KeyCtrlC {
+		return a, tea.Quit
+	}
 
-		switch {
-		case key.Matches(msg, a.keys.Quit):
-			return a, tea.Quit
+	// ── Layer 3: Text input mode (view captures keystrokes) ─────────
+	// The active view is consuming typed characters (e.g. search bar).
+	// Only Ctrl+C (above) bypasses this.
 
-		case key.Matches(msg, a.keys.Help):
-			a.help.setContext(a.activeView.Label())
-			a.help.toggle()
-			return a, nil
-
-		case key.Matches(msg, a.keys.Refresh):
-			return a, a.refreshActiveView()
-
-		// Enter drills into spec detail from any list view.
-		case key.Matches(msg, a.keys.Enter):
-			if specID := a.selectedSpecID(); specID != "" {
-				return a, a.openDetail(specID)
-			}
-
-		// --- Action hotkeys ---
-
-		case key.Matches(msg, a.keys.Advance):
-			if specID := a.selectedSpecID(); specID != "" {
-				a.pendingAction = "advance"
-				a.pendingSpecID = specID
-				a.modal.ShowConfirm("Advance "+specID, "Advance this spec to the next pipeline stage?")
-				a.modal.SetSize(a.width, a.contentHeight())
-				return a, nil
-			}
-
-		case key.Matches(msg, a.keys.Block):
-			if specID := a.selectedSpecID(); specID != "" {
-				a.pendingAction = "block"
-				a.pendingSpecID = specID
-				a.modal.ShowInput("Block "+specID, "Reason for blocking:")
-				a.modal.SetSize(a.width, a.contentHeight())
-				return a, nil
-			}
-
-		case key.Matches(msg, a.keys.Unblock):
-			if specID := a.selectedSpecID(); specID != "" {
-				a.pendingAction = "unblock"
-				a.pendingSpecID = specID
-				a.modal.ShowConfirm("Unblock "+specID, "Resume this spec from blocked status?")
-				a.modal.SetSize(a.width, a.contentHeight())
-				return a, nil
-			}
-
-		case key.Matches(msg, a.keys.Focus):
-			if specID := a.selectedSpecID(); specID != "" {
-				return a, focusSpec(specID)
-			}
-
-		case key.Matches(msg, a.keys.Unfocus):
-			return a, unfocusSpec()
-
-		case key.Matches(msg, a.keys.Yank):
-			if specID := a.selectedSpecID(); specID != "" {
-				return a, yankSpecID(specID)
-			}
-
-		case key.Matches(msg, a.keys.Open):
-			if a.activeView == ViewReviews {
-				if url := a.reviews.selectedURL(); url != "" {
-					return a, openInBrowser(url)
-				}
-			}
-
-		case key.Matches(msg, a.keys.Edit):
-			if specID := a.selectedSpecID(); specID != "" {
-				editor := "vi"
-				if a.rc.User != nil && a.rc.User.Preferences.Editor != "" {
-					editor = a.rc.User.Preferences.Editor
-				}
-				return a, editSpec(a.rc, specID, editor)
-			}
-
-		case key.Matches(msg, a.keys.Build):
-			if specID := a.selectedSpecID(); specID != "" {
-				return a, buildSpec(a.rc, specID)
-			}
-
-		case key.Matches(msg, a.keys.Decide):
-			if specID := a.selectedSpecID(); specID != "" {
-				a.pendingAction = "decide"
-				a.pendingSpecID = specID
-				a.modal.ShowInput("Record Decision — "+specID, "Question or decision to record:")
-				a.modal.SetSize(a.width, a.contentHeight())
-				return a, nil
-			}
-
-		case key.Matches(msg, a.keys.NewIntake):
-			a.intake.open()
-			return a, nil
-
-		case key.Matches(msg, a.keys.NewSpec):
-			a.pendingAction = "new"
-			a.modal.ShowInput("New Spec", "Title:")
-			a.modal.SetSize(a.width, a.contentHeight())
-			return a, nil
-
-		case key.Matches(msg, a.keys.Standup):
-			return a, generateStandup(a.rc, a.reg)
-
-		// View switching — number keys and tab.
-		case key.Matches(msg, a.keys.Tab1):
-			return a, a.switchView(ViewDashboard)
-		case key.Matches(msg, a.keys.Tab2):
-			return a, a.switchView(ViewPipeline)
-		case key.Matches(msg, a.keys.Tab3):
-			return a, a.switchView(ViewSpecs)
-		case key.Matches(msg, a.keys.Tab4):
-			return a, a.switchView(ViewTriage)
-		case key.Matches(msg, a.keys.Tab5):
-			return a, a.switchView(ViewReviews)
-		case key.Matches(msg, a.keys.Tab6):
-			return a, a.switchView(ViewSettings)
-		case key.Matches(msg, a.keys.NextTab):
-			return a, a.switchView(a.activeView.Next())
-		case key.Matches(msg, a.keys.PrevTab):
-			return a, a.switchView(a.activeView.Prev())
-		}
-
-		// Delegate to active view.
+	if a.viewCapturingInput() {
 		return a, a.delegateToActive(msg)
 	}
 
-	// Non-key messages — delegate.
+	// ── Layer 4: Detail view ─────────────────────────────────────────
+	// When a spec detail is open, it handles all keys. The detail
+	// model internally decides what to do (scroll, reader nav, etc.).
+	// Global keys (quit, view switch) are checked first.
+
+	if a.showDetail {
+		return a.updateDetail(msg)
+	}
+
+	// ── Layer 5: Global keys (work on every top-level view) ─────────
+
+	switch {
+	case key.Matches(msg, a.keys.Quit):
+		return a, tea.Quit
+	case key.Matches(msg, a.keys.Help):
+		a.help.setContext(a.activeView.Label())
+		a.help.toggle()
+		return a, nil
+	case key.Matches(msg, a.keys.Refresh):
+		return a, a.refreshActiveView()
+
+	// View switching.
+	case key.Matches(msg, a.keys.Tab1):
+		return a, a.switchView(ViewDashboard)
+	case key.Matches(msg, a.keys.Tab2):
+		return a, a.switchView(ViewPipeline)
+	case key.Matches(msg, a.keys.Tab3):
+		return a, a.switchView(ViewSpecs)
+	case key.Matches(msg, a.keys.Tab4):
+		return a, a.switchView(ViewTriage)
+	case key.Matches(msg, a.keys.Tab5):
+		return a, a.switchView(ViewReviews)
+	case key.Matches(msg, a.keys.Tab6):
+		return a, a.switchView(ViewSettings)
+	case key.Matches(msg, a.keys.NextTab):
+		return a, a.switchView(a.activeView.Next())
+	case key.Matches(msg, a.keys.PrevTab):
+		return a, a.switchView(a.activeView.Prev())
+
+	// Creation hotkeys.
+	case key.Matches(msg, a.keys.NewIntake):
+		a.intake.open()
+		return a, nil
+	case key.Matches(msg, a.keys.NewSpec):
+		a.pendingAction = "new"
+		a.modal.ShowInput("New Spec", "Title:")
+		a.modal.SetSize(a.width, a.contentHeight())
+		return a, nil
+	case key.Matches(msg, a.keys.Standup):
+		return a, generateStandup(a.rc, a.reg)
+
+	// Enter drills into spec detail.
+	case key.Matches(msg, a.keys.Enter):
+		if specID := a.selectedSpecID(); isSpecID(specID) {
+			return a, a.openDetail(specID)
+		}
+
+	// Open in browser (Reviews tab only).
+	case key.Matches(msg, a.keys.Open):
+		if a.activeView == ViewReviews {
+			if url := a.reviews.selectedURL(); url != "" {
+				return a, openInBrowser(url)
+			}
+		}
+	}
+
+	// ── Layer 6: Spec action hotkeys ─────────────────────────────────
+	// These require a selected spec. If no spec is selected or the
+	// binding doesn't match, we fall through to the view.
+
+	if cmd, handled := a.handleSpecAction(a.selectedSpecID(), msg); handled {
+		return a, cmd
+	}
+
+	// ── Layer 7: Delegate to active view ─────────────────────────────
+	// Navigation (j/k), search (/), and view-specific keys.
+
 	return a, a.delegateToActive(msg)
 }
 
@@ -416,6 +397,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a App) View() string {
 	if a.width == 0 {
 		return "Initialising…"
+	}
+
+	a.statusBar.SetScroll(a.activeScrollInfo())
+	a.dashboard.focusedSpecID = a.focusedSpecID
+
+	// Update breadcrumb for reader mode.
+	if a.showDetail && a.detail.readerMode {
+		sections := a.detail.readableSections()
+		if a.detail.sectionIdx < len(sections) {
+			sec := sections[a.detail.sectionIdx]
+			a.statusBar.SetView(a.activeView.Label() + " › " + a.detail.specID + " › § " + sec.Slug)
+		}
 	}
 
 	header := a.header.View()
@@ -460,14 +453,67 @@ func (a App) View() string {
 		out += l + "\n"
 	}
 
-	// Toast overlays the status bar when visible.
+	// Toast is shown within the status bar area.
 	if a.toast.Visible() {
-		out += a.toast.View()
+		toastStr := a.toast.View()
+		// Render toast left-aligned, then fill remainder with status bar bg.
+		gap := a.width - lipgloss.Width(toastStr)
+		if gap < 0 {
+			gap = 0
+		}
+		out += toastStr + a.styles.StatusBar.Render(strings.Repeat(" ", gap))
 	} else {
 		out += statusBar
 	}
 
 	return out
+}
+
+// selectedSpecID returns the spec ID of the currently selected item
+// activeScrollInfo returns a scroll position string for the status bar.
+func (a App) activeScrollInfo() string {
+	if a.showDetail {
+		if mx := a.detail.maxScroll(); mx > 0 {
+			return fmt.Sprintf("%d/%d", a.detail.scroll+1, a.detail.contentLines)
+		}
+		return ""
+	}
+	switch a.activeView {
+	case ViewDashboard:
+		if n := len(a.dashboard.items); n > 0 {
+			return fmt.Sprintf("%d/%d", a.dashboard.cursor+1, n)
+		}
+	case ViewPipeline:
+		if id := a.pipeline.selectedSpecID(); id != "" {
+			// Count total specs across stages.
+			total := 0
+			pos := 0
+			for si, stage := range a.pipeline.stages {
+				for ri := range stage.Specs {
+					if si == a.pipeline.stageIdx && ri == a.pipeline.specIdx {
+						pos = total + 1
+					}
+					total++
+				}
+			}
+			if total > 0 {
+				return fmt.Sprintf("%d/%d", pos, total)
+			}
+		}
+	case ViewSpecs:
+		if n := len(a.specs.filtered); n > 0 {
+			return fmt.Sprintf("%d/%d", a.specs.cursor+1, n)
+		}
+	case ViewTriage:
+		if n := len(a.triage.items); n > 0 {
+			return fmt.Sprintf("%d/%d", a.triage.cursor+1, n)
+		}
+	case ViewReviews:
+		if n := len(a.reviews.items); n > 0 {
+			return fmt.Sprintf("%d/%d", a.reviews.cursor+1, n)
+		}
+	}
+	return ""
 }
 
 // selectedSpecID returns the spec ID of the currently selected item
@@ -578,15 +624,11 @@ func (a *App) closeDetail() tea.Cmd {
 }
 
 func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
-	// Back closes detail.
-	if key.Matches(msg, a.keys.Back) {
-		a.closeDetail()
-		return a, nil
-	}
 	// Quit always works.
 	if key.Matches(msg, a.keys.Quit) {
 		return a, tea.Quit
 	}
+
 	// View switching closes detail and switches.
 	switch {
 	case key.Matches(msg, a.keys.Tab1):
@@ -603,53 +645,84 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 		return a, a.switchView(ViewSettings)
 	}
 
-	// Action keys work on the detail's spec.
-	specID := a.detail.specID
+	// Help.
+	if key.Matches(msg, a.keys.Help) {
+		a.help.setContext("Detail: " + a.detail.specID)
+		a.help.toggle()
+		return a, nil
+	}
+
+	// In reader mode, delegate to the detail model FIRST so that
+	// reader nav keys (n/p/g/G/1-9/o) are handled before action keys.
+	// This prevents 'n' (next section) from being swallowed by
+	// 'n' (new spec) at the action layer.
+	if a.detail.readerMode {
+		var cmd tea.Cmd
+		a.detail, cmd = a.detail.update(msg)
+		return a, cmd
+	}
+
+	// Overview mode: Esc goes back to the list.
+	if key.Matches(msg, a.keys.Back) {
+		a.closeDetail()
+		return a, nil
+	}
+
+	// Action hotkeys on the detail's spec (overview mode only).
+	if cmd, handled := a.handleSpecAction(a.detail.specID, msg); handled {
+		return a, cmd
+	}
+
+	// Delegate remaining keys (j/k scroll, o for reader) to detail.
+	var cmd tea.Cmd
+	a.detail, cmd = a.detail.update(msg)
+	return a, cmd
+}
+
+// handleSpecAction processes action hotkeys for a given spec ID.
+// Returns (cmd, true) if the key was consumed, (nil, false) otherwise.
+func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 	switch {
-	case key.Matches(msg, a.keys.Advance):
+	case key.Matches(msg, a.keys.Advance) && isSpecID(specID):
 		a.pendingAction = "advance"
 		a.pendingSpecID = specID
 		a.modal.ShowConfirm("Advance "+specID, "Advance this spec to the next pipeline stage?")
 		a.modal.SetSize(a.width, a.contentHeight())
-		return a, nil
-	case key.Matches(msg, a.keys.Block):
+		return nil, true
+	case key.Matches(msg, a.keys.Block) && isSpecID(specID):
 		a.pendingAction = "block"
 		a.pendingSpecID = specID
 		a.modal.ShowInput("Block "+specID, "Reason for blocking:")
 		a.modal.SetSize(a.width, a.contentHeight())
-		return a, nil
-	case key.Matches(msg, a.keys.Unblock):
+		return nil, true
+	case key.Matches(msg, a.keys.Unblock) && isSpecID(specID):
 		a.pendingAction = "unblock"
 		a.pendingSpecID = specID
 		a.modal.ShowConfirm("Unblock "+specID, "Resume this spec from blocked status?")
 		a.modal.SetSize(a.width, a.contentHeight())
-		return a, nil
-	case key.Matches(msg, a.keys.Focus):
-		return a, focusSpec(specID)
+		return nil, true
+	case key.Matches(msg, a.keys.Focus) && specID != "":
+		return focusSpec(specID), true
 	case key.Matches(msg, a.keys.Unfocus):
-		return a, unfocusSpec()
-	case key.Matches(msg, a.keys.Yank):
-		return a, yankSpecID(specID)
-	case key.Matches(msg, a.keys.Edit):
+		return unfocusSpec(), true
+	case key.Matches(msg, a.keys.Yank) && specID != "":
+		return yankSpecID(specID), true
+	case key.Matches(msg, a.keys.Edit) && isSpecID(specID):
 		editor := "vi"
 		if a.rc.User != nil && a.rc.User.Preferences.Editor != "" {
 			editor = a.rc.User.Preferences.Editor
 		}
-		return a, editSpec(a.rc, specID, editor)
-	case key.Matches(msg, a.keys.Build):
-		return a, buildSpec(a.rc, specID)
-	case key.Matches(msg, a.keys.Decide):
+		return editSpec(a.rc, specID, editor), true
+	case key.Matches(msg, a.keys.Build) && isSpecID(specID):
+		return buildSpec(a.rc, specID), true
+	case key.Matches(msg, a.keys.Decide) && isSpecID(specID):
 		a.pendingAction = "decide"
 		a.pendingSpecID = specID
 		a.modal.ShowInput("Record Decision — "+specID, "Question or decision to record:")
 		a.modal.SetSize(a.width, a.contentHeight())
-		return a, nil
+		return nil, true
 	}
-
-	// Delegate to detail for scrolling etc.
-	var cmd tea.Cmd
-	a.detail, cmd = a.detail.update(msg)
-	return a, cmd
+	return nil, false
 }
 
 func (a App) updateModal(msg tea.KeyMsg) (App, tea.Cmd) {
@@ -763,8 +836,11 @@ func (a App) updateIntake(msg tea.KeyMsg) (App, tea.Cmd) {
 		if a.intake.field == intakeFieldPriority {
 			// Enter on priority cycles the value.
 			a.intake.cyclePriority()
+		} else if a.intake.field == intakeFieldTitle {
+			// Enter on title advances to next field, not submit.
+			a.intake.nextField()
 		} else if a.intake.valid() {
-			// Submit.
+			// Submit only from the last field (source).
 			title := a.intake.title
 			priority := a.intake.priority
 			source := a.intake.source

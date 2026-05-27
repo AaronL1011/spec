@@ -133,6 +133,166 @@ func TestSpecDetail_ScrollDoesNotPanic(t *testing.T) {
 	}
 }
 
+func TestSpecDetail_ReaderModeToggle(t *testing.T) {
+	m := testSpecDetailModel()
+	m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test", Status: "build", Author: "alice", Updated: "2026-05-20"}
+	m.sections = []markdown.Section{
+		{Slug: "problem_statement", Heading: "## 1. Problem Statement", Level: 2, Owner: "pm", Content: "Engineers are drowning in tools."},
+		{Slug: "proposed_solution", Heading: "## 4. Proposed Solution", Level: 2, Owner: "pm", Content: "Build a control plane."},
+	}
+	m.contentLines = m.estimateContentLines()
+
+	// Should start in overview mode.
+	if m.readerMode {
+		t.Error("should start in overview mode")
+	}
+
+	// Overview should show section outline.
+	got := m.view()
+	if !strings.Contains(got, "problem_statement") {
+		t.Error("overview should list section slugs")
+	}
+	if !strings.Contains(got, "o to read") {
+		t.Error("overview should show reader mode hint")
+	}
+
+	// Press 'o' to enter reader mode.
+	m, cmd := m.update(keyMsg("o"))
+	if !m.readerMode {
+		t.Fatal("should be in reader mode after 'o'")
+	}
+	if m.sectionIdx != 0 {
+		t.Errorf("sectionIdx = %d, want 0", m.sectionIdx)
+	}
+	if cmd == nil {
+		t.Error("entering reader mode should return a non-nil cmd to trigger repaint")
+	}
+	if m.contentLines != len(m.readerLines) {
+		t.Errorf("contentLines = %d, want %d (reader line count)", m.contentLines, len(m.readerLines))
+	}
+
+	// Reader view should show section content.
+	got = m.view()
+	if !strings.Contains(got, "Problem Statement") {
+		t.Errorf("reader should show section heading, got: %s", got)
+	}
+}
+
+func TestSpecDetail_ReaderNavigation(t *testing.T) {
+	m := testSpecDetailModel()
+	m.width = 80
+	m.height = 30
+	m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test", Status: "build", Author: "alice", Updated: "2026-05-20"}
+	m.sections = []markdown.Section{
+		{Slug: "problem", Heading: "## 1. Problem", Level: 2, Content: "Problem text."},
+		{Slug: "goals", Heading: "## 2. Goals", Level: 2, Content: "Goals text."},
+		{Slug: "solution", Heading: "## 3. Solution", Level: 2, Content: "Solution text."},
+	}
+
+	// Enter reader mode.
+	m, _ = m.update(keyMsg("o"))
+	if !m.readerMode {
+		t.Fatal("should be in reader mode")
+	}
+
+	// Navigate to next section.
+	m, _ = m.update(keyMsg("n"))
+	if m.sectionIdx != 1 {
+		t.Errorf("after 'n': sectionIdx = %d, want 1", m.sectionIdx)
+	}
+
+	// Navigate to previous.
+	m, _ = m.update(keyMsg("p"))
+	if m.sectionIdx != 0 {
+		t.Errorf("after 'p': sectionIdx = %d, want 0", m.sectionIdx)
+	}
+
+	// Jump to section 3.
+	m, _ = m.update(keyMsg("3"))
+	if m.sectionIdx != 2 {
+		t.Errorf("after '3': sectionIdx = %d, want 2", m.sectionIdx)
+	}
+
+	// Tab back to overview.
+	m, _ = m.update(keyMsg("o"))
+	if m.readerMode {
+		t.Error("Tab should return to overview")
+	}
+}
+
+func TestSpecDetail_ReaderBounds(t *testing.T) {
+	m := testSpecDetailModel()
+	m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test"}
+	m.sections = []markdown.Section{
+		{Slug: "only", Heading: "## Only", Level: 2, Content: "Content."},
+	}
+
+	// Enter reader.
+	m, _ = m.update(keyMsg("o"))
+
+	// 'n' at last section — should stay.
+	m, _ = m.update(keyMsg("n"))
+	if m.sectionIdx != 0 {
+		t.Errorf("sectionIdx = %d, want 0 (only one section)", m.sectionIdx)
+	}
+
+	// 'p' at first section — should stay.
+	m, _ = m.update(keyMsg("p"))
+	if m.sectionIdx != 0 {
+		t.Errorf("sectionIdx = %d, want 0", m.sectionIdx)
+	}
+
+	// Jump beyond range — should be no-op.
+	m, _ = m.update(keyMsg("9"))
+	if m.sectionIdx != 0 {
+		t.Errorf("sectionIdx = %d, should stay at 0", m.sectionIdx)
+	}
+}
+
+func TestSpecDetail_ReadableSections(t *testing.T) {
+	m := testSpecDetailModel()
+	m.sections = []markdown.Section{
+		{Slug: "a", Level: 2},
+		{Slug: "b", Level: 3},
+		{Slug: "c", Level: 4}, // excluded
+		{Slug: "d", Level: 2},
+	}
+
+	got := m.readableSections()
+	if len(got) != 3 {
+		t.Errorf("readableSections = %d, want 3 (level 4 excluded)", len(got))
+	}
+}
+
+func TestSpecDetail_ReaderRenderOnDemand(t *testing.T) {
+	m := testSpecDetailModel()
+	m, _ = m.update(specDetailDataMsg{
+		Meta: &markdown.SpecMeta{ID: "SPEC-001", Title: "Test", Status: "build", Author: "alice", Updated: "2026-05-20"},
+		Sections: []markdown.Section{
+			{Slug: "problem", Heading: "## Problem", Level: 2, Content: "Problem content."},
+			{Slug: "solution", Heading: "## Solution", Level: 2, Content: "Solution content."},
+		},
+	})
+
+	// Press 'o' — renders on demand, no cache needed.
+	m, _ = m.update(keyMsg("o"))
+	if !m.readerMode {
+		t.Fatal("should be in reader mode")
+	}
+	if len(m.readerLines) == 0 {
+		t.Fatal("readerLines should be populated")
+	}
+
+	// Navigate to next section.
+	m, _ = m.update(keyMsg("n"))
+	if m.sectionIdx != 1 {
+		t.Errorf("sectionIdx = %d, want 1", m.sectionIdx)
+	}
+	if len(m.readerLines) == 0 {
+		t.Error("section 2 readerLines should be populated")
+	}
+}
+
 func TestStepIcon(t *testing.T) {
 	tests := []struct {
 		status string

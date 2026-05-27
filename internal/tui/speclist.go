@@ -85,6 +85,12 @@ func (m specListModel) update(msg tea.Msg) (specListModel, tea.Cmd) {
 			if m.cursor < len(m.filtered)-1 {
 				m.cursor++
 			}
+		case key.Matches(msg, m.keys.Back):
+			// Esc when not searching clears the active filter.
+			if m.searchQuery != "" {
+				m.searchQuery = ""
+				m.applyFilter()
+			}
 		case key.Matches(msg, m.keys.Search):
 			m.searchActive = true
 			m.searchQuery = ""
@@ -96,9 +102,8 @@ func (m specListModel) update(msg tea.Msg) (specListModel, tea.Cmd) {
 func (m specListModel) updateSearch(msg tea.KeyMsg) (specListModel, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
+		// First Esc exits search mode (keeps filter). Second clears filter.
 		m.searchActive = false
-		m.searchQuery = ""
-		m.applyFilter()
 	case tea.KeyBackspace:
 		if len(m.searchQuery) > 0 {
 			m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
