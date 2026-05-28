@@ -32,6 +32,7 @@ func init() {
 }
 
 func runList(cmd *cobra.Command, args []string) error {
+	p := newPrinter(cmd)
 	showAll, _ := cmd.Flags().GetBool("all")
 	showMine, _ := cmd.Flags().GetBool("mine")
 	roleFilter, _ := cmd.Flags().GetString("role")
@@ -43,7 +44,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	if showTriage {
-		return listTriage(rc)
+		return listTriage(p, rc)
 	}
 
 	if err := requireTeamConfig(rc); err != nil {
@@ -73,51 +74,58 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Filter to user's owned specs if --mine
 	if showMine {
-		return listMine(specs, pipeline, rc.UserName())
+		return listMine(p, specs, rc.UserName())
 	}
-
 	if showAll {
-		return listAllByStage(specs, pipeline)
+		return listAllByStage(p, specs, pipeline)
 	}
-
-	return listByRole(specs, pipeline, userRole)
+	return listByRole(p, specs, pipeline, userRole)
 }
 
-func listTriage(rc *config.ResolvedConfig) error {
+func listTriage(p *printer, rc *config.ResolvedConfig) error {
 	triageFiles, err := gitpkg.ListTriageFiles(&rc.Team.SpecsRepo)
 	if err != nil {
 		return err
 	}
 
-	if len(triageFiles) == 0 {
-		fmt.Println("✓ No open triage items.")
-		return nil
+	type triageItem struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		Priority string `json:"priority"`
 	}
-
-	fmt.Println("Open triage items:")
-	fmt.Println()
+	var items []triageItem
 	for _, f := range triageFiles {
 		path := gitpkg.TriageFilePath(&rc.Team.SpecsRepo, f)
 		meta, err := markdown.ReadTriageMeta(path)
 		if err != nil {
 			continue
 		}
-		priorityIcon := priorityIndicator(meta.Priority)
-		fmt.Printf("  %s %s  %s  [%s]\n", priorityIcon, meta.ID, meta.Title, meta.Priority)
+		items = append(items, triageItem{ID: meta.ID, Title: meta.Title, Priority: meta.Priority})
+	}
+
+	if p.JSONEnabled() {
+		return p.JSON(items)
+	}
+	if len(items) == 0 {
+		p.Line("✓ No open triage items.")
+		return nil
+	}
+	p.Line("Open triage items:\n")
+	for _, it := range items {
+		p.Line("  %s %s  %s  [%s]", priorityIndicator(it.Priority), it.ID, it.Title, it.Priority)
 	}
 	return nil
 }
 
 type specSummary struct {
-	ID        string
-	Title     string
-	Status    string
-	Owner     string
-	Blocked   bool
-	Steps     int
-	StepsDone int
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Status    string `json:"status"`
+	Owner     string `json:"owner"`
+	Blocked   bool   `json:"blocked"`
+	Steps     int    `json:"steps"`
+	StepsDone int    `json:"steps_done"`
 }
 
 func loadAllSpecs(rc *config.ResolvedConfig) ([]specSummary, error) {
@@ -160,7 +168,7 @@ func loadAllSpecs(rc *config.ResolvedConfig) ([]specSummary, error) {
 	return specs, nil
 }
 
-func listByRole(specs []specSummary, pipeline config.PipelineConfig, role string) error {
+func listByRole(p *printer, specs []specSummary, pipeline config.PipelineConfig, role string) error {
 	var matching []specSummary
 	for _, s := range specs {
 		stage := pipeline.StageByName(s.Status)
@@ -169,21 +177,26 @@ func listByRole(specs []specSummary, pipeline config.PipelineConfig, role string
 		}
 	}
 
+	if p.JSONEnabled() {
+		return p.JSON(matching)
+	}
 	if len(matching) == 0 {
-		fmt.Printf("✓ Nothing awaiting your action. Run 'spec list --all' to see the full pipeline.\n")
+		p.Line("✓ Nothing awaiting your action. Run 'spec list --all' to see the full pipeline.")
 		return nil
 	}
-
-	fmt.Printf("Specs awaiting %s action:\n\n", role)
+	p.Line("Specs awaiting %s action:\n", role)
 	for _, s := range matching {
-		fmt.Printf("  %-10s  %-40s  [%s]\n", s.ID, truncate(s.Title, 40), s.Status)
+		p.Line("  %-10s  %-40s  [%s]", s.ID, truncate(s.Title, 40), s.Status)
 	}
 	return nil
 }
 
-func listAllByStage(specs []specSummary, pipeline config.PipelineConfig) error {
+func listAllByStage(p *printer, specs []specSummary, pipeline config.PipelineConfig) error {
+	if p.JSONEnabled() {
+		return p.JSON(specs)
+	}
 	if len(specs) == 0 {
-		fmt.Println("✓ No specs in the pipeline.")
+		p.Line("✓ No specs in the pipeline.")
 		return nil
 	}
 
@@ -198,23 +211,23 @@ func listAllByStage(specs []specSummary, pipeline config.PipelineConfig) error {
 		if len(items) == 0 {
 			continue
 		}
-		fmt.Printf("─── %s (%s) ───\n", strings.ToUpper(stage.Name), stage.OwnerRole)
+		p.Line("─── %s (%s) ───", strings.ToUpper(stage.Name), stage.OwnerRole)
 		for _, s := range items {
-			fmt.Printf("  %-10s  %s\n", s.ID, s.Title)
+			p.Line("  %-10s  %s", s.ID, s.Title)
 		}
-		fmt.Println()
+		p.Line("")
 	}
 
 	// Show blocked separately
 	if items := byStage["blocked"]; len(items) > 0 {
-		fmt.Printf("─── BLOCKED ───\n")
+		p.Line("─── BLOCKED ───")
 		for _, s := range items {
-			fmt.Printf("  🚫 %-10s  %s\n", s.ID, s.Title)
+			p.Line("  🚫 %-10s  %s", s.ID, s.Title)
 		}
-		fmt.Println()
+		p.Line("")
 	}
 
-	fmt.Printf("%d specs in pipeline.\n", len(specs))
+	p.Line("%d specs in pipeline.", len(specs))
 	return nil
 }
 
@@ -240,7 +253,7 @@ func priorityIndicator(priority string) string {
 	}
 }
 
-func listMine(specs []specSummary, pipeline config.PipelineConfig, userName string) error {
+func listMine(p *printer, specs []specSummary, userName string) error {
 	var mine []specSummary
 	for _, s := range specs {
 		if strings.EqualFold(s.Owner, userName) {
@@ -248,12 +261,15 @@ func listMine(specs []specSummary, pipeline config.PipelineConfig, userName stri
 		}
 	}
 
+	if p.JSONEnabled() {
+		return p.JSON(mine)
+	}
 	if len(mine) == 0 {
-		fmt.Printf("✓ You don't own any specs. Run 'spec list --all' to see the full pipeline.\n")
+		p.Line("✓ You don't own any specs. Run 'spec list --all' to see the full pipeline.")
 		return nil
 	}
 
-	fmt.Printf("Your specs (%d):\n\n", len(mine))
+	p.Line("Your specs (%d):\n", len(mine))
 
 	// Group by status for better readability
 	var needsAction, inProgress, blocked []specSummary
@@ -269,36 +285,36 @@ func listMine(specs []specSummary, pipeline config.PipelineConfig, userName stri
 	}
 
 	if len(blocked) > 0 {
-		fmt.Println("  ⊘ Blocked:")
+		p.Line("  ⊘ Blocked:")
 		for _, s := range blocked {
-			progress := ""
-			if s.Steps > 0 {
-				progress = fmt.Sprintf(" [%d/%d steps]", s.StepsDone, s.Steps)
-			}
-			fmt.Printf("    %-10s  %-35s  %s%s\n", s.ID, truncate(s.Title, 35), s.Status, progress)
+			p.Line("    %-10s  %-35s  %s%s", s.ID, truncate(s.Title, 35), s.Status, stepsSuffix(s))
 		}
-		fmt.Println()
+		p.Line("")
 	}
 
 	if len(inProgress) > 0 {
-		fmt.Println("  ▶ In Progress:")
+		p.Line("  ▶ In Progress:")
 		for _, s := range inProgress {
-			progress := ""
-			if s.Steps > 0 {
-				progress = fmt.Sprintf(" [%d/%d steps]", s.StepsDone, s.Steps)
-			}
-			fmt.Printf("    %-10s  %-35s  %s%s\n", s.ID, truncate(s.Title, 35), s.Status, progress)
+			p.Line("    %-10s  %-35s  %s%s", s.ID, truncate(s.Title, 35), s.Status, stepsSuffix(s))
 		}
-		fmt.Println()
+		p.Line("")
 	}
 
 	if len(needsAction) > 0 {
-		fmt.Println("  ○ Other:")
+		p.Line("  ○ Other:")
 		for _, s := range needsAction {
-			fmt.Printf("    %-10s  %-35s  %s\n", s.ID, truncate(s.Title, 35), s.Status)
+			p.Line("    %-10s  %-35s  %s", s.ID, truncate(s.Title, 35), s.Status)
 		}
-		fmt.Println()
+		p.Line("")
 	}
 
 	return nil
+}
+
+// stepsSuffix renders a compact step-progress suffix, or empty when none.
+func stepsSuffix(s specSummary) string {
+	if s.Steps == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" [%d/%d steps]", s.StepsDone, s.Steps)
 }

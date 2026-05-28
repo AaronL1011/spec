@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aaronl1011/spec/internal/adapter"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
-	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -23,12 +22,13 @@ func init() {
 }
 
 func runEject(cmd *cobra.Command, args []string) error {
+	p := newPrinter(cmd)
+
 	specID, err := resolveSpecIDArg(args, "spec eject <id>")
 	if err != nil {
 		return err
 	}
 	reason, _ := cmd.Flags().GetString("reason")
-
 	if reason == "" {
 		return fmt.Errorf("--reason is required — explain what's blocking the spec")
 	}
@@ -40,50 +40,43 @@ func runEject(cmd *cobra.Command, args []string) error {
 	if err := requireTeamConfig(rc); err != nil {
 		return err
 	}
+	role, err := requireRole(rc)
+	if err != nil {
+		return err
+	}
 
-	reg := buildRegistry(rc)
+	db, _ := openDB()
+	if db != nil {
+		defer func() { _ = db.Close() }()
+	}
+	deps := workflow.Deps{Config: rc, Registry: buildRegistry(rc), DB: db, Role: role}
 
-	return gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	var res *workflow.EjectResult
+	gitErr := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
 			return "", err
 		}
-
-		meta, err := readSpecMeta(path)
-		if err != nil {
-			return "", err
+		var eErr error
+		res, eErr = workflow.Eject(context.Background(), deps, workflow.EjectInput{
+			SpecID:   specID,
+			SpecPath: path,
+			Reason:   reason,
+		})
+		if eErr != nil {
+			return "", eErr
 		}
-
-		if meta.Status == pipeline.StatusBlocked {
-			return "", fmt.Errorf("%s is already blocked — use 'spec resume %s' to unblock", specID, specID)
-		}
-
-		result, err := pipeline.Eject(path, meta, reason, rc.UserName())
-		if err != nil {
-			return "", err
-		}
-
-		// Notify TL — non-fatal, warn on failure
-		if rc.HasIntegration("comms") {
-			if err := reg.Comms().Notify(ctx(), adapter.Notification{
-				SpecID:  specID,
-				Title:   meta.Title,
-				Message: fmt.Sprintf("🚫 [%s] BLOCKED from %s | Reason: %s | By: %s", specID, result.PreviousStage, reason, rc.UserName()),
-			}); err != nil {
-				warnf("could not send notification: %v", err)
-			}
-		}
-
-		fmt.Printf("🚫 %s blocked (was: %s)\n", specID, result.PreviousStage)
-		fmt.Printf("  Reason: %s\n", reason)
-		fmt.Printf("  Resume with: spec resume %s\n", specID)
-
-		if db, dbErr := openDB(); dbErr == nil {
-			defer func() { _ = db.Close() }()
-			metaJSON := fmt.Sprintf(`{"from_stage":%q,"reason":%q}`, result.PreviousStage, reason)
-			_ = db.ActivityLog(specID, "eject", fmt.Sprintf("blocked from %s", result.PreviousStage), metaJSON, rc.UserName())
-		}
-
-		return fmt.Sprintf("fix: eject %s — %s", specID, reason), nil
+		return res.CommitMsg, nil
 	})
+	if gitErr != nil {
+		return gitErr
+	}
+
+	if p.JSONEnabled() {
+		return p.JSON(res)
+	}
+	p.Line("🚫 %s blocked (was: %s)", res.SpecID, res.PreviousStage)
+	p.Line("  Reason: %s", res.Reason)
+	p.Line("  Resume with: spec resume %s", res.SpecID)
+	return nil
 }

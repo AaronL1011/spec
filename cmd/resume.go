@@ -2,12 +2,11 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 
 	gitpkg "github.com/aaronl1011/spec/internal/git"
-	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +23,8 @@ func init() {
 }
 
 func runResume(cmd *cobra.Command, args []string) error {
+	p := newPrinter(cmd)
+
 	specID, err := resolveSpecIDArg(args, "spec resume <id>")
 	if err != nil {
 		return err
@@ -38,44 +39,46 @@ func runResume(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	db, _ := openDB()
+	if db != nil {
+		defer func() { _ = db.Close() }()
+	}
+	deps := workflow.Deps{Config: rc, Registry: buildRegistry(rc), DB: db, Role: rc.OwnerRole("")}
+
+	var res *workflow.ResumeResult
+	gitErr := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
 			return "", err
 		}
 
-		meta, err := readSpecMeta(path)
-		if err != nil {
-			return "", err
+		// Detect the pre-block stage from the escape-hatch log when --stage is
+		// not supplied. Detection needs the file path inside the repo clone.
+		stage := resumeStage
+		if stage == "" {
+			stage = detectPreBlockStage(path)
 		}
 
-		if meta.Status != pipeline.StatusBlocked {
-			return "", fmt.Errorf("%s is not blocked (status: %s) — 'spec resume' only works on blocked specs", specID, meta.Status)
+		var rErr error
+		res, rErr = workflow.Resume(context.Background(), deps, workflow.ResumeInput{
+			SpecID:      specID,
+			SpecPath:    path,
+			ResumeStage: stage,
+		})
+		if rErr != nil {
+			return "", rErr
 		}
-
-		// Determine which stage to resume to
-		if resumeStage == "" {
-			// Try to detect from escape hatch log (last entry)
-			resumeStage = detectPreBlockStage(path)
-			if resumeStage == "" {
-				return "", fmt.Errorf("could not detect pre-block stage — use --stage to specify")
-			}
-		}
-
-		if err := pipeline.Resume(path, meta, resumeStage); err != nil {
-			return "", err
-		}
-
-		fmt.Printf("✓ %s resumed to %s\n", specID, resumeStage)
-
-		if db, dbErr := openDB(); dbErr == nil {
-			defer func() { _ = db.Close() }()
-			metaJSON := fmt.Sprintf(`{"to_stage":%q}`, resumeStage)
-			_ = db.ActivityLog(specID, "resume", fmt.Sprintf("resumed to %s", resumeStage), metaJSON, rc.UserName())
-		}
-
-		return fmt.Sprintf("fix: resume %s to %s", specID, resumeStage), nil
+		return res.CommitMsg, nil
 	})
+	if gitErr != nil {
+		return gitErr
+	}
+
+	if p.JSONEnabled() {
+		return p.JSON(res)
+	}
+	p.Line("✓ %s resumed to %s", res.SpecID, res.ResumeStage)
+	return nil
 }
 
 // detectPreBlockStage tries to find the pre-block stage from the escape hatch log.
