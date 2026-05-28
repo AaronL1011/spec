@@ -164,11 +164,12 @@ func (m specListModel) view() string {
 	b.WriteString("\n\n")
 
 	if len(m.filtered) == 0 {
-		if m.searchQuery != "" {
+		switch {
+		case m.searchQuery != "":
 			b.WriteString(m.styles.Muted.Render("  No specs matching search"))
-		} else if m.archiveMode {
+		case m.archiveMode:
 			b.WriteString(m.styles.Muted.Render("  No archived specs"))
-		} else {
+		default:
 			b.WriteString(m.styles.Muted.Render("  No specs found"))
 		}
 		b.WriteString("\n")

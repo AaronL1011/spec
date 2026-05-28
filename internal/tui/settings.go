@@ -465,11 +465,11 @@ func (m settingsModel) totalScreenLines() int {
 }
 
 func (m *settingsModel) maxScroll() int {
-	max := m.totalScreenLines() - m.visibleHeight()
-	if max < 0 {
+	mx := m.totalScreenLines() - m.visibleHeight()
+	if mx < 0 {
 		return 0
 	}
-	return max
+	return mx
 }
 
 func (m *settingsModel) clampScroll() {
