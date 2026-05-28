@@ -39,6 +39,7 @@ type specListModel struct {
 	cursor       int
 	searchActive bool
 	searchQuery  string
+	archiveMode  bool // true = showing archived specs
 
 	width  int
 	height int
@@ -94,6 +95,13 @@ func (m specListModel) update(msg tea.Msg) (specListModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Search):
 			m.searchActive = true
 			m.searchQuery = ""
+		case msg.String() == "x":
+			// x in spec list toggles archive mode
+			m.archiveMode = !m.archiveMode
+			m.cursor = 0
+			m.searchQuery = ""
+			m.searchActive = false
+			return m, m.fetchData()
 		}
 	}
 	return m, nil
@@ -131,7 +139,11 @@ func (m specListModel) view() string {
 
 	var b strings.Builder
 
-	// Search bar
+	// Search bar + hints
+	label := "specs"
+	if m.archiveMode {
+		label = "archived specs"
+	}
 	switch {
 	case m.searchActive:
 		prompt := m.styles.Accent.Render("  / ") + m.searchQuery + m.styles.Muted.Render("▌")
@@ -140,15 +152,24 @@ func (m specListModel) view() string {
 		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  filter: %s  ", m.searchQuery)))
 		b.WriteString(m.styles.Muted.Render("(/ to search, esc to clear)"))
 	default:
-		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  %d specs  ", len(m.filtered))))
-		b.WriteString(m.styles.Muted.Render("(/ to search)"))
+		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  %d %s  ", len(m.filtered), label)))
+		if m.archiveMode {
+			b.WriteString(m.styles.Accent.Render("x") + m.styles.Muted.Render(" specs  "))
+		} else {
+			b.WriteString(m.styles.Accent.Render("x") + m.styles.Muted.Render(" archive  "))
+		}
+		b.WriteString(m.styles.Accent.Render("/") + m.styles.Muted.Render(" search  "))
+		b.WriteString(m.styles.Accent.Render("?") + m.styles.Muted.Render(" help"))
 	}
 	b.WriteString("\n\n")
 
 	if len(m.filtered) == 0 {
-		if m.searchQuery != "" {
+		switch {
+		case m.searchQuery != "":
 			b.WriteString(m.styles.Muted.Render("  No specs matching search"))
-		} else {
+		case m.archiveMode:
+			b.WriteString(m.styles.Muted.Render("  No archived specs"))
+		default:
 			b.WriteString(m.styles.Muted.Render("  No specs found"))
 		}
 		b.WriteString("\n")
@@ -273,19 +294,29 @@ func (m *specListModel) applyFilter() {
 
 func (m specListModel) fetchData() tea.Cmd {
 	rc := m.rc
+	archiveMode := m.archiveMode
 	return func() tea.Msg {
-		specs, err := loadAllSpecs(context.Background(), rc)
+		specs, err := loadAllSpecs(context.Background(), rc, archiveMode)
 		return specListDataMsg{Specs: specs, Err: err}
 	}
 }
 
-func loadAllSpecs(_ context.Context, rc *config.ResolvedConfig) ([]specListItem, error) {
+func loadAllSpecs(_ context.Context, rc *config.ResolvedConfig, archiveMode bool) ([]specListItem, error) {
 	if rc.SpecsRepoDir == "" {
 		return nil, nil
 	}
 
-	entries, err := os.ReadDir(rc.SpecsRepoDir)
+	specsDir := rc.SpecsRepoDir
+	if archiveMode {
+		archiveDir := config.ArchiveDir(rc.Team)
+		specsDir = filepath.Join(specsDir, archiveDir)
+	}
+
+	entries, err := os.ReadDir(specsDir)
 	if err != nil {
+		if archiveMode && os.IsNotExist(err) {
+			return nil, nil // archive dir doesn't exist yet
+		}
 		return nil, fmt.Errorf("reading specs dir: %w", err)
 	}
 
@@ -294,7 +325,7 @@ func loadAllSpecs(_ context.Context, rc *config.ResolvedConfig) ([]specListItem,
 		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
 			continue
 		}
-		path := filepath.Join(rc.SpecsRepoDir, e.Name())
+		path := filepath.Join(specsDir, e.Name())
 		meta, err := markdown.ReadMeta(path)
 		if err != nil || !strings.HasPrefix(meta.ID, "SPEC-") {
 			continue

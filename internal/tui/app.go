@@ -32,10 +32,6 @@ type tickMsg time.Time
 
 type spinnerTickMsg time.Time
 
-type themePersistedMsg struct {
-	Err error
-}
-
 // App is the top-level Bubble Tea model. It owns the tab strip, header,
 // status bar, and delegates to the active view.
 type App struct {
@@ -193,7 +189,7 @@ func loadFocusedSpec(db *store.DB) string {
 // returns the default.
 func parseRefreshInterval(rc *config.ResolvedConfig) time.Duration {
 	if rc.User != nil && rc.User.Preferences.RefreshInterval != "" {
-		if d, err := time.ParseDuration(rc.User.Preferences.RefreshInterval); err == nil && d >= 5*time.Second {
+		if d, err := parseRefreshPref(rc.User.Preferences.RefreshInterval); err == nil {
 			return d
 		}
 	}
@@ -284,15 +280,28 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.syncBusyState()
 		return a, cmd
 
-	// Theme cycling from settings view.
-	case cycleThemeMsg:
-		return a, a.cycleTheme()
+	case settingsAppliedMsg:
+		a.applySettingsField(msg.Field)
+		return a, nil
 
-	case themePersistedMsg:
+	case settingsPersistedMsg:
+		var cmd tea.Cmd
+		a.settings, cmd = a.settings.update(msg)
 		if msg.Err != nil {
 			a.toast.Show(msg.Err.Error(), components.ToastError, 5*time.Second)
+			return a, cmd
 		}
-		return a, nil
+		switch msg.Field {
+		case fieldTheme:
+			name := "auto"
+			if a.rc.User != nil && a.rc.User.Preferences.Theme != "" {
+				name = a.rc.User.Preferences.Theme
+			}
+			a.toast.Show("Theme: "+name, components.ToastInfo, 2*time.Second)
+		default:
+			a.toast.Show("Settings saved", components.ToastInfo, 2*time.Second)
+		}
+		return a, cmd
 
 	// Standup data arrived.
 	case standupDataMsg:
@@ -625,6 +634,9 @@ func (a App) viewCapturingInput() bool {
 	if a.activeView == ViewSpecs {
 		return a.specs.isInputActive()
 	}
+	if a.activeView == ViewSettings {
+		return a.settings.isEditing()
+	}
 	return false
 }
 
@@ -873,6 +885,31 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 		a.modal.ShowInput("Record Decision — "+specID, "Question or decision to record:")
 		a.modal.SetSize(a.width, a.contentHeight())
 		return nil, true
+	// Archive: only on non-archived specs. When in list view, only in active list mode.
+	// When in detail, only when the spec is not archived.
+	// Uses a confirmation modal as a safety guard.
+	case key.Matches(msg, a.keys.Archive) && isSpecID(specID):
+		if a.showDetail && a.detail.isArchived {
+			// archived spec in detail view: ignore
+		} else {
+			a.pendingAction = "archive"
+			a.pendingSpecID = specID
+			a.modal.ShowConfirm("Archive "+specID, "Remove this spec from the active list?")
+			a.modal.SetSize(a.width, a.contentHeight())
+			return nil, true
+		}
+	// Restore: only on archived specs. When in list view, only in archive list mode.
+	// When in detail, only when the spec is archived.
+	// Uses a confirmation modal as a safety guard.
+	case key.Matches(msg, a.keys.Restore) && isSpecID(specID):
+		isArch := (a.activeView == ViewSpecs && a.specs.archiveMode) || (a.showDetail && a.detail.isArchived)
+		if isArch {
+			a.pendingAction = "restore"
+			a.pendingSpecID = specID
+			a.modal.ShowConfirm("Restore "+specID, "Return this spec to the active list?")
+			a.modal.SetSize(a.width, a.contentHeight())
+			return nil, true
+		}
 	}
 	return nil, false
 }
@@ -938,6 +975,16 @@ func (a *App) executeActionWithInput(input string) tea.Cmd {
 		return a.startAction("blocking "+specID, blockSpec(a.rc, specID, reason, a.rc.UserName()))
 	case "unblock":
 		return a.startAction("unblocking "+specID, unblockSpec(a.rc, specID))
+	case "archive":
+		if a.showDetail {
+			a.closeDetail()
+		}
+		return a.startAction("archiving "+specID, archiveSpec(a.rc, specID))
+	case "restore":
+		if a.showDetail {
+			a.closeDetail()
+		}
+		return a.startAction("restoring "+specID, restoreSpec(a.rc, specID))
 	case "decide":
 		if input == "" {
 			return nil
@@ -1130,39 +1177,31 @@ func (a *App) propagateSize() {
 	a.standup.setSize(a.width, ch)
 }
 
-// cycleTheme advances to the next theme, applies it, and persists the choice.
-func (a *App) cycleTheme() tea.Cmd {
-	names := ThemeNames()
-	current := "auto"
-	if a.rc.User != nil && a.rc.User.Preferences.Theme != "" {
-		current = a.rc.User.Preferences.Theme
-	}
-
-	// Find current index, advance to next.
-	next := 0
-	for i, name := range names {
-		if name == current {
-			next = (i + 1) % len(names)
-			break
+// applySettingsField applies immediate UI effects after a settings field is confirmed.
+func (a *App) applySettingsField(field settingsField) {
+	switch field {
+	case fieldName, fieldRole:
+		if field == fieldRole {
+			a.role = strings.ToLower(a.rc.OwnerRole(""))
 		}
-	}
-
-	newName := names[next]
-	a.applyTheme(newName)
-
-	// Persist to user config.
-	if a.rc.User != nil {
-		a.rc.User.Preferences.Theme = newName
-		userConfig := *a.rc.User
-		userConfigPath := a.rc.UserConfigPath
-		a.toast.Show("Theme: "+newName, components.ToastInfo, 2*time.Second)
-		return func() tea.Msg {
-			return themePersistedMsg{Err: config.WriteUserConfig(userConfigPath, &userConfig)}
+		a.header = components.NewHeader(
+			a.rc.UserName(), a.role, a.rc.CycleLabel(),
+			components.HeaderStyles{
+				Bar:      a.styles.Header,
+				Greeting: a.styles.Title,
+				Meta:     a.styles.Subtitle,
+			},
+		)
+		a.header.SetWidth(a.width)
+	case fieldTheme:
+		themeName := "auto"
+		if a.rc.User != nil && a.rc.User.Preferences.Theme != "" {
+			themeName = a.rc.User.Preferences.Theme
 		}
+		a.applyTheme(themeName)
+	case fieldRefresh:
+		a.refreshInterval = parseRefreshInterval(a.rc)
 	}
-
-	a.toast.Show("Theme: "+newName, components.ToastInfo, 2*time.Second)
-	return nil
 }
 
 // applyTheme rebuilds all styles from a named theme and propagates to

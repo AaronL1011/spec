@@ -356,6 +356,28 @@ func formatSyncDetail(prepared *syncengine.PreparedRun) string {
 	return strings.Join(parts, ", ")
 }
 
+func archiveSpec(rc *config.ResolvedConfig, specID string) tea.Cmd {
+	return func() tea.Msg {
+		archDir := config.ArchiveDir(rc.Team)
+		err := gitpkg.ArchiveSpec(context.Background(), &rc.Team.SpecsRepo, specID, archDir)
+		if err != nil {
+			return actionResultMsg{Action: "archive", SpecID: specID, Err: err}
+		}
+		return actionResultMsg{Action: "archive", SpecID: specID, Detail: "archived"}
+	}
+}
+
+func restoreSpec(rc *config.ResolvedConfig, specID string) tea.Cmd {
+	return func() tea.Msg {
+		archDir := config.ArchiveDir(rc.Team)
+		err := gitpkg.RestoreSpec(context.Background(), &rc.Team.SpecsRepo, specID, archDir)
+		if err != nil {
+			return actionResultMsg{Action: "restore", SpecID: specID, Err: err}
+		}
+		return actionResultMsg{Action: "restore", SpecID: specID, Detail: "restored"}
+	}
+}
+
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil

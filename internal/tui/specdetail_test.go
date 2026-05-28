@@ -155,8 +155,8 @@ func TestSpecDetail_ReaderModeToggle(t *testing.T) {
 	if !strings.Contains(got, "problem_statement") {
 		t.Error("overview should list section slugs")
 	}
-	if !strings.Contains(got, "o to read") {
-		t.Error("overview should show reader mode hint")
+	if !strings.Contains(got, "read sections") {
+		t.Error("overview should show 'read sections' hint")
 	}
 
 	// Press 'o' to enter reader mode.

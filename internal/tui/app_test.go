@@ -524,57 +524,62 @@ func TestParseRefreshInterval(t *testing.T) {
 	}
 }
 
-func TestApp_CycleTheme(t *testing.T) {
+func TestApp_ApplyTheme(t *testing.T) {
 	app := testApp()
 	app.width = 80
 	app.height = 24
 	app.propagateSize()
 
-	// Default theme is auto (empty pref in test config).
-	originalTheme := app.theme
-
-	// Cycle once.
-	_ = app.cycleTheme()
-	if app.theme == originalTheme {
-		// Theme values should differ (auto → catppuccin-mocha).
-		if app.rc.User.Preferences.Theme == "" {
-			t.Error("theme pref should be set after cycling")
-		}
-	}
-	firstCycled := app.rc.User.Preferences.Theme
-
-	// Cycle again — should advance to next.
-	_ = app.cycleTheme()
-	if app.rc.User.Preferences.Theme == firstCycled {
-		t.Error("theme should change on each cycle")
-	}
-
-	// Styles should be propagated.
+	app.applyTheme("dracula")
 	if app.dashboard.styles.Title.GetBold() != app.styles.Title.GetBold() {
 		t.Error("dashboard styles should match app styles after theme change")
 	}
 }
 
-func TestApp_CycleThemeFromSettings(t *testing.T) {
+func TestApp_SettingsAppliedMsg_Theme(t *testing.T) {
 	app := testApp()
-	app.width = 80
-	app.height = 24
-	app.propagateSize()
-	app.switchView(ViewSettings)
+	app.rc.User.Preferences.Theme = "dracula"
 
-	// Send cycleThemeMsg (as settings view would produce).
-	model, cmd := app.Update(cycleThemeMsg{})
+	model, _ := app.Update(settingsAppliedMsg{Field: fieldTheme})
 	a := model.(App)
 
-	// Should have applied a new theme.
-	if a.rc.User.Preferences.Theme == "" {
-		t.Error("theme should be set after cycleThemeMsg")
+	want := ResolveTheme("dracula")
+	if a.theme.Base != want.Base {
+		t.Error("theme should update after settingsAppliedMsg for theme field")
 	}
+}
+
+func TestApp_SettingsAppliedMsg_NameHeader(t *testing.T) {
+	app := testApp()
+	app.rc.User.User.Name = "Ada Lovelace"
+
+	model, _ := app.Update(settingsAppliedMsg{Field: fieldName})
+	a := model.(App)
+
+	view := a.header.View()
+	if !strings.Contains(view, "Ada Lovelace") {
+		t.Errorf("header should show new name, got %q", view)
+	}
+}
+
+func TestApp_SettingsAppliedMsg_Role(t *testing.T) {
+	app := testApp()
+	app.rc.User.User.OwnerRole = "pm"
+
+	model, _ := app.Update(settingsAppliedMsg{Field: fieldRole})
+	a := model.(App)
+
+	if a.role != "pm" {
+		t.Errorf("role = %q, want pm", a.role)
+	}
+}
+
+func TestApp_SettingsPersistedMsg_SuccessToast(t *testing.T) {
+	app := testApp()
+	model, _ := app.Update(settingsPersistedMsg{Field: fieldName, Err: nil})
+	a := model.(App)
 	if !a.toast.Visible() {
-		t.Error("toast should show after theme change")
-	}
-	if cmd == nil {
-		t.Error("theme persistence should be scheduled asynchronously")
+		t.Error("toast should show after successful settings persist")
 	}
 }
 

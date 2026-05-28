@@ -5,10 +5,14 @@ import "github.com/charmbracelet/bubbles/key"
 // KeyMap defines all keybindings for the TUI.
 type KeyMap struct {
 	// Navigation
-	Up    key.Binding
-	Down  key.Binding
-	Enter key.Binding
-	Back  key.Binding
+	Up         key.Binding
+	Down       key.Binding
+	Enter      key.Binding
+	Back       key.Binding
+	PageUp     key.Binding
+	PageDown   key.Binding
+	ScrollUp   key.Binding
+	ScrollDown key.Binding
 
 	// View switching
 	Tab1 key.Binding
@@ -42,6 +46,10 @@ type KeyMap struct {
 	Push    key.Binding
 	Sync    key.Binding
 
+	// Archive
+	Archive key.Binding
+	Restore key.Binding
+
 	// Creation
 	NewSpec   key.Binding
 	NewIntake key.Binding
@@ -58,6 +66,22 @@ func DefaultKeyMap() KeyMap {
 		Down: key.NewBinding(
 			key.WithKeys("down", "j"),
 			key.WithHelp("↓/j", "down"),
+		),
+		PageUp: key.NewBinding(
+			key.WithKeys("pgup"),
+			key.WithHelp("pgup", "page up"),
+		),
+		PageDown: key.NewBinding(
+			key.WithKeys("pgdown"),
+			key.WithHelp("pgdn", "page down"),
+		),
+		ScrollUp: key.NewBinding(
+			key.WithKeys("shift+up", "K"),
+			key.WithHelp("K", "scroll up"),
+		),
+		ScrollDown: key.NewBinding(
+			key.WithKeys("shift+down", "J"),
+			key.WithHelp("J", "scroll down"),
 		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
@@ -172,6 +196,15 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("s", "sync"),
 		),
 
+		Archive: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "archive"),
+		),
+		Restore: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "restore"),
+		),
+
 		NewSpec: key.NewBinding(
 			key.WithKeys("n"),
 			key.WithHelp("n", "new spec"),
@@ -199,10 +232,28 @@ func (k KeyMap) ViewBindings() []key.Binding {
 
 // ActionBindings returns the action bindings for help display.
 func (k KeyMap) ActionBindings() []key.Binding {
-	return []key.Binding{k.Advance, k.Revert, k.Edit, k.Build, k.Block, k.Focus, k.Open, k.Yank, k.Decide, k.Push, k.Sync, k.NewSpec, k.NewIntake, k.Standup}
+	return []key.Binding{k.Advance, k.Revert, k.Edit, k.Build, k.Block, k.Focus, k.Open, k.Yank, k.Decide, k.Push, k.Sync, k.Archive, k.Restore, k.NewSpec, k.NewIntake, k.Standup}
 }
 
 // GlobalBindings returns bindings shown in every context.
 func (k KeyMap) GlobalBindings() []key.Binding {
 	return []key.Binding{k.Help, k.Search, k.Refresh, k.Quit}
+}
+
+// SettingsBindings returns keybindings for the Settings tab edit flow.
+func (k KeyMap) SettingsBindings() []key.Binding {
+	return []key.Binding{
+		k.Up,
+		k.Down,
+		k.Enter,
+		k.Back,
+		k.PageUp,
+		k.PageDown,
+		k.ScrollUp,
+		k.ScrollDown,
+		key.NewBinding(
+			key.WithKeys("space", "l", "h"),
+			key.WithHelp("space/l/h", "cycle role or theme"),
+		),
+	}
 }
