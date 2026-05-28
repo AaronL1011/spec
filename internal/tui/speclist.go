@@ -111,6 +111,9 @@ func (m specListModel) updateSearch(msg tea.KeyMsg) (specListModel, tea.Cmd) {
 		}
 	case tea.KeyEnter:
 		m.searchActive = false
+	case tea.KeySpace:
+		m.searchQuery += " "
+		m.applyFilter()
 	case tea.KeyRunes:
 		m.searchQuery += string(msg.Runes)
 		m.applyFilter()

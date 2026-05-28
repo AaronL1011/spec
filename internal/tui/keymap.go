@@ -189,7 +189,7 @@ func (k KeyMap) ViewBindings() []key.Binding {
 
 // ActionBindings returns the action bindings for help display.
 func (k KeyMap) ActionBindings() []key.Binding {
-	return []key.Binding{k.Advance, k.Edit, k.Build, k.Block, k.Focus, k.Open, k.Yank, k.Decide, k.NewSpec, k.NewIntake, k.Standup}
+	return []key.Binding{k.Advance, k.Revert, k.Edit, k.Build, k.Block, k.Focus, k.Open, k.Yank, k.Decide, k.NewSpec, k.NewIntake, k.Standup}
 }
 
 // GlobalBindings returns bindings shown in every context.

@@ -360,7 +360,9 @@ func guardUnpushedChanges(ctx context.Context, dir, branch string) error {
 		)
 	}
 
-	// Check committed-but-unpushed commits
+	// Check committed-but-unpushed commits — if any exist (e.g. from a
+	// previous operation whose push failed), try to push them now rather
+	// than blocking the user. Only error if the recovery push also fails.
 	remoteRef := fmt.Sprintf("origin/%s", branch)
 	hasUnpushed, err := HasUnpushedCommits(ctx, dir, remoteRef)
 	if err != nil {
@@ -368,10 +370,15 @@ func guardUnpushedChanges(ctx context.Context, dir, branch string) error {
 		return nil
 	}
 	if hasUnpushed {
+		// Best-effort: push the stranded commits before proceeding.
+		if pushErr := Push(ctx, dir, branch); pushErr == nil {
+			return nil
+		}
+		// Push failed — report the original situation.
 		log, _ := Log(ctx, dir, 5, "%h %s")
 		return fmt.Errorf(
-			"specs repo has unpushed commits that would be overwritten:\n%s\n\n"+
-				"Run 'spec push' to save them, or set SPEC_FORCE=1 to discard",
+			"specs repo has unpushed commits that could not be pushed:\n%s\n\n"+
+				"Run 'spec push' to retry, or set SPEC_FORCE=1 to discard",
 			indentStatus(log),
 		)
 	}

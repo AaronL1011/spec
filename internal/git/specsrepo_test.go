@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -85,16 +84,85 @@ func TestGuardUnpushedChanges_UnpushedCommits(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Guard should auto-push the stranded commit and succeed.
+	if err := guardUnpushedChanges(ctx, local, branch); err != nil {
+		t.Fatalf("guard should auto-push stranded commits, got: %v", err)
+	}
+
+	// Verify the commit was actually pushed.
+	has, err := HasUnpushedCommits(ctx, local, "origin/"+branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has {
+		t.Error("commit should have been pushed by guard")
+	}
+}
+
+func TestGuardUnpushedChanges_AutoPushFails(t *testing.T) {
+	ctx := context.Background()
+
+	// Set up a "remote" bare repo, then break it.
+	remote := t.TempDir()
+	if _, err := Run(ctx, remote, "init", "--bare"); err != nil {
+		t.Fatal(err)
+	}
+
+	local := filepath.Join(t.TempDir(), "local")
+	if err := Clone(ctx, remote, local); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(ctx, local, "config", "user.email", "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(ctx, local, "config", "user.name", "Test"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(local, "test.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Commit(ctx, local, "initial"); err != nil {
+		t.Fatal(err)
+	}
+	branch, _ := CurrentBranch(ctx, local)
+	if err := Push(ctx, local, branch); err != nil {
+		t.Fatal(err)
+	}
+
+	// Make a local commit, then break the remote so push fails.
+	if err := os.WriteFile(filepath.Join(local, "test.txt"), []byte("modified"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Commit(ctx, local, "stranded"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Point remote to a nonexistent path so push fails.
+	if _, err := Run(ctx, local, "remote", "set-url", "origin", "/nonexistent/repo"); err != nil {
+		t.Fatal(err)
+	}
+
 	err := guardUnpushedChanges(ctx, local, branch)
 	if err == nil {
-		t.Fatal("should error on unpushed commits")
+		t.Fatal("should error when auto-push fails")
 	}
-	if !strings.Contains(err.Error(), "unpushed commits") {
-		t.Errorf("error should mention unpushed commits, got: %v", err)
+	if !containsSubstring(err.Error(), "could not be pushed") {
+		t.Errorf("error should mention push failure, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "spec push") {
+	if !containsSubstring(err.Error(), "spec push") {
 		t.Errorf("error should suggest 'spec push', got: %v", err)
 	}
+}
+
+// containsSubstring is a test helper (strings.Contains without importing strings).
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRebaseAbort_NoRebaseInProgress(t *testing.T) {

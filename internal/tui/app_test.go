@@ -269,6 +269,107 @@ func TestApp_ActionResultShowsToast(t *testing.T) {
 	}
 }
 
+func TestApp_SpinnerDuringAdvance(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.dashboard.loading = false
+	app.dashboard.data = &dashboard.DashboardData{
+		Do: []dashboard.DashboardItem{
+			{SpecID: "SPEC-001", Title: "Test", Stage: "build"},
+		},
+	}
+	app.dashboard.items = app.dashboard.buildRows()
+
+	// Open advance modal and confirm.
+	model, _ := app.Update(keyMsg("a"))
+	model, _ = model.Update(keyMsg("y"))
+	a := model.(App)
+
+	// Spinner should be active after confirming advance.
+	if !a.actionInFlight {
+		t.Error("actionInFlight should be true after confirming advance")
+	}
+	if !a.spinnerOn {
+		t.Error("spinnerOn should be true during advance")
+	}
+	if a.actionLabel != "advancing SPEC-001" {
+		t.Errorf("actionLabel = %q, want 'advancing SPEC-001'", a.actionLabel)
+	}
+
+	// Verify spinner appears in the rendered view.
+	view := a.View()
+	if !strings.Contains(view, "advancing") {
+		t.Error("view should show advancing label in status bar")
+	}
+
+	// After result arrives, spinner should clear.
+	model, _ = a.Update(actionResultMsg{Action: "advance", SpecID: "SPEC-001", Detail: "advanced"})
+	a = model.(App)
+	if a.actionInFlight {
+		t.Error("actionInFlight should be false after result")
+	}
+	if a.spinnerOn {
+		t.Error("spinnerOn should be false after result")
+	}
+}
+
+func TestApp_SpinnerDuringBlock(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.dashboard.loading = false
+	app.dashboard.data = &dashboard.DashboardData{
+		Do: []dashboard.DashboardItem{
+			{SpecID: "SPEC-001", Title: "Test"},
+		},
+	}
+	app.dashboard.items = app.dashboard.buildRows()
+
+	// Open block modal, type reason, submit.
+	model, _ := app.Update(keyMsg("B"))
+	model, _ = model.Update(keyMsg("blocked"))
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a := model.(App)
+
+	if !a.actionInFlight {
+		t.Error("actionInFlight should be true after block submit")
+	}
+	if a.actionLabel != "blocking SPEC-001" {
+		t.Errorf("actionLabel = %q, want 'blocking SPEC-001'", a.actionLabel)
+	}
+}
+
+func TestApp_SpinnerClearsOnError(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// Simulate in-flight state.
+	app.actionInFlight = true
+	app.actionLabel = "advancing SPEC-001"
+	app.syncBusyState()
+
+	if !app.spinnerOn {
+		t.Fatal("spinner should be on before result")
+	}
+
+	// Error result should still clear the spinner.
+	model, _ := app.Update(actionResultMsg{Action: "advance", Err: fmt.Errorf("gate not met")})
+	a := model.(App)
+	if a.actionInFlight {
+		t.Error("actionInFlight should be false after error result")
+	}
+	if a.spinnerOn {
+		t.Error("spinnerOn should be false after error result")
+	}
+}
+
 func TestApp_QuitDuringModal(t *testing.T) {
 	app := testApp()
 	app.modal.ShowConfirm("Test", "Are you sure?")
@@ -606,5 +707,214 @@ func TestApp_ReaderModeImmediateRender(t *testing.T) {
 	}
 	if !strings.Contains(readerView, "Problem Statement") {
 		t.Error("reader view should contain the section heading")
+	}
+}
+
+func TestApp_RevertOverlayOpensOnV(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// Set up a selected spec with a non-first stage.
+	app.specs.loading = false
+	app.specs.allSpecs = []specListItem{
+		{ID: "SPEC-001", Title: "Test", Status: "build"},
+	}
+	app.specs.applyFilter()
+	app.switchView(ViewSpecs)
+
+	// Press 'v' to open revert overlay.
+	model, _ := app.Update(keyMsg("v"))
+	a := model.(App)
+	if !a.revert.active {
+		t.Fatal("revert overlay should be active after pressing 'v'")
+	}
+	if a.revert.specID != "SPEC-001" {
+		t.Errorf("revert.specID = %q, want SPEC-001", a.revert.specID)
+	}
+	if len(a.revert.stages) == 0 {
+		t.Fatal("revert should have target stages")
+	}
+}
+
+func TestApp_RevertOverlayEscCancels(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.specs.loading = false
+	app.specs.allSpecs = []specListItem{
+		{ID: "SPEC-001", Title: "Test", Status: "build"},
+	}
+	app.specs.applyFilter()
+	app.switchView(ViewSpecs)
+
+	model, _ := app.Update(keyMsg("v"))
+	a := model.(App)
+	if !a.revert.active {
+		t.Fatal("revert should be active")
+	}
+
+	// Press Esc to cancel.
+	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	a = model.(App)
+	if a.revert.active {
+		t.Error("revert overlay should close on Esc")
+	}
+}
+
+func TestApp_RevertOverlayCapturesKeys(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// Open revert overlay directly.
+	_ = app.revert.openRevert("SPEC-001", "build", app.rc.Pipeline())
+	app.revert.nextField() // move to reason
+
+	// Type a reason — should go to the overlay, not trigger hotkeys.
+	model, cmd := app.Update(keyMsg("q"))
+	a := model.(App)
+	if a.revert.reason != "q" {
+		t.Errorf("reason = %q, want 'q'", a.revert.reason)
+	}
+	// 'q' should not quit.
+	if cmd != nil {
+		t.Error("'q' during revert overlay should not produce a command")
+	}
+}
+
+func TestApp_RevertRendersInView(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	_ = app.revert.openRevert("SPEC-001", "build", app.rc.Pipeline())
+	got := app.View()
+	if !strings.Contains(got, "Revert") {
+		t.Error("view should contain Revert overlay")
+	}
+	if !strings.Contains(got, "SPEC-001") {
+		t.Error("view should contain spec ID in revert overlay")
+	}
+}
+
+func TestApp_RevertFirstStageShowsToast(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// Set up a spec in the first stage.
+	app.specs.loading = false
+	app.specs.allSpecs = []specListItem{
+		{ID: "SPEC-001", Title: "Test", Status: "triage"},
+	}
+	app.specs.applyFilter()
+	app.switchView(ViewSpecs)
+
+	// Press 'v' — should show error toast, not open overlay.
+	model, _ := app.Update(keyMsg("v"))
+	a := model.(App)
+	if a.revert.active {
+		t.Error("revert overlay should not open for first stage")
+	}
+	if !a.toast.Visible() {
+		t.Error("toast should show error for first stage revert")
+	}
+}
+
+func TestApp_ModalInputAcceptsSpaces(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.dashboard.loading = false
+	app.dashboard.data = &dashboard.DashboardData{
+		Do: []dashboard.DashboardItem{
+			{SpecID: "SPEC-001", Title: "Test"},
+		},
+	}
+	app.dashboard.items = app.dashboard.buildRows()
+
+	// Open block modal.
+	model, _ := app.Update(keyMsg("B"))
+	a := model.(App)
+	if !a.modal.Visible {
+		t.Fatal("modal should be visible")
+	}
+
+	// Type text with a space.
+	model, _ = a.Update(keyMsg("API"))
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model, _ = model.Update(keyMsg("down"))
+	a = model.(App)
+	if a.modal.Input != "API down" {
+		t.Errorf("modal input = %q, want 'API down'", a.modal.Input)
+	}
+}
+
+func TestApp_SearchAcceptsSpaces(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.specs.loading = false
+	app.specs.allSpecs = []specListItem{
+		{ID: "SPEC-001", Title: "My Spec"},
+	}
+	app.specs.applyFilter()
+	app.switchView(ViewSpecs)
+
+	// Activate search and type with a space.
+	model, _ := app.Update(keyMsg("/"))
+	model, _ = model.Update(keyMsg("my"))
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model, _ = model.Update(keyMsg("spec"))
+	a := model.(App)
+	if a.specs.searchQuery != "my spec" {
+		t.Errorf("searchQuery = %q, want 'my spec'", a.specs.searchQuery)
+	}
+}
+
+func TestApp_RevertReasonAcceptsSpaces(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	_ = app.revert.openRevert("SPEC-001", "build", app.rc.Pipeline())
+	app.revert.nextField() // move to reason
+
+	model, _ := app.Update(keyMsg("gate"))
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model, _ = model.Update(keyMsg("failed"))
+	a := model.(App)
+	if a.revert.reason != "gate failed" {
+		t.Errorf("reason = %q, want 'gate failed'", a.revert.reason)
+	}
+}
+
+func TestApp_IntakeAcceptsSpaces(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.intake.open()
+
+	// Type a title with a space.
+	model, _ := app.Update(keyMsg("new"))
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model, _ = model.Update(keyMsg("item"))
+	a := model.(App)
+	if a.intake.title != "new item" {
+		t.Errorf("title = %q, want 'new item'", a.intake.title)
 	}
 }
