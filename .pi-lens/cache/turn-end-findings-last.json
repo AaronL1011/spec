@@ -1,4 +1,4 @@
 {
-  "signature": ".golangci.yml::Unresolved from this turn — .golangci.yml:\n🔴 STOP — 1 issue(s) must be fixed:\n  L28: Property exclude-rules is not allowed.\n    💡 Fix: LSP quick fixes: new; new-from-merge-base; new-from-rev",
-  "sessionId": "lens-mpopn7te-3cdeb1d2"
+  "signature": "internal/git/specsrepo.go::Unresolved from this turn — internal/git/specsrepo.go:\n🔴 STOP — 1 issue(s) must be fixed:\n  L121: too many arguments in call to guardUnpushedChanges\n  \thave (context.Context, string, string)\n  \twant (context.Context, string)",
+  "sessionId": "lens-mposz270-509310f9"
 }

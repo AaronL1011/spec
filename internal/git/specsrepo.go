@@ -69,14 +69,14 @@ func EnsureSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig) (string, 
 		return dir, nil
 	}
 
-	// Guard against nuking unpushed local edits
-	if err := guardUnpushedChanges(ctx, dir); err != nil {
-		return dir, err
-	}
-
 	// Ensure the remote URL has the current token
 	if err := ensureRemoteURL(ctx, dir, cfg); err != nil {
 		return dir, fmt.Errorf("updating remote URL: %w", err)
+	}
+
+	// Guard against nuking unpushed local edits (needs remote URL set first)
+	if err := guardUnpushedChanges(ctx, dir, cfg.Branch); err != nil {
+		return dir, err
 	}
 
 	// Fetch and reset to latest
@@ -97,9 +97,19 @@ func EnsureSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig) (string, 
 	return dir, nil
 }
 
-// WithSpecsRepo fetches the latest, calls the mutator function, then commits and pushes.
-// If the push fails due to a conflict, it retries up to maxPushRetries times.
+// WithSpecsRepo fetches the latest, calls the mutator function exactly once,
+// then commits and pushes. If the push fails due to a concurrent update, it
+// rebases (rather than re-running the mutation) and retries the push.
+//
+// After a successful rebase, it verifies that no files touched by the local
+// commit were also changed upstream. This catches the case where two users
+// concurrently mutate the same spec — the rebase may auto-merge different
+// hunks, but the result would be semantically wrong (e.g. double-advance).
 func WithSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig, mutate func(repoPath string) (commitMsg string, err error)) error {
+	if err := validateToken(cfg); err != nil {
+		return err
+	}
+
 	dir := SpecsRepoDir(cfg)
 
 	// Ensure the remote URL has the current token
@@ -107,55 +117,114 @@ func WithSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig, mutate func
 		return fmt.Errorf("updating remote URL: %w", err)
 	}
 
-	// Guard against nuking unpushed local edits (checked once before first attempt)
-	if err := guardUnpushedChanges(ctx, dir); err != nil {
+	// Guard against nuking unpushed local edits
+	if err := guardUnpushedChanges(ctx, dir, cfg.Branch); err != nil {
 		return err
 	}
 
-	for attempt := 0; attempt <= maxPushRetries; attempt++ {
-		// Fetch latest
-		if err := Fetch(ctx, dir); err != nil {
-			return fmt.Errorf("fetching specs repo: %w", redactToken(err))
-		}
-		ref := fmt.Sprintf("origin/%s", cfg.Branch)
-		if err := ResetHard(ctx, dir, ref); err != nil {
-			return fmt.Errorf("resetting specs repo: %w", redactToken(err))
-		}
+	// Fetch and reset to latest remote state
+	if err := Fetch(ctx, dir); err != nil {
+		return fmt.Errorf("fetching specs repo: %w", redactToken(err))
+	}
+	remoteRef := fmt.Sprintf("origin/%s", cfg.Branch)
+	if err := ResetHard(ctx, dir, remoteRef); err != nil {
+		return fmt.Errorf("resetting specs repo: %w", redactToken(err))
+	}
 
-		// Apply mutation
-		commitMsg, err := mutate(dir)
-		if err != nil {
-			return fmt.Errorf("mutation failed: %w", err)
-		}
+	// Record the remote HEAD before mutation so we can detect upstream
+	// changes if we need to rebase after a push conflict.
+	baseRef, err := RevParse(ctx, dir, "HEAD")
+	if err != nil {
+		return fmt.Errorf("reading HEAD: %w", err)
+	}
 
-		// Check if there are changes to commit
-		hasChanges, err := HasChanges(ctx, dir)
-		if err != nil {
-			return fmt.Errorf("checking changes: %w", err)
-		}
-		if !hasChanges {
-			return nil // Nothing to do
-		}
+	// Apply mutation exactly once
+	commitMsg, err := mutate(dir)
+	if err != nil {
+		return fmt.Errorf("mutation failed: %w", err)
+	}
 
-		// Commit
-		if err := Commit(ctx, dir, commitMsg); err != nil {
-			return fmt.Errorf("committing: %w", err)
-		}
-
-		// Push
-		if err := Push(ctx, dir, cfg.Branch); err != nil {
-			if attempt < maxPushRetries {
-				// Retry: concurrent push may have advanced the ref
-				time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
-				continue
-			}
-			return fmt.Errorf("push failed after %d retries — another user may have modified the specs repo: %w", maxPushRetries, redactToken(err))
-		}
-
+	// Check if there are changes to commit
+	hasChanges, err := HasChanges(ctx, dir)
+	if err != nil {
+		return fmt.Errorf("checking changes: %w", err)
+	}
+	if !hasChanges {
 		return nil
 	}
 
+	// Commit
+	if err := Commit(ctx, dir, commitMsg); err != nil {
+		return fmt.Errorf("committing: %w", err)
+	}
+
+	// Get the files we changed so we can detect same-file conflicts after rebase
+	ourFiles, err := CommittedFiles(ctx, dir, "HEAD")
+	if err != nil {
+		return fmt.Errorf("listing committed files: %w", err)
+	}
+
+	// Push with rebase-retry on conflict
+	for attempt := 0; attempt <= maxPushRetries; attempt++ {
+		pushErr := Push(ctx, dir, cfg.Branch)
+		if pushErr == nil {
+			return nil
+		}
+
+		if attempt >= maxPushRetries {
+			return fmt.Errorf("push failed after %d retries — another user may have modified the specs repo: %w", maxPushRetries, redactToken(pushErr))
+		}
+
+		// Fetch the new remote state
+		if err := Fetch(ctx, dir); err != nil {
+			return fmt.Errorf("fetching after push conflict: %w", redactToken(err))
+		}
+
+		// Check what the remote changed since our base
+		upstreamFiles, err := DiffNameOnly(ctx, dir, baseRef, remoteRef)
+		if err != nil {
+			return fmt.Errorf("checking upstream changes: %w", err)
+		}
+
+		// If any file we mutated was also changed upstream, abort.
+		// Auto-merge would be technically possible but semantically dangerous
+		// for spec state (e.g. two concurrent advances to the same spec).
+		if conflict := findOverlap(ourFiles, upstreamFiles); conflict != "" {
+			// Reset to remote state so the repo isn't left in a wedged state
+			_ = ResetHard(ctx, dir, remoteRef)
+			return fmt.Errorf("%s was modified by another user while you were editing — pull the latest with 'spec pull' and retry", conflict)
+		}
+
+		// Different files — rebase is safe
+		if err := Rebase(ctx, dir, remoteRef); err != nil {
+			RebaseAbort(ctx, dir)
+			return fmt.Errorf("rebasing after push conflict — resolve manually in %s: %w", dir, err)
+		}
+
+		// Update baseRef for the next iteration in case of another race
+		newBase, err := RevParse(ctx, dir, remoteRef)
+		if err == nil {
+			baseRef = newBase
+		}
+
+		time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+	}
+
 	return fmt.Errorf("push failed after %d retries", maxPushRetries)
+}
+
+// findOverlap returns the first file present in both slices, or empty string.
+func findOverlap(a, b []string) string {
+	set := make(map[string]struct{}, len(a))
+	for _, f := range a {
+		set[f] = struct{}{}
+	}
+	for _, f := range b {
+		if _, ok := set[f]; ok {
+			return f
+		}
+	}
+	return ""
 }
 
 // PushLocalEdits commits any uncommitted changes in the specs repo and pushes them.
@@ -200,6 +269,7 @@ func PushLocalEdits(ctx context.Context, cfg *config.SpecsRepoConfig, commitMsg 
 		}
 		ref := fmt.Sprintf("origin/%s", cfg.Branch)
 		if err := Rebase(ctx, dir, ref); err != nil {
+			RebaseAbort(ctx, dir)
 			return false, fmt.Errorf("rebasing after push conflict — resolve manually in %s: %w", dir, err)
 		}
 		time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
@@ -265,31 +335,48 @@ func TriageFilePath(cfg *config.SpecsRepoConfig, filename string) string {
 	return filepath.Join(SpecsRepoDir(cfg), SpecsSubDir, "triage", filename)
 }
 
-// guardUnpushedChanges checks for uncommitted changes in the specs repo
-// and returns an actionable error if any are found. This prevents
-// hard-reset operations from silently discarding local edits.
-func guardUnpushedChanges(ctx context.Context, dir string) error {
+// guardUnpushedChanges checks for uncommitted changes AND committed-but-
+// unpushed commits in the specs repo. Returns an actionable error if any
+// are found. This prevents hard-reset operations from silently discarding
+// local work.
+func guardUnpushedChanges(ctx context.Context, dir, branch string) error {
 	if os.Getenv("SPEC_FORCE") != "" {
 		return nil
 	}
 
-	has, err := HasChanges(ctx, dir)
+	// Check uncommitted changes
+	hasUncommitted, err := HasChanges(ctx, dir)
 	if err != nil {
 		// If we can't check, don't block — the reset will proceed.
 		return nil
 	}
-	if !has {
-		return nil
+	if hasUncommitted {
+		status, _ := Status(ctx, dir)
+		return fmt.Errorf(
+			"specs repo has uncommitted changes that would be overwritten:\n%s\n\n"+
+				"Run 'spec push' to save them, or discard with 'git -C %s checkout .'\n"+
+				"To force this operation, set SPEC_FORCE=1",
+			indentStatus(status), dir,
+		)
 	}
 
-	// List the changed files for a helpful message.
-	status, _ := Status(ctx, dir)
-	return fmt.Errorf(
-		"specs repo has unpushed local changes that would be overwritten:\n%s\n\n"+
-			"Run 'spec push' to save them, or discard with 'git -C %s checkout .'\n"+
-			"To force this operation, set SPEC_FORCE=1",
-		indentStatus(status), dir,
-	)
+	// Check committed-but-unpushed commits
+	remoteRef := fmt.Sprintf("origin/%s", branch)
+	hasUnpushed, err := HasUnpushedCommits(ctx, dir, remoteRef)
+	if err != nil {
+		// Remote tracking ref may not exist yet (fresh clone). Don't block.
+		return nil
+	}
+	if hasUnpushed {
+		log, _ := Log(ctx, dir, 5, "%h %s")
+		return fmt.Errorf(
+			"specs repo has unpushed commits that would be overwritten:\n%s\n\n"+
+				"Run 'spec push' to save them, or set SPEC_FORCE=1 to discard",
+			indentStatus(log),
+		)
+	}
+
+	return nil
 }
 
 // indentStatus prefixes each line of git status output for readability.
