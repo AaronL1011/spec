@@ -68,7 +68,7 @@ This creates `~/.spec/config.yaml` with your name, role, and preferences. You on
 If your team already has a specs repo with `spec.config.yaml`:
 
 ```bash
-export GITHUB_TOKEN=ghp_...
+export SPEC_GITHUB_TOKEN=ghp_...
 spec join acme/specs
 ```
 
@@ -412,7 +412,7 @@ specs_repo:
   owner: my-org
   repo: specs
   branch: main
-  token: ${GITHUB_TOKEN}
+  token: ${SPEC_GITHUB_TOKEN}
 
 integrations:
   comms:
@@ -472,7 +472,7 @@ preferences:
 Tokens and secrets use `${VAR}` interpolation in config files. Set them in your shell environment:
 
 ```bash
-export GITHUB_TOKEN=ghp_...
+export SPEC_GITHUB_TOKEN=ghp_...
 export AI_API_KEY=sk-ant-...
 ```
 

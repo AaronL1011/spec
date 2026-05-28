@@ -45,13 +45,13 @@ spec --help
 Create a GitHub personal access token with `repo` scope, then export it:
 
 ```bash
-export GITHUB_TOKEN="ghp_..."
+export SPEC_GITHUB_TOKEN="ghp_..."
 ```
 
 Add this to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) for persistence:
 
 ```bash
-echo 'export GITHUB_TOKEN="ghp_..."' >> ~/.zshrc
+echo 'export SPEC_GITHUB_TOKEN="ghp_..."' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -202,7 +202,7 @@ spec config test        # Verify integrations
 
 | Problem | Fix |
 |---------|-----|
-| `no access token` | Export `GITHUB_TOKEN` |
+| `no access token` | Export `SPEC_GITHUB_TOKEN` |
 | `no role configured` | Run `spec config init --user` |
 | `spec not found` | Check `$PATH` includes Go bin directory |
 | `already joined` | You're set — run `spec list` |
