@@ -1030,9 +1030,10 @@ func (a App) updateRevert(msg tea.KeyMsg) (App, tea.Cmd) {
 			return a, a.startAction("reverting "+specID, revertSpec(a.rc, specID, stage, reason, a.rc.UserName()))
 		}
 	case tea.KeyBackspace:
-		if a.revert.field == revertFieldReason {
+		switch a.revert.field {
+		case revertFieldReason:
 			a.revert.backspaceReason()
-		} else if a.revert.field == revertFieldStage {
+		case revertFieldStage:
 			a.revert.cycleStageReverse()
 		}
 	case tea.KeySpace:
@@ -1040,9 +1041,10 @@ func (a App) updateRevert(msg tea.KeyMsg) (App, tea.Cmd) {
 			a.revert.appendToReason(" ")
 		}
 	case tea.KeyRunes:
-		if a.revert.field == revertFieldReason {
+		switch a.revert.field {
+		case revertFieldReason:
 			a.revert.appendToReason(string(msg.Runes))
-		} else if a.revert.field == revertFieldStage {
+		case revertFieldStage:
 			// On stage field, any rune cycles forward.
 			a.revert.cycleStage()
 		}
