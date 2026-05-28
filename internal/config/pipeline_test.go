@@ -219,10 +219,10 @@ func TestStageConfigHasOwner(t *testing.T) {
 
 func TestOwnersUnmarshalYAML(t *testing.T) {
 	tests := []struct {
-		name     string
-		yaml     string
-		want     []string
-		wantStr  string
+		name    string
+		yaml    string
+		want    []string
+		wantStr string
 	}{
 		{
 			name:    "single owner string",

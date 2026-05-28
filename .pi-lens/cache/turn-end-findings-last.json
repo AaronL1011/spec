@@ -1,0 +1,4 @@
+{
+  "signature": ".golangci.yml::Unresolved from this turn — .golangci.yml:\n🔴 STOP — 1 issue(s) must be fixed:\n  L28: Property exclude-rules is not allowed.\n    💡 Fix: LSP quick fixes: new; new-from-merge-base; new-from-rev",
+  "sessionId": "lens-mpopn7te-3cdeb1d2"
+}

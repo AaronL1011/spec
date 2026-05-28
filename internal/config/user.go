@@ -31,6 +31,20 @@ type PreferencesConfig struct {
 	StandupAutoPost   bool     `yaml:"standup_auto_post"`
 	AIDrafts          *bool    `yaml:"ai_drafts,omitempty"`
 
+	// Theme sets the TUI colour theme.
+	// Valid values: auto (default), catppuccin-mocha, catppuccin-latte,
+	// catppuccin-macchiato, catppuccin-frappe, gruvbox-dark, dracula,
+	// tokyo-night, nord, solarized-dark, solarized-light, rose-pine.
+	Theme string `yaml:"theme,omitempty"`
+
+	// RefreshInterval sets the TUI auto-refresh period (e.g. "30s", "1m").
+	// Defaults to 30s.
+	RefreshInterval string `yaml:"refresh_interval,omitempty"`
+
+	// Mouse enables mouse support in the TUI (click tabs, click items).
+	// Defaults to false.
+	Mouse bool `yaml:"mouse,omitempty"`
+
 	// Multiplexer specifies the terminal multiplexer for cross-repo navigation.
 	// Valid values: tmux, zellij, wezterm, iterm2, none
 	// If empty or "none", falls back to manual navigation prompts.

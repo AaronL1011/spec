@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -106,7 +107,7 @@ func runFix(cmd *cobra.Command, args []string) error {
 	// Compute next spec ID
 	specFiles, _ := gitpkg.ListSpecFiles(&rc.Team.SpecsRepo)
 	archiveFiles, _ := gitpkg.ListArchiveFiles(&rc.Team.SpecsRepo, config.ArchiveDir(rc.Team))
-	allFiles := append(specFiles, archiveFiles...)
+	allFiles := slices.Concat(specFiles, archiveFiles)
 	specID := markdown.NextSpecID(allFiles)
 
 	// Build the spec content

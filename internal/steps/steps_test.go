@@ -251,9 +251,9 @@ func TestEngine_AllComplete(t *testing.T) {
 	e := NewEngine(nil)
 
 	tests := []struct {
-		name   string
-		meta   *markdown.SpecMeta
-		want   bool
+		name string
+		meta *markdown.SpecMeta
+		want bool
 	}{
 		{
 			"all complete",

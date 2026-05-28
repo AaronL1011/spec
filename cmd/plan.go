@@ -147,13 +147,14 @@ func runPlanShow(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// Suggest next action
-	if plan.NeedsReview() {
+	switch {
+	case plan.NeedsReview():
 		fmt.Printf("Run 'spec plan ready %s' to request review.\n", specID)
-	} else if plan.IsReviewPending() {
+	case plan.IsReviewPending():
 		fmt.Println("Waiting for plan review approval.")
-	} else if plan.IsReviewChangesRequested() {
+	case plan.IsReviewChangesRequested():
 		fmt.Printf("Run 'spec plan edit %s' to address feedback.\n", specID)
-	} else if !plan.AllComplete() {
+	case !plan.AllComplete():
 		current := plan.CurrentStep()
 		if current != nil {
 			fmt.Printf("Current step: %d. %s\n", current.Index, current.Description)

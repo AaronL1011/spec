@@ -493,9 +493,7 @@ func storageToMarkdown(storage string) string {
 
 	// Tables
 	tablePattern := regexp.MustCompile(`<table>.*?</table>`)
-	s = tablePattern.ReplaceAllStringFunc(s, func(match string) string {
-		return storageTableToMarkdown(match)
-	})
+	s = tablePattern.ReplaceAllStringFunc(s, storageTableToMarkdown)
 
 	// Lists
 	s = regexp.MustCompile(`<ul>\s*`).ReplaceAllString(s, "")

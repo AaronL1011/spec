@@ -1,0 +1,101 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - copyloopvar
+    - durationcheck
+    - errorlint
+    - fatcontext
+    - gocritic
+    - makezero
+    - musttag
+    - nilerr
+    - noctx
+    - predeclared
+    - reassign
+    - unconvert
+    - unparam
+    - wastedassign
+  exclusions:
+    rules:
+      # nilerr: MCP/AI handlers intentionally return (result, nil)
+      # after converting errors to user-facing messages. This is
+      # graceful degradation by design (see AGENTS.md).
+      - linters: [nilerr]
+        path: internal/mcp/
+      - linters: [nilerr]
+        path: internal/build/mcp\.go
+      - linters: [nilerr]
+        path: internal/ai/service\.go
+      - linters: [nilerr]
+        path: internal/adapter/slack/
+      - linters: [nilerr]
+        path: internal/git/specsrepo\.go
+      - linters: [nilerr]
+        path: internal/tui/renderer\.go
+      - linters: [nilerr]
+        path: cmd/history\.go
+      - linters: [nilerr]
+        path: cmd/validate\.go
+
+      # noctx: Local SQLite operations don't benefit from context
+      # propagation — the embedded DB is not cancellable.
+      - linters: [noctx]
+        path: internal/store/
+
+      # noctx: Editor/browser launches are short-lived local processes.
+      - linters: [noctx]
+        path: cmd/(edit|plan)\.go
+        text: os/exec\.Command
+      - linters: [noctx]
+        path: internal/(ai/review|tui/actions|tui/buildcmd)\.go
+        text: os/exec\.Command
+
+      # unparam: Bubble Tea model.update() must return tea.Cmd for
+      # interface conformance even when currently always nil.
+      - linters: [unparam]
+        path: internal/tui/
+        text: result .* is (always nil|never used)
+
+      # unparam: Parameters kept for API consistency or future use.
+      - linters: [unparam]
+        path: internal/tui/standup\.go
+        text: reg is unused
+      - linters: [unparam]
+        path: internal/tui/app\.go
+        text: is always nil
+      - linters: [unparam]
+        path: internal/pipeline/effects/
+        text: (ctx|execCtx) is unused
+      - linters: [unparam]
+        path: internal/pipeline/gates_time_test\.go
+        text: (pipeline|currentStage) is unused
+      - linters: [unparam]
+        path: internal/adapter/confluence/
+        text: (specID is unused|maxLen always receives)
+      - linters: [unparam]
+        path: internal/adapter/jira/
+        text: maxLen always receives
+      - linters: [unparam]
+        path: cmd/list\.go
+        text: pipeline is unused
+      - linters: [unparam]
+        path: cmd/mcp_server\.go
+        text: cmd is unused
+      - linters: [unparam]
+        path: cmd/retro\.go
+        text: stageNames is unused
+
+      # SA1019: OwnerRole is deprecated but still used internally
+      # for backward compatibility during migration.
+      - linters: [staticcheck]
+        text: "SA1019:.*OwnerRole is deprecated"
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -440,7 +440,8 @@ func runStepsBlock(cmd *cobra.Command, args []string) error {
 	}
 
 	// Try to determine format
-	if len(args) == 1 {
+	switch {
+	case len(args) == 1:
 		// Just a reason, need spec ID from context and current step
 		id, err := resolveSpecIDFromArgs(nil)
 		if err != nil {
@@ -449,7 +450,7 @@ func runStepsBlock(cmd *cobra.Command, args []string) error {
 		specID = id
 		stepNum = 0 // will find current
 		reason = args[0]
-	} else if len(args) == 2 {
+	case len(args) == 2:
 		// Could be: "SPEC-001 reason" or "1 reason"
 		if isNumber(args[0]) {
 			id, err := resolveSpecIDFromArgs(nil)
@@ -464,7 +465,7 @@ func runStepsBlock(cmd *cobra.Command, args []string) error {
 			stepNum = 0
 			reason = args[1]
 		}
-	} else {
+	default:
 		// "SPEC-001 1 reason..." or "SPEC-001 reason reason..."
 		specID = normalizeSpecID(args[0])
 		if isNumber(args[1]) {

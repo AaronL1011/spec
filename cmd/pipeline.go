@@ -632,7 +632,7 @@ func addStageToConfig(newStage config.StageConfig, insertIdx int, currentCfg con
 	if currentCfg.Preset != "" {
 		// Add to stages array (overrides)
 		stages, _ := pipelineSection["stages"].([]interface{})
-		
+
 		// Build stage map
 		stageMap := map[string]interface{}{
 			"name":  newStage.Name,
@@ -648,13 +648,14 @@ func addStageToConfig(newStage config.StageConfig, insertIdx int, currentCfg con
 			var gatesList []interface{}
 			for _, g := range newStage.Gates {
 				gateMap := make(map[string]interface{})
-				if g.SectionNotEmpty != "" {
+				switch {
+				case g.SectionNotEmpty != "":
 					gateMap["section_not_empty"] = g.SectionNotEmpty
-				} else if g.PRStackExists != nil {
+				case g.PRStackExists != nil:
 					gateMap["pr_stack_exists"] = true
-				} else if g.PRsApproved != nil {
+				case g.PRsApproved != nil:
 					gateMap["prs_approved"] = true
-				} else if g.Expr != "" {
+				case g.Expr != "":
 					gateMap["expr"] = g.Expr
 					if g.Message != "" {
 						gateMap["message"] = g.Message
@@ -674,7 +675,7 @@ func addStageToConfig(newStage config.StageConfig, insertIdx int, currentCfg con
 	} else {
 		// Direct stages array manipulation
 		stages, _ := pipelineSection["stages"].([]interface{})
-		
+
 		stageMap := map[string]interface{}{
 			"name":  newStage.Name,
 			"owner": newStage.Owner,
@@ -689,13 +690,14 @@ func addStageToConfig(newStage config.StageConfig, insertIdx int, currentCfg con
 			var gatesList []interface{}
 			for _, g := range newStage.Gates {
 				gateMap := make(map[string]interface{})
-				if g.SectionNotEmpty != "" {
+				switch {
+				case g.SectionNotEmpty != "":
 					gateMap["section_not_empty"] = g.SectionNotEmpty
-				} else if g.PRStackExists != nil {
+				case g.PRStackExists != nil:
 					gateMap["pr_stack_exists"] = true
-				} else if g.PRsApproved != nil {
+				case g.PRsApproved != nil:
 					gateMap["prs_approved"] = true
-				} else if g.Expr != "" {
+				case g.Expr != "":
 					gateMap["expr"] = g.Expr
 					if g.Message != "" {
 						gateMap["message"] = g.Message
@@ -949,7 +951,7 @@ func runPipelineValidate(cmd *cobra.Command, args []string) error {
 			if gate.Expr != "" {
 				// Try to compile the expression
 				if compileErr := expr.Compile(gate.Expr); compileErr != nil {
-					errors = append(errors, fmt.Sprintf("stage %q gate %d: invalid expression %q: %v", 
+					errors = append(errors, fmt.Sprintf("stage %q gate %d: invalid expression %q: %v",
 						stage.Name, i+1, gate.Expr, compileErr))
 				}
 			}

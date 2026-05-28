@@ -1,0 +1,17 @@
+{
+  "files": {
+    ".github/workflows/ci.yaml": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 93
+        }
+      ],
+      "importsChanged": false,
+      "lastEdit": "2026-05-28T00:00:02.048Z"
+    }
+  },
+  "turnCycles": 0,
+  "maxCycles": 3,
+  "lastUpdated": "2026-05-28T00:00:02.048Z"
+}

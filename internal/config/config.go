@@ -96,15 +96,15 @@ type SpecsRepoConfig struct {
 
 // IntegrationsConfig holds all integration provider configs.
 type IntegrationsConfig struct {
-	Comms   ProviderConfig `yaml:"comms"`
-	PM      ProviderConfig `yaml:"pm"`
-	Docs    ProviderConfig `yaml:"docs"`
-	Repo    ProviderConfig `yaml:"repo"`
-	Agent   ProviderConfig `yaml:"agent"`
-	AI      ProviderConfig `yaml:"ai"`
-	Design  ProviderConfig `yaml:"design"`
-	Deploy  DeployConfig   `yaml:"deploy"`
-	Intake  IntakeConfig   `yaml:"intake"`
+	Comms  ProviderConfig `yaml:"comms"`
+	PM     ProviderConfig `yaml:"pm"`
+	Docs   ProviderConfig `yaml:"docs"`
+	Repo   ProviderConfig `yaml:"repo"`
+	Agent  ProviderConfig `yaml:"agent"`
+	AI     ProviderConfig `yaml:"ai"`
+	Design ProviderConfig `yaml:"design"`
+	Deploy DeployConfig   `yaml:"deploy"`
+	Intake IntakeConfig   `yaml:"intake"`
 }
 
 // ProviderConfig is a generic integration config with a provider name and extra fields.

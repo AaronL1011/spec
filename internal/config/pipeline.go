@@ -84,6 +84,7 @@ type StageConfig struct {
 	Owner Owners `yaml:"owner,omitempty"`
 
 	// OwnerRole is the legacy field for backward compatibility.
+	//
 	// Deprecated: Use Owner instead.
 	OwnerRole string `yaml:"owner_role,omitempty"`
 
