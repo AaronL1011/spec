@@ -5,10 +5,14 @@ import "github.com/charmbracelet/bubbles/key"
 // KeyMap defines all keybindings for the TUI.
 type KeyMap struct {
 	// Navigation
-	Up    key.Binding
-	Down  key.Binding
-	Enter key.Binding
-	Back  key.Binding
+	Up         key.Binding
+	Down       key.Binding
+	Enter      key.Binding
+	Back       key.Binding
+	PageUp     key.Binding
+	PageDown   key.Binding
+	ScrollUp   key.Binding
+	ScrollDown key.Binding
 
 	// View switching
 	Tab1 key.Binding
@@ -58,6 +62,22 @@ func DefaultKeyMap() KeyMap {
 		Down: key.NewBinding(
 			key.WithKeys("down", "j"),
 			key.WithHelp("↓/j", "down"),
+		),
+		PageUp: key.NewBinding(
+			key.WithKeys("pgup"),
+			key.WithHelp("pgup", "page up"),
+		),
+		PageDown: key.NewBinding(
+			key.WithKeys("pgdown"),
+			key.WithHelp("pgdn", "page down"),
+		),
+		ScrollUp: key.NewBinding(
+			key.WithKeys("shift+up", "K"),
+			key.WithHelp("K", "scroll up"),
+		),
+		ScrollDown: key.NewBinding(
+			key.WithKeys("shift+down", "J"),
+			key.WithHelp("J", "scroll down"),
 		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
@@ -205,4 +225,22 @@ func (k KeyMap) ActionBindings() []key.Binding {
 // GlobalBindings returns bindings shown in every context.
 func (k KeyMap) GlobalBindings() []key.Binding {
 	return []key.Binding{k.Help, k.Search, k.Refresh, k.Quit}
+}
+
+// SettingsBindings returns keybindings for the Settings tab edit flow.
+func (k KeyMap) SettingsBindings() []key.Binding {
+	return []key.Binding{
+		k.Up,
+		k.Down,
+		k.Enter,
+		k.Back,
+		k.PageUp,
+		k.PageDown,
+		k.ScrollUp,
+		k.ScrollDown,
+		key.NewBinding(
+			key.WithKeys("space", "l", "h"),
+			key.WithHelp("space/l/h", "cycle role or theme"),
+		),
+	}
 }

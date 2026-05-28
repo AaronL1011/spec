@@ -47,10 +47,16 @@ func (m helpModel) view() string {
 
 	b.WriteString(m.section("Navigation", m.keys.NavigationBindings()))
 	b.WriteString(m.section("Views", m.keys.ViewBindings()))
-	b.WriteString(m.section("Actions", m.keys.ActionBindings()))
+
+	if m.context == "Settings" {
+		b.WriteString(m.section("Settings", m.keys.SettingsBindings()))
+	} else {
+		b.WriteString(m.section("Actions", m.keys.ActionBindings()))
+	}
+
 	b.WriteString(m.section("Global", m.keys.GlobalBindings()))
 
-	if m.context != "" {
+	if m.context != "" && m.context != "Settings" {
 		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  context: %s", m.context)))
 		b.WriteString("\n")
 	}

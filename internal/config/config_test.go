@@ -568,3 +568,48 @@ fast_track:
 		t.Error("FastTrack should not be enabled")
 	}
 }
+
+func TestWriteUserConfig_PreservesWorkspaces(t *testing.T) {
+	content := `
+user:
+  name: Original
+  owner_role: engineer
+  handle: "@orig"
+workspaces:
+  auth-service: ~/code/auth-service
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		// File may not exist yet — write initial content.
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err = LoadUserConfig(path)
+		if err != nil {
+			t.Fatalf("LoadUserConfig: %v", err)
+		}
+	}
+
+	cfg.User.Name = "Updated"
+	if err := WriteUserConfig(path, cfg); err != nil {
+		t.Fatalf("WriteUserConfig: %v", err)
+	}
+
+	reloaded, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("LoadUserConfig after write: %v", err)
+	}
+
+	if reloaded.User.Name != "Updated" {
+		t.Errorf("name = %q, want Updated", reloaded.User.Name)
+	}
+	if len(reloaded.Workspaces) != 1 {
+		t.Fatalf("workspaces count = %d, want 1", len(reloaded.Workspaces))
+	}
+	if reloaded.GetWorkspacePath("auth-service") != "~/code/auth-service" {
+		t.Errorf("workspace path = %q", reloaded.GetWorkspacePath("auth-service"))
+	}
+}

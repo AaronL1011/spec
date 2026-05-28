@@ -63,6 +63,23 @@ func TestHelp_RendersBindings(t *testing.T) {
 	}
 }
 
+func TestHelp_SettingsContext(t *testing.T) {
+	styles := NewStyles(ResolveTheme("catppuccin-mocha"))
+	keys := DefaultKeyMap()
+	h := newHelp(keys, styles)
+	h.setSize(80, 60)
+	h.setContext("Settings")
+	h.visible = true
+
+	got := h.view()
+	if !strings.Contains(got, "Settings") {
+		t.Error("should contain Settings section")
+	}
+	if strings.Contains(got, "advance") {
+		t.Error("Settings help should not list spec action bindings")
+	}
+}
+
 func TestHelp_DismissOnEsc(t *testing.T) {
 	styles := NewStyles(ResolveTheme("catppuccin-mocha"))
 	keys := DefaultKeyMap()
