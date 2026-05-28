@@ -344,6 +344,56 @@ func TestApp_SpinnerDuringBlock(t *testing.T) {
 	}
 }
 
+func TestApp_PushHotkeyTriggersAction(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.dashboard.loading = false
+	app.dashboard.data = &dashboard.DashboardData{
+		Do: []dashboard.DashboardItem{
+			{SpecID: "SPEC-001", Title: "Test"},
+		},
+	}
+	app.dashboard.items = app.dashboard.buildRows()
+
+	model, _ := app.Update(keyMsg("p"))
+	a := model.(App)
+
+	if !a.actionInFlight {
+		t.Error("actionInFlight should be true after pressing 'p'")
+	}
+	if a.actionLabel != "pushing SPEC-001" {
+		t.Errorf("actionLabel = %q, want 'pushing SPEC-001'", a.actionLabel)
+	}
+}
+
+func TestApp_SyncHotkeyTriggersAction(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.dashboard.loading = false
+	app.dashboard.data = &dashboard.DashboardData{
+		Do: []dashboard.DashboardItem{
+			{SpecID: "SPEC-001", Title: "Test"},
+		},
+	}
+	app.dashboard.items = app.dashboard.buildRows()
+
+	model, _ := app.Update(keyMsg("s"))
+	a := model.(App)
+
+	if !a.actionInFlight {
+		t.Error("actionInFlight should be true after pressing 's'")
+	}
+	if a.actionLabel != "syncing SPEC-001" {
+		t.Errorf("actionLabel = %q, want 'syncing SPEC-001'", a.actionLabel)
+	}
+}
+
 func TestApp_SpinnerClearsOnError(t *testing.T) {
 	app := testApp()
 	app.width = 80

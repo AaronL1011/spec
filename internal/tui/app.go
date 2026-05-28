@@ -863,6 +863,10 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 		return editSpec(a.rc, specID, editor), true
 	case key.Matches(msg, a.keys.Build) && isSpecID(specID):
 		return a.startAction("building "+specID, buildSpec(a.rc, specID)), true
+	case key.Matches(msg, a.keys.Push) && isSpecID(specID):
+		return a.startAction("pushing "+specID, pushSpec(a.rc, specID)), true
+	case key.Matches(msg, a.keys.Sync) && isSpecID(specID):
+		return a.startAction("syncing "+specID, syncSpec(a.rc, a.reg, a.db, specID, a.role)), true
 	case key.Matches(msg, a.keys.Decide) && isSpecID(specID):
 		a.pendingAction = "decide"
 		a.pendingSpecID = specID
@@ -898,8 +902,10 @@ func (a App) updateModal(msg tea.KeyMsg) (App, tea.Cmd) {
 			return a, nil
 		case tea.KeyEnter:
 			if a.modal.Input != "" {
+				// Capture input before Hide() clears it.
+				input := a.modal.Input
 				a.modal.Hide()
-				return a, a.executeAction()
+				return a, a.executeActionWithInput(input)
 			}
 		case tea.KeyBackspace:
 			a.modal.BackspaceInput()
@@ -912,14 +918,20 @@ func (a App) updateModal(msg tea.KeyMsg) (App, tea.Cmd) {
 	return a, nil
 }
 
-// executeAction runs the pending action after modal confirmation.
+// executeAction runs the pending action after modal confirmation (for confirm modals).
 func (a *App) executeAction() tea.Cmd {
+	return a.executeActionWithInput("")
+}
+
+// executeActionWithInput runs the pending action with the given input value.
+// For confirm modals, input is empty. For input modals, it contains the user's text.
+func (a *App) executeActionWithInput(input string) tea.Cmd {
 	specID := a.pendingSpecID
 	switch a.pendingAction {
 	case "advance":
 		return a.startAction("advancing "+specID, advanceSpec(a.rc, specID, a.role))
 	case "block":
-		reason := a.modal.Input
+		reason := input
 		if reason == "" {
 			reason = "blocked from TUI"
 		}
@@ -927,17 +939,15 @@ func (a *App) executeAction() tea.Cmd {
 	case "unblock":
 		return a.startAction("unblocking "+specID, unblockSpec(a.rc, specID))
 	case "decide":
-		question := a.modal.Input
-		if question == "" {
+		if input == "" {
 			return nil
 		}
-		return a.startAction("recording decision", recordDecision(a.rc, specID, question))
+		return a.startAction("recording decision", recordDecision(a.rc, specID, input))
 	case "new":
-		title := a.modal.Input
-		if title == "" {
+		if input == "" {
 			return nil
 		}
-		return a.startAction("creating spec", createSpec(a.rc, title))
+		return a.startAction("creating spec", createSpec(a.rc, input))
 	default:
 		return nil
 	}

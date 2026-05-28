@@ -6,15 +6,18 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/aaronl1011/spec/internal/store"
+	syncengine "github.com/aaronl1011/spec/internal/sync"
 )
 
 // actionResultMsg carries the result of any TUI-initiated mutation.
@@ -262,6 +265,95 @@ func resolveLocalSpecPath(rc *config.ResolvedConfig, specID string) string {
 		return rc.SpecsRepoDir + "/" + specID + ".md"
 	}
 	return local
+}
+
+// pushSpec commits and pushes local spec edits to the specs repo.
+func pushSpec(rc *config.ResolvedConfig, specID string) tea.Cmd {
+	return func() tea.Msg {
+		pushed, err := gitpkg.PushLocalEdits(
+			context.Background(),
+			&rc.Team.SpecsRepo,
+			fmt.Sprintf("feat: update %s", specID),
+		)
+		if err != nil {
+			return actionResultMsg{Action: "push", SpecID: specID, Err: fmt.Errorf("pushing %s: %w", specID, err)}
+		}
+		if !pushed {
+			return actionResultMsg{Action: "push", SpecID: specID, Detail: "no local changes"}
+		}
+		return actionResultMsg{Action: "push", SpecID: specID, Detail: "pushed"}
+	}
+}
+
+// syncSpec runs a bidirectional sync between the spec and external docs.
+func syncSpec(rc *config.ResolvedConfig, reg *adapter.Registry, db *store.DB, specID, role string) tea.Cmd {
+	return func() tea.Msg {
+		if !rc.HasIntegration("docs") {
+			return actionResultMsg{Action: "sync", SpecID: specID, Err: fmt.Errorf("docs integration not configured — add 'integrations.docs' to spec.config.yaml")}
+		}
+
+		engine := syncengine.NewEngine(reg.Docs(), db)
+		var prepared *syncengine.PreparedRun
+
+		err := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+			path, pErr := resolveSpecIn(repoPath, rc, specID)
+			if pErr != nil {
+				return "", pErr
+			}
+
+			strategy := rc.Team.Sync.ConflictStrategy
+			var sErr error
+			prepared, sErr = engine.Prepare(context.Background(), syncengine.Options{
+				SpecID:           specID,
+				SpecPath:         path,
+				Direction:        syncengine.DirectionBoth,
+				ConflictStrategy: strategy,
+				OwnerRole:        role,
+				UserName:         rc.UserName(),
+			})
+			if sErr != nil {
+				return "", sErr
+			}
+			if prepared != nil && prepared.Report != nil && len(prepared.Report.InboundApplied) > 0 {
+				return fmt.Sprintf("chore: sync %s from docs", specID), nil
+			}
+			return "", nil
+		})
+		if err != nil {
+			return actionResultMsg{Action: "sync", SpecID: specID, Err: err}
+		}
+
+		if prepared != nil {
+			if fErr := engine.Finalize(context.Background(), prepared); fErr != nil {
+				return actionResultMsg{Action: "sync", SpecID: specID, Err: fErr}
+			}
+		}
+
+		detail := formatSyncDetail(prepared)
+		return actionResultMsg{Action: "sync", SpecID: specID, Detail: detail}
+	}
+}
+
+// formatSyncDetail builds a short summary from the sync report.
+func formatSyncDetail(prepared *syncengine.PreparedRun) string {
+	if prepared == nil || prepared.Report == nil {
+		return "no changes"
+	}
+	r := prepared.Report
+	var parts []string
+	if r.OutboundPushed {
+		parts = append(parts, fmt.Sprintf("%d out", len(r.OutboundSections)))
+	}
+	if len(r.InboundApplied) > 0 {
+		parts = append(parts, fmt.Sprintf("%d in", len(r.InboundApplied)))
+	}
+	if len(r.Conflicts) > 0 {
+		parts = append(parts, fmt.Sprintf("%d conflicts", len(r.Conflicts)))
+	}
+	if len(parts) == 0 {
+		return "no changes"
+	}
+	return strings.Join(parts, ", ")
 }
 
 func fileExists(path string) bool {

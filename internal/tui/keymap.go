@@ -39,6 +39,8 @@ type KeyMap struct {
 	Open    key.Binding
 	Yank    key.Binding
 	Decide  key.Binding
+	Push    key.Binding
+	Sync    key.Binding
 
 	// Creation
 	NewSpec   key.Binding
@@ -161,6 +163,14 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("c"),
 			key.WithHelp("c", "decide"),
 		),
+		Push: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p", "push"),
+		),
+		Sync: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "sync"),
+		),
 
 		NewSpec: key.NewBinding(
 			key.WithKeys("n"),
@@ -189,7 +199,7 @@ func (k KeyMap) ViewBindings() []key.Binding {
 
 // ActionBindings returns the action bindings for help display.
 func (k KeyMap) ActionBindings() []key.Binding {
-	return []key.Binding{k.Advance, k.Revert, k.Edit, k.Build, k.Block, k.Focus, k.Open, k.Yank, k.Decide, k.NewSpec, k.NewIntake, k.Standup}
+	return []key.Binding{k.Advance, k.Revert, k.Edit, k.Build, k.Block, k.Focus, k.Open, k.Yank, k.Decide, k.Push, k.Sync, k.NewSpec, k.NewIntake, k.Standup}
 }
 
 // GlobalBindings returns bindings shown in every context.

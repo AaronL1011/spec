@@ -59,3 +59,43 @@ func TestFileExists(t *testing.T) {
 		t.Error("nonexistent path should return false")
 	}
 }
+
+func TestPushSpec_ReturnsCommand(t *testing.T) {
+	rc := testResolvedConfig()
+	cmd := pushSpec(rc, "SPEC-001")
+	if cmd == nil {
+		t.Error("pushSpec should return a non-nil command")
+	}
+}
+
+func TestSyncSpec_NoDocsIntegration(t *testing.T) {
+	rc := testResolvedConfig()
+	reg := testRegistry()
+	db, err := store.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	cmd := syncSpec(rc, reg, db, "SPEC-001", "engineer")
+	if cmd == nil {
+		t.Fatal("syncSpec should return a non-nil command")
+	}
+
+	// Execute — should fail because docs integration is not configured.
+	msg := cmd()
+	result, ok := msg.(actionResultMsg)
+	if !ok {
+		t.Fatalf("expected actionResultMsg, got %T", msg)
+	}
+	if result.Err == nil {
+		t.Error("syncSpec without docs integration should return an error")
+	}
+}
+
+func TestFormatSyncDetail_NilPrepared(t *testing.T) {
+	got := formatSyncDetail(nil)
+	if got != "no changes" {
+		t.Errorf("formatSyncDetail(nil) = %q, want %q", got, "no changes")
+	}
+}
