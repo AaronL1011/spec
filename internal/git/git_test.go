@@ -130,7 +130,7 @@ func TestGuardUnpushedChanges_Clean(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := guardUnpushedChanges(ctx, dir); err != nil {
+	if err := guardUnpushedChanges(ctx, dir, "main"); err != nil {
 		t.Errorf("clean repo should not error: %v", err)
 	}
 }
@@ -160,12 +160,12 @@ func TestGuardUnpushedChanges_Dirty(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := guardUnpushedChanges(ctx, dir)
+	err := guardUnpushedChanges(ctx, dir, "main")
 	if err == nil {
 		t.Fatal("dirty repo should return error")
 	}
-	if !strings.Contains(err.Error(), "unpushed local changes") {
-		t.Errorf("error should mention unpushed changes, got: %v", err)
+	if !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Errorf("error should mention uncommitted changes, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "spec push") {
 		t.Errorf("error should suggest 'spec push', got: %v", err)
@@ -198,7 +198,7 @@ func TestGuardUnpushedChanges_ForceBypass(t *testing.T) {
 	}
 
 	t.Setenv("SPEC_FORCE", "1")
-	if err := guardUnpushedChanges(ctx, dir); err != nil {
+	if err := guardUnpushedChanges(ctx, dir, "main"); err != nil {
 		t.Errorf("SPEC_FORCE=1 should bypass guard: %v", err)
 	}
 }

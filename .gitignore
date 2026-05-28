@@ -7,3 +7,4 @@ coverage.html
 *.prof
 .DS_Store
 docs/man/
+.pi-lens/

@@ -16,10 +16,14 @@ const (
 )
 
 // Run executes a git command in the given directory with a timeout.
+// If ctx has no deadline, the defaultTimeout is applied automatically.
 func Run(ctx context.Context, dir string, args ...string) (string, error) {
 	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), defaultTimeout)
+		ctx, cancel = context.WithTimeout(ctx, defaultTimeout)
 		defer cancel()
 	}
 
@@ -59,6 +63,51 @@ func ResetHard(ctx context.Context, dir, ref string) error {
 func Rebase(ctx context.Context, dir, ref string) error {
 	_, err := Run(ctx, dir, "rebase", ref)
 	return err
+}
+
+// RebaseAbort cancels an in-progress rebase, restoring the repo to its
+// pre-rebase state. Safe to call even if no rebase is in progress.
+func RebaseAbort(ctx context.Context, dir string) {
+	// Ignore errors — this is best-effort cleanup.
+	_, _ = Run(ctx, dir, "rebase", "--abort")
+}
+
+// RevParse returns the SHA for a ref.
+func RevParse(ctx context.Context, dir, ref string) (string, error) {
+	return Run(ctx, dir, "rev-parse", ref)
+}
+
+// DiffNameOnly returns file paths changed between two refs.
+func DiffNameOnly(ctx context.Context, dir, refA, refB string) ([]string, error) {
+	out, err := Run(ctx, dir, "diff", "--name-only", refA, refB)
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+	return strings.Split(out, "\n"), nil
+}
+
+// CommittedFiles returns the list of files changed in the given commit.
+func CommittedFiles(ctx context.Context, dir, ref string) ([]string, error) {
+	out, err := Run(ctx, dir, "diff-tree", "--no-commit-id", "--name-only", "-r", ref)
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+	return strings.Split(out, "\n"), nil
+}
+
+// HasUnpushedCommits returns true if there are local commits not on the remote branch.
+func HasUnpushedCommits(ctx context.Context, dir, remoteBranch string) (bool, error) {
+	count, err := Run(ctx, dir, "rev-list", "--count", remoteBranch+"..HEAD")
+	if err != nil {
+		return false, err
+	}
+	return count != "0", nil
 }
 
 // Commit stages all changes and creates a commit.

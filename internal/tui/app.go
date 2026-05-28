@@ -78,10 +78,15 @@ type App struct {
 	toast   components.Toast
 	standup standupOverlay
 	intake  intakeFormState
+	revert  revertOverlay
 
 	// Pending action context (for modal confirmations)
 	pendingAction string
 	pendingSpecID string
+
+	// In-flight mutation tracking (for spinner)
+	actionInFlight bool
+	actionLabel    string
 
 	// Focused spec ID — displayed with ★ in list views.
 	focusedSpecID string
@@ -307,6 +312,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Action results — show toast and refresh.
 	case actionResultMsg:
+		a.actionInFlight = false
+		a.actionLabel = ""
+		a.syncBusyState()
+
 		if msg.Err != nil {
 			a.toast.Show(msg.Err.Error(), components.ToastError, 5*time.Second)
 		} else {
@@ -344,6 +353,9 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if a.intake.active {
 		return a.updateIntake(msg)
+	}
+	if a.revert.active {
+		return a.updateRevert(msg)
 	}
 	if a.help.visible {
 		a.help, _ = a.help.update(msg)
@@ -482,6 +494,8 @@ func (a App) View() string {
 		content = a.standup.view()
 	case a.intake.active:
 		content = a.renderIntakeForm()
+	case a.revert.active:
+		content = renderRevert(a.revert, a.styles)
 	case a.help.visible:
 		content = a.help.view()
 	case a.modal.Visible:
@@ -579,6 +593,29 @@ func (a App) selectedSpecID() string {
 	default:
 		return ""
 	}
+}
+
+// selectedSpecStage returns the pipeline stage of the currently selected spec.
+// It checks the detail view first, then falls back to view-specific data.
+func (a App) selectedSpecStage() string {
+	if a.showDetail && a.detail.meta != nil {
+		return a.detail.meta.Status
+	}
+	switch a.activeView {
+	case ViewDashboard:
+		if a.dashboard.cursor >= 0 && a.dashboard.cursor < len(a.dashboard.items) {
+			return a.dashboard.items[a.dashboard.cursor].detail
+		}
+	case ViewPipeline:
+		if a.pipeline.stageIdx >= 0 && a.pipeline.stageIdx < len(a.pipeline.stages) {
+			return a.pipeline.stages[a.pipeline.stageIdx].Name
+		}
+	case ViewSpecs:
+		if a.specs.cursor >= 0 && a.specs.cursor < len(a.specs.filtered) {
+			return a.specs.filtered[a.specs.cursor].Status
+		}
+	}
+	return ""
 }
 
 // viewCapturingInput returns true when the active view is in a text
@@ -805,6 +842,13 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 		a.modal.ShowConfirm("Unblock "+specID, "Resume this spec from blocked status?")
 		a.modal.SetSize(a.width, a.contentHeight())
 		return nil, true
+	case key.Matches(msg, a.keys.Revert) && isSpecID(specID):
+		stage := a.selectedSpecStage()
+		if err := a.revert.openRevert(specID, stage, a.rc.Pipeline()); err != nil {
+			a.toast.Show(err.Error(), components.ToastError, 3*time.Second)
+			return nil, true
+		}
+		return nil, true
 	case key.Matches(msg, a.keys.Focus) && specID != "":
 		return focusSpec(a.db, specID), true
 	case key.Matches(msg, a.keys.Unfocus):
@@ -818,7 +862,11 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return editSpec(a.rc, specID, editor), true
 	case key.Matches(msg, a.keys.Build) && isSpecID(specID):
-		return buildSpec(a.rc, specID), true
+		return a.startAction("building "+specID, buildSpec(a.rc, specID)), true
+	case key.Matches(msg, a.keys.Push) && isSpecID(specID):
+		return a.startAction("pushing "+specID, pushSpec(a.rc, specID)), true
+	case key.Matches(msg, a.keys.Sync) && isSpecID(specID):
+		return a.startAction("syncing "+specID, syncSpec(a.rc, a.reg, a.db, specID, a.role)), true
 	case key.Matches(msg, a.keys.Decide) && isSpecID(specID):
 		a.pendingAction = "decide"
 		a.pendingSpecID = specID
@@ -854,11 +902,15 @@ func (a App) updateModal(msg tea.KeyMsg) (App, tea.Cmd) {
 			return a, nil
 		case tea.KeyEnter:
 			if a.modal.Input != "" {
+				// Capture input before Hide() clears it.
+				input := a.modal.Input
 				a.modal.Hide()
-				return a, a.executeAction()
+				return a, a.executeActionWithInput(input)
 			}
 		case tea.KeyBackspace:
 			a.modal.BackspaceInput()
+		case tea.KeySpace:
+			a.modal.AppendInput(" ")
 		case tea.KeyRunes:
 			a.modal.AppendInput(string(msg.Runes))
 		}
@@ -866,43 +918,36 @@ func (a App) updateModal(msg tea.KeyMsg) (App, tea.Cmd) {
 	return a, nil
 }
 
-// executeAction runs the pending action after modal confirmation.
+// executeAction runs the pending action after modal confirmation (for confirm modals).
 func (a *App) executeAction() tea.Cmd {
+	return a.executeActionWithInput("")
+}
+
+// executeActionWithInput runs the pending action with the given input value.
+// For confirm modals, input is empty. For input modals, it contains the user's text.
+func (a *App) executeActionWithInput(input string) tea.Cmd {
 	specID := a.pendingSpecID
 	switch a.pendingAction {
 	case "advance":
-		return advanceSpec(a.rc, specID, a.role)
+		return a.startAction("advancing "+specID, advanceSpec(a.rc, specID, a.role))
 	case "block":
-		reason := a.modal.Input
+		reason := input
 		if reason == "" {
 			reason = "blocked from TUI"
 		}
-		return blockSpec(a.rc, specID, reason, a.rc.UserName())
+		return a.startAction("blocking "+specID, blockSpec(a.rc, specID, reason, a.rc.UserName()))
 	case "unblock":
-		return unblockSpec(a.rc, specID)
-	case "revert":
-		reason := a.modal.Input
-		if reason == "" {
-			reason = "reverted from TUI"
-		}
-		pl := a.rc.Pipeline()
-		target := ""
-		if len(pl.Stages) > 0 {
-			target = pl.Stages[0].Name
-		}
-		return revertSpec(a.rc, specID, target, reason, a.rc.UserName())
+		return a.startAction("unblocking "+specID, unblockSpec(a.rc, specID))
 	case "decide":
-		question := a.modal.Input
-		if question == "" {
+		if input == "" {
 			return nil
 		}
-		return recordDecision(a.rc, specID, question)
+		return a.startAction("recording decision", recordDecision(a.rc, specID, input))
 	case "new":
-		title := a.modal.Input
-		if title == "" {
+		if input == "" {
 			return nil
 		}
-		return createSpec(a.rc, title)
+		return a.startAction("creating spec", createSpec(a.rc, input))
 	default:
 		return nil
 	}
@@ -950,12 +995,59 @@ func (a App) updateIntake(msg tea.KeyMsg) (App, tea.Cmd) {
 			priority := a.intake.priority
 			source := a.intake.source
 			a.intake.close()
-			return a, createTriageItem(a.rc, title, priority, source)
+			return a, a.startAction("creating triage item", createTriageItem(a.rc, title, priority, source))
 		}
 	case tea.KeyBackspace:
 		a.intake.backspaceField()
+	case tea.KeySpace:
+		a.intake.appendToField(" ")
 	case tea.KeyRunes:
 		a.intake.appendToField(string(msg.Runes))
+	}
+	return a, nil
+}
+
+// updateRevert handles keys within the inline revert form.
+func (a App) updateRevert(msg tea.KeyMsg) (App, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		a.revert.close()
+	case tea.KeyTab:
+		a.revert.nextField()
+	case tea.KeyShiftTab:
+		a.revert.prevField()
+	case tea.KeyEnter:
+		switch {
+		case a.revert.field == revertFieldStage:
+			// Enter on stage cycles the value.
+			a.revert.cycleStage()
+		case a.revert.field == revertFieldReason && a.revert.valid():
+			// Submit from reason field when both fields are filled.
+			specID := a.revert.specID
+			stage := a.revert.selectedStage()
+			reason := a.revert.reason
+			a.revert.close()
+			return a, a.startAction("reverting "+specID, revertSpec(a.rc, specID, stage, reason, a.rc.UserName()))
+		}
+	case tea.KeyBackspace:
+		switch a.revert.field {
+		case revertFieldReason:
+			a.revert.backspaceReason()
+		case revertFieldStage:
+			a.revert.cycleStageReverse()
+		}
+	case tea.KeySpace:
+		if a.revert.field == revertFieldReason {
+			a.revert.appendToReason(" ")
+		}
+	case tea.KeyRunes:
+		switch a.revert.field {
+		case revertFieldReason:
+			a.revert.appendToReason(string(msg.Runes))
+		case revertFieldStage:
+			// On stage field, any rune cycles forward.
+			a.revert.cycleStage()
+		}
 	}
 	return a, nil
 }
@@ -1154,7 +1246,30 @@ func (a App) contentHeight() int {
 	return ch
 }
 
+// startAction marks an action as in-flight and returns the command.
+// The spinner will show the label until an actionResultMsg arrives.
+func (a *App) startAction(label string, cmd tea.Cmd) tea.Cmd {
+	if cmd == nil {
+		return nil
+	}
+	a.actionInFlight = true
+	a.actionLabel = label
+	a.syncBusyState()
+	return cmd
+}
+
 func (a *App) syncBusyState() {
+	// Action mutations take priority for the spinner label.
+	if a.actionInFlight {
+		a.spinnerOn = true
+		label := a.actionLabel
+		if label == "" {
+			label = "working"
+		}
+		a.statusBar.SetBusy(true, label)
+		return
+	}
+
 	busy := a.showDetail && a.detail.readerMode && a.detail.renderInFlight
 	a.spinnerOn = busy
 	if !busy {
