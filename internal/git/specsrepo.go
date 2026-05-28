@@ -301,6 +301,48 @@ func ListTriageFiles(cfg *config.SpecsRepoConfig) ([]string, error) {
 	return listMarkdownFiles(triageDir)
 }
 
+// ArchiveSpec moves a spec from specs/ to archive/ and commits the change.
+func ArchiveSpec(ctx context.Context, cfg *config.SpecsRepoConfig, specID, archiveDir string) error {
+	return WithSpecsRepo(ctx, cfg, func(repoPath string) (string, error) {
+		sd := filepath.Join(repoPath, SpecsSubDir)
+		specPath := filepath.Join(sd, specID+".md")
+		archivePath := filepath.Join(sd, archiveDir, specID+".md")
+
+		if _, err := os.Stat(specPath); err != nil {
+			return "", fmt.Errorf("spec %s not found in specs/: %w", specID, err)
+		}
+
+		if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
+			return "", fmt.Errorf("creating archive directory: %w", err)
+		}
+
+		if _, err := Run(ctx, repoPath, "mv", specPath, archivePath); err != nil {
+			return "", fmt.Errorf("moving %s to archive: %w", specID, err)
+		}
+
+		return fmt.Sprintf("archive: %s", specID), nil
+	})
+}
+
+// RestoreSpec moves a spec from archive/ back to specs/ and commits the change.
+func RestoreSpec(ctx context.Context, cfg *config.SpecsRepoConfig, specID, archiveDir string) error {
+	return WithSpecsRepo(ctx, cfg, func(repoPath string) (string, error) {
+		sd := filepath.Join(repoPath, SpecsSubDir)
+		archivePath := filepath.Join(sd, archiveDir, specID+".md")
+		specPath := filepath.Join(sd, specID+".md")
+
+		if _, err := os.Stat(archivePath); err != nil {
+			return "", fmt.Errorf("spec %s not found in archive: %w", specID, err)
+		}
+
+		if _, err := Run(ctx, repoPath, "mv", archivePath, specPath); err != nil {
+			return "", fmt.Errorf("restoring %s: %w", specID, err)
+		}
+
+		return fmt.Sprintf("restore: %s", specID), nil
+	})
+}
+
 // ListArchiveFiles returns all archived spec files.
 func ListArchiveFiles(cfg *config.SpecsRepoConfig, archiveDir string) ([]string, error) {
 	dir := SpecsRepoDir(cfg)

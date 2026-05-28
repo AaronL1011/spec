@@ -27,6 +27,7 @@ type specDetailDataMsg struct {
 	Sections  []markdown.Section
 	Decisions []markdown.DecisionEntry
 	Hash      string
+	Archived  bool
 	Err       error
 }
 
@@ -54,6 +55,7 @@ type specDetailModel struct {
 	loading     bool
 	err         error
 	contentHash string
+	isArchived  bool // true if spec is in archive/
 
 	// Overview scroll
 	scroll       int
@@ -149,6 +151,7 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	m.decisions = msg.Decisions
 	m.err = nil
 	m.contentHash = msg.Hash
+	m.isArchived = msg.Archived
 	m.readerCache = make(map[string]string)
 	m.contentLines = m.estimateContentLines()
 	if wasReading {
@@ -551,7 +554,22 @@ func (m specDetailModel) viewOverview() string {
 		}
 		fmt.Fprintf(&b, "%s%s %s%s\n", indent, fill, sec.Slug, owner)
 	}
-	b.WriteString("\n" + m.styles.Muted.Render("  o to read sections") + "\n")
+	// Contextual action hints
+	var hints string
+	if m.isArchived {
+		hints = fmt.Sprintf("  %s archive  %s read sections  %s edit  %s back",
+			m.styles.Accent.Render("r"),
+			m.styles.Accent.Render("o"),
+			m.styles.Accent.Render("e"),
+			m.styles.Accent.Render("esc"))
+	} else {
+		hints = fmt.Sprintf("  %s archive  %s read sections  %s edit  %s back",
+			m.styles.Accent.Render("d"),
+			m.styles.Accent.Render("o"),
+			m.styles.Accent.Render("e"),
+			m.styles.Accent.Render("esc"))
+	}
+	b.WriteString(m.styles.Muted.Render(hints) + "\n")
 
 	lines := splitLines(b.String())
 	visible := m.height
@@ -719,10 +737,17 @@ func (m specDetailModel) fetchData() tea.Cmd {
 			return specDetailDataMsg{Err: fmt.Errorf("specs repo not configured")}
 		}
 		path := filepath.Join(rc.SpecsRepoDir, specID+".md")
+		isArchived := false
 		if _, err := os.Stat(path); err != nil {
 			path = filepath.Join(rc.SpecsRepoDir, "triage", specID+".md")
 			if _, err := os.Stat(path); err != nil {
-				return specDetailDataMsg{Err: fmt.Errorf("spec %s not found", specID)}
+				// Check archive
+				archDir := config.ArchiveDir(rc.Team)
+				path = filepath.Join(rc.SpecsRepoDir, archDir, specID+".md")
+				if _, err := os.Stat(path); err != nil {
+					return specDetailDataMsg{Err: fmt.Errorf("spec %s not found", specID)}
+				}
+				isArchived = true
 			}
 		}
 		data, err := os.ReadFile(path)
@@ -740,6 +765,7 @@ func (m specDetailModel) fetchData() tea.Cmd {
 			Sections:  markdown.ExtractSections(content),
 			Decisions: decisions,
 			Hash:      contentHash(data),
+			Archived:  isArchived,
 		}
 	}
 }

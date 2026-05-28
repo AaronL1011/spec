@@ -885,6 +885,31 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 		a.modal.ShowInput("Record Decision — "+specID, "Question or decision to record:")
 		a.modal.SetSize(a.width, a.contentHeight())
 		return nil, true
+	// Archive: only on non-archived specs. When in list view, only in active list mode.
+	// When in detail, only when the spec is not archived.
+	// Uses a confirmation modal as a safety guard.
+	case key.Matches(msg, a.keys.Archive) && isSpecID(specID):
+		if a.showDetail && a.detail.isArchived {
+			// archived spec in detail view: ignore
+		} else {
+			a.pendingAction = "archive"
+			a.pendingSpecID = specID
+			a.modal.ShowConfirm("Archive "+specID, "Remove this spec from the active list?")
+			a.modal.SetSize(a.width, a.contentHeight())
+			return nil, true
+		}
+	// Restore: only on archived specs. When in list view, only in archive list mode.
+	// When in detail, only when the spec is archived.
+	// Uses a confirmation modal as a safety guard.
+	case key.Matches(msg, a.keys.Restore) && isSpecID(specID):
+		isArch := (a.activeView == ViewSpecs && a.specs.archiveMode) || (a.showDetail && a.detail.isArchived)
+		if isArch {
+			a.pendingAction = "restore"
+			a.pendingSpecID = specID
+			a.modal.ShowConfirm("Restore "+specID, "Return this spec to the active list?")
+			a.modal.SetSize(a.width, a.contentHeight())
+			return nil, true
+		}
 	}
 	return nil, false
 }
@@ -950,6 +975,16 @@ func (a *App) executeActionWithInput(input string) tea.Cmd {
 		return a.startAction("blocking "+specID, blockSpec(a.rc, specID, reason, a.rc.UserName()))
 	case "unblock":
 		return a.startAction("unblocking "+specID, unblockSpec(a.rc, specID))
+	case "archive":
+		if a.showDetail {
+			a.closeDetail()
+		}
+		return a.startAction("archiving "+specID, archiveSpec(a.rc, specID))
+	case "restore":
+		if a.showDetail {
+			a.closeDetail()
+		}
+		return a.startAction("restoring "+specID, restoreSpec(a.rc, specID))
 	case "decide":
 		if input == "" {
 			return nil

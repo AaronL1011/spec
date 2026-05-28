@@ -152,6 +152,69 @@ func TestSpecList_RowFitsWidth(t *testing.T) {
 	}
 }
 
+func TestSpecList_ArchiveToggle(t *testing.T) {
+	m := testSpecListModel()
+	m.allSpecs = []specListItem{
+		{ID: "SPEC-001", Title: "Auth"},
+	}
+	m.applyFilter()
+
+	// Initial state: not in archive mode
+	if m.archiveMode {
+		t.Error("initial archiveMode should be false")
+	}
+
+	// Toggle with 'x'
+	m, _ = m.update(keyMsg("x"))
+	if !m.archiveMode {
+		t.Error("after 'x', archiveMode should be true")
+	}
+	if m.cursor != 0 {
+		t.Errorf("cursor should reset to 0 after toggle, got %d", m.cursor)
+	}
+
+	// Toggle back with 'x'
+	m, _ = m.update(keyMsg("x"))
+	if m.archiveMode {
+		t.Error("after second 'x', archiveMode should be false")
+	}
+}
+
+func TestSpecList_ArchiveView_Empty(t *testing.T) {
+	m := testSpecListModel()
+	m.archiveMode = true
+	m.allSpecs = nil
+	m.applyFilter()
+
+	got := m.view()
+	if !strings.Contains(got, "No archived specs") {
+		t.Errorf("archive mode empty should show 'No archived specs', got: %q", got)
+	}
+}
+
+func TestSpecList_ArchiveView_Hints(t *testing.T) {
+	m := testSpecListModel()
+	m.allSpecs = []specListItem{
+		{ID: "SPEC-001", Title: "Auth"},
+	}
+	m.applyFilter()
+
+	// Active list shows "x archive" hint
+	got := m.view()
+	if !strings.Contains(got, "x") || !strings.Contains(got, "archive") {
+		t.Error("active list should show 'x archive' hint")
+	}
+
+	// Archive list shows "x specs" hint
+	m.archiveMode = true
+	m.allSpecs = nil
+	m.applyFilter()
+	got = m.view()
+	if !strings.Contains(got, "x") || !strings.Contains(got, "specs") {
+		t.Error("archive list should show 'x specs' hint")
+	}
+}
+
 func TestScrollWindow(t *testing.T) {
 	tests := []struct {
 		cursor, total, visible int
