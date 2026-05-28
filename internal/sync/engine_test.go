@@ -333,7 +333,7 @@ Local edit
 		ConflictStrategy: ConflictAbort,
 		OwnerRole:        "tl",
 	})
-	if err != ErrSyncConflict {
+	if !errors.Is(err, ErrSyncConflict) {
 		t.Fatalf("Run() error = %v, want ErrSyncConflict", err)
 	}
 	if report == nil || len(report.Conflicts) != 1 {

@@ -62,7 +62,7 @@ func TestCollectOwnedSpecs(t *testing.T) {
 	// Specs in various stages
 	writeSpecFileWithOwner(t, dir, "SPEC-001.md", "draft", "pm")
 	writeSpecFileWithOwner(t, dir, "SPEC-002.md", "build", "engineer")
-	writeSpecFileWithOwner(t, dir, "SPEC-003.md", "done", "tl")         // terminal — should be excluded
+	writeSpecFileWithOwner(t, dir, "SPEC-003.md", "done", "tl") // terminal — should be excluded
 	writeSpecFileWithOwner(t, dir, "SPEC-004.md", "pr-review", "engineer")
 
 	pipe := config.DefaultPipeline()

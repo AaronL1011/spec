@@ -20,7 +20,7 @@ Use default mode to see specs awaiting your role, --mine to focus on your
 work, --all for a stage-grouped pipeline view, and --triage to inspect
 unpromoted intake items.`,
 	Example: "  spec list\n  spec list --mine\n  spec list --all\n  spec list --triage",
-	RunE:  runList,
+	RunE:    runList,
 }
 
 func init() {
@@ -111,12 +111,12 @@ func listTriage(rc *config.ResolvedConfig) error {
 }
 
 type specSummary struct {
-	ID      string
-	Title   string
-	Status  string
-	Owner   string
-	Blocked bool
-	Steps   int
+	ID        string
+	Title     string
+	Status    string
+	Owner     string
+	Blocked   bool
+	Steps     int
 	StepsDone int
 }
 
@@ -133,7 +133,7 @@ func loadAllSpecs(rc *config.ResolvedConfig) ([]specSummary, error) {
 		if err != nil {
 			continue
 		}
-		
+
 		// Count steps progress
 		var stepsDone, stepsTotal int
 		var hasBlocked bool
@@ -146,7 +146,7 @@ func loadAllSpecs(rc *config.ResolvedConfig) ([]specSummary, error) {
 				hasBlocked = true
 			}
 		}
-		
+
 		specs = append(specs, specSummary{
 			ID:        meta.ID,
 			Title:     meta.Title,
@@ -218,11 +218,11 @@ func listAllByStage(specs []specSummary, pipeline config.PipelineConfig) error {
 	return nil
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	return s[:max-3] + "..."
+	return s[:maxLen-3] + "..."
 }
 
 func priorityIndicator(priority string) string {
@@ -258,11 +258,12 @@ func listMine(specs []specSummary, pipeline config.PipelineConfig, userName stri
 	// Group by status for better readability
 	var needsAction, inProgress, blocked []specSummary
 	for _, s := range mine {
-		if s.Blocked {
+		switch {
+		case s.Blocked:
 			blocked = append(blocked, s)
-		} else if s.Status == "build" || s.Status == "engineering" {
+		case s.Status == "build" || s.Status == "engineering":
 			inProgress = append(inProgress, s)
-		} else {
+		default:
 			needsAction = append(needsAction, s)
 		}
 	}

@@ -3,6 +3,7 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -85,7 +86,7 @@ func TestEmbed_NotSupported(t *testing.T) {
 	if result != nil {
 		t.Errorf("expected nil result, got %v", result)
 	}
-	if err != ErrEmbeddingsNotSupported {
+	if !errors.Is(err, ErrEmbeddingsNotSupported) {
 		t.Errorf("expected ErrEmbeddingsNotSupported, got %v", err)
 	}
 }

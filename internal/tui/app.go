@@ -937,13 +937,14 @@ func (a App) updateIntake(msg tea.KeyMsg) (App, tea.Cmd) {
 	case tea.KeyShiftTab:
 		a.intake.prevField()
 	case tea.KeyEnter:
-		if a.intake.field == intakeFieldPriority {
+		switch {
+		case a.intake.field == intakeFieldPriority:
 			// Enter on priority cycles the value.
 			a.intake.cyclePriority()
-		} else if a.intake.field == intakeFieldTitle {
+		case a.intake.field == intakeFieldTitle:
 			// Enter on title advances to next field, not submit.
 			a.intake.nextField()
-		} else if a.intake.valid() {
+		case a.intake.valid():
 			// Submit only from the last field (source).
 			title := a.intake.title
 			priority := a.intake.priority

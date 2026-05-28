@@ -163,7 +163,7 @@ func buildStandupText(rc *config.ResolvedConfig, reg *adapter.Registry, db *stor
 		b.WriteString("    (none)\n")
 	} else {
 		for _, bl := range blockers {
-			b.WriteString(fmt.Sprintf("    • %s\n", bl))
+			fmt.Fprintf(&b, "    • %s\n", bl)
 		}
 	}
 

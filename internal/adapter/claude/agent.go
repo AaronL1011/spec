@@ -5,6 +5,7 @@ package claude
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -47,7 +48,8 @@ func (a *Agent) Invoke(ctx context.Context, contextFile string, workDir string) 
 	if err := cmd.Run(); err != nil {
 		// Exit code 0 is normal (user quit). Non-zero may be a real error
 		// or the user pressing Ctrl-C — both are acceptable.
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		exitErr := &exec.ExitError{}
+		if errors.As(err, &exitErr) {
 			if exitErr.ExitCode() == 130 || exitErr.ExitCode() == 2 {
 				// SIGINT / Ctrl-C — not an error.
 				return nil

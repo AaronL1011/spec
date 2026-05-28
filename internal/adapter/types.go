@@ -33,11 +33,11 @@ type Mention struct {
 
 // SpecMeta is a lightweight spec summary for adapter use.
 type SpecMeta struct {
-	ID       string
-	Title    string
-	Status   string
-	EpicKey  string
-	Repos    []string
+	ID      string
+	Title   string
+	Status  string
+	EpicKey string
+	Repos   []string
 }
 
 // PMUpdate represents status changes from a PM tool.
@@ -64,7 +64,7 @@ type PullRequest struct {
 // PRDetail represents detailed PR information.
 type PRDetail struct {
 	PullRequest
-	ReviewComments int
+	ReviewComments    int
 	UnresolvedThreads int
 }
 

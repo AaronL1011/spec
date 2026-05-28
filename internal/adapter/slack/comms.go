@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	slackapi "github.com/slack-go/slack"
 	"github.com/aaronl1011/spec/internal/adapter"
+	slackapi "github.com/slack-go/slack"
 )
 
 // Client implements adapter.CommsAdapter using the Slack API.
@@ -76,10 +76,10 @@ func (c *Client) FetchMentions(ctx context.Context, since time.Time) ([]adapter.
 	query := fmt.Sprintf("SPEC- after:%s", since.Format("2006-01-02"))
 
 	params := slackapi.SearchParameters{
-		Sort:      "timestamp",
+		Sort:          "timestamp",
 		SortDirection: "desc",
-		Count:     20,
-		Page:      1,
+		Count:         20,
+		Page:          1,
 	}
 
 	msgs, err := c.api.SearchMessagesContext(ctx, query, params)

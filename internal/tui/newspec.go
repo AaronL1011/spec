@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -18,7 +19,7 @@ func createSpec(rc *config.ResolvedConfig, title string) tea.Cmd {
 	return func() tea.Msg {
 		specFiles, _ := gitpkg.ListSpecFiles(&rc.Team.SpecsRepo)
 		archiveFiles, _ := gitpkg.ListArchiveFiles(&rc.Team.SpecsRepo, config.ArchiveDir(rc.Team))
-		allFiles := append(specFiles, archiveFiles...)
+		allFiles := slices.Concat(specFiles, archiveFiles)
 		specID := markdown.NextSpecID(allFiles)
 
 		author := gitpkg.UserName(context.Background())

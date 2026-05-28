@@ -68,8 +68,8 @@ type ACContext struct {
 
 // ItemsContext contains item count information.
 type ItemsContext struct {
-	Count    int `expr:"count"`
-	Checked  int `expr:"checked"`
+	Count     int `expr:"count"`
+	Checked   int `expr:"checked"`
 	Unchecked int `expr:"unchecked"`
 }
 
@@ -160,8 +160,6 @@ func NewContext() Context {
 		Sections: make(map[string]SectionContext),
 	}
 }
-
-
 
 func init() {
 	// Register custom functions available in expressions

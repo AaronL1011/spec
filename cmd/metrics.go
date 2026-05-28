@@ -161,5 +161,3 @@ func scanSpecsByStage(specsDir string) map[string]int {
 	}
 	return counts
 }
-
-

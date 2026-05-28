@@ -107,9 +107,10 @@ func runTeamConfigInit(cmd *cobra.Command) error {
 	// Select pipeline preset
 	var presetName string
 	presetFlag, _ := cmd.Flags().GetString("preset")
-	if presetFlag != "" {
+	switch {
+	case presetFlag != "":
 		presetName = presetFlag
-	} else if tui.IsInteractive() {
+	case tui.IsInteractive():
 		// Build preset options from available presets
 		var presetOptions []tui.PresetOption
 		for _, name := range pipeline.PresetNames() {
@@ -141,7 +142,7 @@ func runTeamConfigInit(cmd *cobra.Command) error {
 				break
 			}
 		}
-	} else {
+	default:
 		// Non-interactive: use minimal preset
 		presetName = "minimal"
 		fmt.Printf("Using preset: %s (use --preset to specify)\n", presetName)

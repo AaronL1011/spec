@@ -13,7 +13,7 @@ import (
 type Comms struct{}
 
 func (Comms) Notify(ctx context.Context, msg adapter.Notification) error           { return nil }
-func (Comms) PostStandup(ctx context.Context, standup adapter.StandupReport) error  { return nil }
+func (Comms) PostStandup(ctx context.Context, standup adapter.StandupReport) error { return nil }
 func (Comms) FetchMentions(ctx context.Context, since time.Time) ([]adapter.Mention, error) {
 	return nil, nil
 }
@@ -22,7 +22,7 @@ func (Comms) FetchMentions(ctx context.Context, since time.Time) ([]adapter.Ment
 type PM struct{}
 
 func (PM) CreateEpic(ctx context.Context, spec adapter.SpecMeta) (string, error) { return "", nil }
-func (PM) UpdateStatus(ctx context.Context, epicKey string, status string) error  { return nil }
+func (PM) UpdateStatus(ctx context.Context, epicKey string, status string) error { return nil }
 func (PM) FetchUpdates(ctx context.Context, epicKey string) (*adapter.PMUpdate, error) {
 	return nil, nil
 }

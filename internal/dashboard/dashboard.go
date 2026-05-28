@@ -32,7 +32,6 @@ type DashboardData struct {
 	Incoming []DashboardItem `json:"incoming"`
 	Blocked  []DashboardItem `json:"blocked"`
 	FYI      []DashboardItem `json:"fyi"`
-
 }
 
 // Render outputs the dashboard to the terminal.
@@ -238,11 +237,11 @@ func countCompletedSpecs(data *DashboardData) int {
 	return len(data.FYI)
 }
 
-func truncStr(s string, max int) string {
-	if len(s) <= max {
+func truncStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	return s[:max-3] + "..."
+	return s[:maxLen-3] + "..."
 }
 
 func timeAgo(t time.Time) string {

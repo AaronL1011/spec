@@ -12,8 +12,8 @@ import (
 // Service wraps an AIAdapter with null-safe semantics.
 // Every method returns empty/nil when the adapter is nil or unconfigured.
 type Service struct {
-	adapter  adapter.AIAdapter
-	enabled  bool
+	adapter adapter.AIAdapter
+	enabled bool
 }
 
 // NewService creates an AI service. If adapter is nil or disabled, all methods

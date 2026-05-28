@@ -103,9 +103,9 @@ func TestGenericHandler_ToolList(t *testing.T) {
 	dir := t.TempDir()
 
 	specs := []struct {
-		id      string
-		status  string
-		title   string
+		id     string
+		status string
+		title  string
 	}{
 		{"SPEC-001", "build", "First Spec"},
 		{"SPEC-002", "review", "Second Spec"},

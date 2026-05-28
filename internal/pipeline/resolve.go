@@ -88,16 +88,17 @@ func Resolve(cfg config.PipelineConfig) (*ResolvedPipeline, error) {
 	var skipped []string
 
 	// Step 1: Start with preset or explicit stages
-	if cfg.Preset != "" {
+	switch {
+	case cfg.Preset != "":
 		preset, err := LoadPreset(cfg.Preset)
 		if err != nil {
 			return nil, fmt.Errorf("loading preset %q: %w", cfg.Preset, err)
 		}
 		stages = preset.Stages
 		presetName = cfg.Preset
-	} else if len(cfg.Stages) > 0 {
+	case len(cfg.Stages) > 0:
 		stages = cfg.Stages
-	} else {
+	default:
 		// No preset, no stages - use default
 		defaultPipeline := config.DefaultPipeline()
 		stages = defaultPipeline.Stages
@@ -200,8 +201,8 @@ func applyStageOverrides(base, overrides []config.StageConfig) []config.StageCon
 		baseMap[s.Name] = i
 	}
 
-	result := make([]config.StageConfig, len(base))
-	copy(result, base)
+	result := make([]config.StageConfig, 0, len(base)+len(overrides))
+	result = append(result, base...)
 
 	for _, override := range overrides {
 		if idx, ok := baseMap[override.Name]; ok {

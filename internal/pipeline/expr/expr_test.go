@@ -150,9 +150,9 @@ func TestEvaluate(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "invalid expression",
-			expr: "this.is.not.valid ++ 123",
-			ctx:  NewContext(),
+			name:    "invalid expression",
+			expr:    "this.is.not.valid ++ 123",
+			ctx:     NewContext(),
 			wantErr: true,
 		},
 	}

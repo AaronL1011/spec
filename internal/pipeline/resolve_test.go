@@ -463,11 +463,11 @@ func TestShouldSkipStage(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		stageName  string
-		labels     []string
-		wordCount  int
-		wantSkip   bool
+		name      string
+		stageName string
+		labels    []string
+		wordCount int
+		wantSkip  bool
 	}{
 		{
 			name:      "design not skipped",

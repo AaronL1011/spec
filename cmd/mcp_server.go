@@ -206,8 +206,7 @@ func (h *combinedHandler) ListTools() []mcp.Tool {
 
 func (h *combinedHandler) CallTool(name string, args json.RawMessage) (*mcp.ToolResult, error) {
 	// Build-specific tools
-	switch name {
-	case "spec_step_complete":
+	if name == "spec_step_complete" {
 		r, err := h.build.CallTool(name, args)
 		if err != nil {
 			return nil, err
@@ -218,4 +217,3 @@ func (h *combinedHandler) CallTool(name string, args json.RawMessage) (*mcp.Tool
 	// Generic tools
 	return h.generic.CallTool(name, args)
 }
-

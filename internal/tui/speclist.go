@@ -129,13 +129,14 @@ func (m specListModel) view() string {
 	var b strings.Builder
 
 	// Search bar
-	if m.searchActive {
+	switch {
+	case m.searchActive:
 		prompt := m.styles.Accent.Render("  / ") + m.searchQuery + m.styles.Muted.Render("▌")
 		b.WriteString(prompt)
-	} else if m.searchQuery != "" {
+	case m.searchQuery != "":
 		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  filter: %s  ", m.searchQuery)))
 		b.WriteString(m.styles.Muted.Render("(/ to search, esc to clear)"))
-	} else {
+	default:
 		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  %d specs  ", len(m.filtered))))
 		b.WriteString(m.styles.Muted.Render("(/ to search)"))
 	}

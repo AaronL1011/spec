@@ -522,9 +522,9 @@ func TestCurrentStep_NoSteps(t *testing.T) {
 
 func TestAllStepsComplete(t *testing.T) {
 	tests := []struct {
-		name   string
-		steps  []BuildStep
-		want   bool
+		name  string
+		steps []BuildStep
+		want  bool
 	}{
 		{"no steps", nil, false},
 		{"all complete", []BuildStep{{Status: StepStatusComplete}, {Status: StepStatusComplete}}, true},
