@@ -36,20 +36,20 @@ type KeyMap struct {
 	Quit    key.Binding
 
 	// Spec actions
-	Advance    key.Binding
-	Edit       key.Binding
-	Build      key.Binding
-	Block      key.Binding // x — toggle block (confirm modal)
-	Unblock    key.Binding // u — explicit unblock (kept for dispatch)
-	Revert     key.Binding
-	Focus      key.Binding // f — toggle focus
-	Open       key.Binding
-	Yank       key.Binding
-	Decide     key.Binding
-	Push       key.Binding
-	Sync       key.Binding
-	Archive    key.Binding // g a — archive (confirm modal)
-	Restore    key.Binding // g r — restore (confirm modal)
+	Advance key.Binding
+	Edit    key.Binding
+	Build   key.Binding
+	Block   key.Binding // x — toggle block (confirm modal)
+	Unblock key.Binding // u — explicit unblock (kept for dispatch)
+	Revert  key.Binding
+	Focus   key.Binding // f — toggle focus
+	Open    key.Binding
+	Yank    key.Binding
+	Decide  key.Binding
+	Push    key.Binding
+	Sync    key.Binding
+	Archive key.Binding // g a — archive (confirm modal)
+	Restore key.Binding // g r — restore (confirm modal)
 
 	// Creation
 	NewSpec   key.Binding

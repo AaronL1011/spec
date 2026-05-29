@@ -82,11 +82,11 @@ func (m helpModel) maxScroll(lines []string) int {
 	if visible < 1 {
 		visible = 1
 	}
-	max := len(lines) - visible
-	if max < 0 {
+	mx := len(lines) - visible
+	if mx < 0 {
 		return 0
 	}
-	return max
+	return mx
 }
 
 // renderContent returns the full unclipped help text.
