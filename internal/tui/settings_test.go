@@ -187,6 +187,115 @@ func TestSettings_ConfirmNameDispatchesPersist(t *testing.T) {
 	}
 }
 
+func TestSettings_TypeHLIntoTextField(t *testing.T) {
+	rc := testResolvedConfig()
+	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
+	m.mode = settingsEditing
+	m.focused = fieldName
+	m.draft = ""
+
+	for _, r := range []rune{'h', 'e', 'l', 'l', 'o'} {
+		m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.draft != "hello" {
+		t.Errorf("draft = %q, want hello (l/h must be typable in text fields)", m.draft)
+	}
+}
+
+func TestSettings_SpaceIntoTextField(t *testing.T) {
+	rc := testResolvedConfig()
+	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
+	m.mode = settingsEditing
+	m.focused = fieldName
+	m.draft = "John"
+
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeySpace})
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+	if m.draft != "John D" {
+		t.Errorf("draft = %q, want %q", m.draft, "John D")
+	}
+}
+
+func TestSettings_CycleThemeWithHL(t *testing.T) {
+	rc := testResolvedConfig()
+	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
+	m.mode = settingsEditing
+	m.focused = fieldTheme
+	m.enumIdx = 0
+	m.draft = ThemeNames()[0]
+
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if m.draft != ThemeNames()[1] {
+		t.Errorf("theme after l = %q, want %q", m.draft, ThemeNames()[1])
+	}
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	if m.draft != ThemeNames()[0] {
+		t.Errorf("theme after h = %q, want %q", m.draft, ThemeNames()[0])
+	}
+}
+
+func TestSettings_ThemeCyclePreviews(t *testing.T) {
+	rc := testResolvedConfig()
+	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
+	m.mode = settingsEditing
+	m.focused = fieldTheme
+	m.enumIdx = 0
+	m.draft = ThemeNames()[0]
+
+	m, cmd := m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if cmd == nil {
+		t.Fatal("cycling theme in edit mode should emit a preview command")
+	}
+	msg, ok := cmd().(settingsThemePreviewMsg)
+	if !ok {
+		t.Fatalf("expected settingsThemePreviewMsg, got %T", cmd())
+	}
+	if msg.Theme != ThemeNames()[1] {
+		t.Errorf("preview theme = %q, want %q", msg.Theme, ThemeNames()[1])
+	}
+}
+
+func TestSettings_RoleCycleDoesNotPreview(t *testing.T) {
+	rc := testResolvedConfig()
+	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
+	m.mode = settingsEditing
+	m.focused = fieldRole
+	m.enumIdx = 0
+
+	_, cmd := m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if cmd != nil {
+		t.Error("cycling a non-theme enum field should not emit a preview command")
+	}
+}
+
+func TestSettings_ThemeCancelRevertsPreview(t *testing.T) {
+	rc := testResolvedConfig()
+	rc.User.Preferences.Theme = "dracula"
+	m := newSettings(rc, NewStyles(ResolveTheme("dracula")), DefaultKeyMap())
+	m.focused = fieldTheme
+
+	// Begin edit captures the original theme as the revert target.
+	m, _ = m.beginEdit()
+	// Preview a different theme by cycling.
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+
+	// Cancel should request a preview back to the original value.
+	m, cmd := m.update(tea.KeyMsg{Type: tea.KeyEscape})
+	if cmd == nil {
+		t.Fatal("cancelling a theme edit should emit a revert preview command")
+	}
+	msg, ok := cmd().(settingsThemePreviewMsg)
+	if !ok {
+		t.Fatalf("expected settingsThemePreviewMsg, got %T", cmd())
+	}
+	if msg.Theme != "dracula" {
+		t.Errorf("revert preview theme = %q, want dracula", msg.Theme)
+	}
+	if m.mode != settingsBrowse {
+		t.Error("cancel should return to browse mode")
+	}
+}
+
 func TestSettings_CycleRoleInEditMode(t *testing.T) {
 	rc := testResolvedConfig()
 	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())

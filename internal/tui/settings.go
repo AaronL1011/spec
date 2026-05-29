@@ -42,6 +42,19 @@ type settingsPersistedMsg struct {
 	Err   error
 }
 
+// settingsThemePreviewMsg asks the app to apply a theme for live preview while
+// the user edits the Theme field. The preview is not persisted: it is replaced
+// on every selection change, reverted to the original on cancel, and committed
+// only when the edit is confirmed.
+type settingsThemePreviewMsg struct {
+	Theme string
+}
+
+// previewTheme builds the command that triggers a live theme preview.
+func previewTheme(name string) tea.Cmd {
+	return func() tea.Msg { return settingsThemePreviewMsg{Theme: name} }
+}
+
 // settingsModel shows config, integration status, and editable user preferences.
 type settingsModel struct {
 	rc *config.ResolvedConfig
@@ -131,32 +144,31 @@ func (m settingsModel) updateBrowse(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 func (m settingsModel) updateEditing(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Back):
-		m.cancelEdit()
-		return m, nil
+		return m.cancelEdit()
 	case key.Matches(msg, m.keys.Enter):
 		return m.confirmEdit()
 	case msg.Type == tea.KeySpace:
 		if m.focused == fieldRole || m.focused == fieldTheme {
 			m.cycleEnumForward()
+			return m, m.themePreviewCmd()
+		} else if m.isTextField(m.focused) {
+			m.appendDraft(" ")
 		}
 	case msg.Type == tea.KeyRunes:
-		switch string(msg.Runes) {
-		case " ":
-			if m.focused == fieldRole || m.focused == fieldTheme {
+		runes := string(msg.Runes)
+		// l/h cycle enum fields (Role/Theme); for text fields they are
+		// ordinary characters and must be inserted like any other rune.
+		if m.focused == fieldRole || m.focused == fieldTheme {
+			switch runes {
+			case " ", "l":
 				m.cycleEnumForward()
+				return m, m.themePreviewCmd()
+			case "h":
+				m.cycleEnumReverse()
+				return m, m.themePreviewCmd()
 			}
-		case "l", "h":
-			if m.focused == fieldRole || m.focused == fieldTheme {
-				if string(msg.Runes) == "l" {
-					m.cycleEnumForward()
-				} else {
-					m.cycleEnumReverse()
-				}
-			}
-		default:
-			if m.isTextField(m.focused) {
-				m.appendDraft(string(msg.Runes))
-			}
+		} else if m.isTextField(m.focused) {
+			m.appendDraft(runes)
 		}
 	case msg.Type == tea.KeyBackspace:
 		if m.isTextField(m.focused) {
@@ -164,6 +176,14 @@ func (m settingsModel) updateEditing(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// themePreviewCmd previews the current Theme draft, or nil for other fields.
+func (m settingsModel) themePreviewCmd() tea.Cmd {
+	if m.focused != fieldTheme {
+		return nil
+	}
+	return previewTheme(m.draftEnumValue(fieldTheme))
 }
 
 func (m *settingsModel) focusNext() {
@@ -184,11 +204,18 @@ func (m *settingsModel) beginEdit() (settingsModel, tea.Cmd) {
 	return *m, nil
 }
 
-func (m *settingsModel) cancelEdit() {
+func (m settingsModel) cancelEdit() (settingsModel, tea.Cmd) {
+	// Revert any live theme preview back to the value captured when the edit
+	// began before discarding the draft.
+	var cmd tea.Cmd
+	if m.focused == fieldTheme {
+		cmd = previewTheme(m.snapshots[fieldTheme])
+	}
 	m.mode = settingsBrowse
 	m.fieldErr = ""
 	m.draft = ""
 	m.dirty = false
+	return m, cmd
 }
 
 func (m settingsModel) confirmEdit() (settingsModel, tea.Cmd) {

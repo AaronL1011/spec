@@ -309,6 +309,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.applySettingsField(msg.Field)
 		return a, nil
 
+	case settingsThemePreviewMsg:
+		// Live, non-persisted preview while editing the Theme field.
+		a.applyTheme(msg.Theme)
+		return a, nil
+
 	case settingsPersistedMsg:
 		var cmd tea.Cmd
 		a.settings, cmd = a.settings.update(msg)
