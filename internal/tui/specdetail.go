@@ -601,11 +601,11 @@ func composeContentColumn(viewportView string, pane []string, height int) []stri
 		prose = append(prose, "")
 	}
 
-	out := append(prose, pane...)
-	if len(out) > height {
-		out = out[:height]
+	prose = append(prose, pane...)
+	if len(prose) > height {
+		prose = prose[:height]
 	}
-	return out
+	return prose
 }
 
 func (m specDetailModel) viewOverview() string {
@@ -773,16 +773,6 @@ func (m *specDetailModel) applyReaderContent(content string) {
 	if m.contentLines == 0 {
 		m.contentLines = 1
 	}
-}
-
-func (m specDetailModel) metaLine(label, value string) string {
-	if value == "" {
-		value = "—"
-	}
-	return fmt.Sprintf("  %s  %s\n",
-		m.styles.Subtitle.Render(fmt.Sprintf("%-10s", label)),
-		m.styles.RowNormal.Render(value),
-	)
 }
 
 func (m *specDetailModel) setSize(w, h int) {

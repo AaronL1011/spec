@@ -425,11 +425,12 @@ func wrapPlain(s string, width int) []string {
 			continue
 		}
 		last := rows[len(rows)-1]
-		if last == "" {
+		switch {
+		case last == "":
 			rows[len(rows)-1] = word
-		} else if len([]rune(last))+1+len([]rune(word)) <= width {
+		case len([]rune(last))+1+len([]rune(word)) <= width:
 			rows[len(rows)-1] = last + " " + word
-		} else {
+		default:
 			rows = append(rows, word)
 		}
 	}

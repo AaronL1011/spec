@@ -26,14 +26,14 @@ func readerWithThreads(threads []thread.Thread) specDetailModel {
 	return m
 }
 
-func openThread(id, section, q string) thread.Thread {
-	return thread.Thread{ID: id, Section: section, Status: thread.StatusOpen, Author: "@mike", Question: q, Created: time.Now()}
+func openThread(id, q string) thread.Thread {
+	return thread.Thread{ID: id, Section: "technical_implementation", Status: thread.StatusOpen, Author: "@mike", Question: q, Created: time.Now()}
 }
 
 func TestThreadPane_SidebarShowsOpenBadge(t *testing.T) {
 	m := readerWithThreads([]thread.Thread{
-		openThread("T-1", "technical_implementation", "Why Redis?"),
-		openThread("T-2", "technical_implementation", "Burst allowance?"),
+		openThread("T-1", "Why Redis?"),
+		openThread("T-2", "Burst allowance?"),
 	})
 	out := m.viewReaderWithSidebar()
 	if !strings.Contains(out, "●2") {
@@ -42,7 +42,7 @@ func TestThreadPane_SidebarShowsOpenBadge(t *testing.T) {
 }
 
 func TestThreadPane_ResolvedThreadsNotInBadge(t *testing.T) {
-	resolved := openThread("T-3", "technical_implementation", "Naming?")
+	resolved := openThread("T-3", "Naming?")
 	resolved.Status = thread.StatusResolved
 	m := readerWithThreads([]thread.Thread{resolved})
 	if got := m.openCountForSection("technical_implementation"); got != 0 {
@@ -51,7 +51,7 @@ func TestThreadPane_ResolvedThreadsNotInBadge(t *testing.T) {
 }
 
 func TestThreadPane_RendersWhenSectionHasThreads(t *testing.T) {
-	m := readerWithThreads([]thread.Thread{openThread("T-1", "technical_implementation", "Why Redis?")})
+	m := readerWithThreads([]thread.Thread{openThread("T-1", "Why Redis?")})
 	pane := m.renderThreadPane(60, 12)
 	if len(pane) == 0 {
 		t.Fatal("expected thread pane to render for a section with threads")
@@ -63,7 +63,7 @@ func TestThreadPane_RendersWhenSectionHasThreads(t *testing.T) {
 }
 
 func TestThreadPane_HiddenWhenToggledOff(t *testing.T) {
-	m := readerWithThreads([]thread.Thread{openThread("T-1", "technical_implementation", "Why Redis?")})
+	m := readerWithThreads([]thread.Thread{openThread("T-1", "Why Redis?")})
 	m, _, handled := m.handleThreadActionKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
 	if !handled {
 		t.Fatal("'t' should be handled")
@@ -107,7 +107,7 @@ func TestThreadPane_InputCapturesTypingAndEscCancels(t *testing.T) {
 }
 
 func TestThreadPane_TabTogglesFocus(t *testing.T) {
-	m := readerWithThreads([]thread.Thread{openThread("T-1", "technical_implementation", "Why Redis?")})
+	m := readerWithThreads([]thread.Thread{openThread("T-1", "Why Redis?")})
 	if m.paneFocused {
 		t.Fatal("pane should start unfocused")
 	}
@@ -119,8 +119,8 @@ func TestThreadPane_TabTogglesFocus(t *testing.T) {
 
 func TestThreadPane_ArrowMovesSelectionWhenFocused(t *testing.T) {
 	m := readerWithThreads([]thread.Thread{
-		openThread("T-1", "technical_implementation", "q1"),
-		openThread("T-2", "technical_implementation", "q2"),
+		openThread("T-1", "q1"),
+		openThread("T-2", "q2"),
 	})
 	m.paneFocused = true
 	m = m.selectThread(1)
