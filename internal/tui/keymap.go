@@ -5,12 +5,16 @@ import "github.com/charmbracelet/bubbles/key"
 // KeyMap defines all keybindings for the TUI.
 type KeyMap struct {
 	// Navigation
-	Up         key.Binding
-	Down       key.Binding
-	Enter      key.Binding
-	Back       key.Binding
-	PageUp     key.Binding
-	PageDown   key.Binding
+	Up       key.Binding
+	Down     key.Binding
+	Enter    key.Binding
+	Back     key.Binding
+	PageUp   key.Binding
+	PageDown key.Binding
+	Home     key.Binding
+	End      key.Binding
+
+	// Scroll (contextual, e.g. settings theme list)
 	ScrollUp   key.Binding
 	ScrollDown key.Binding
 
@@ -32,28 +36,28 @@ type KeyMap struct {
 	Quit    key.Binding
 
 	// Spec actions
-	Advance key.Binding
-	Edit    key.Binding
-	Build   key.Binding
-	Block   key.Binding
-	Unblock key.Binding
-	Revert  key.Binding
-	Focus   key.Binding
-	Unfocus key.Binding
-	Open    key.Binding
-	Yank    key.Binding
-	Decide  key.Binding
-	Push    key.Binding
-	Sync    key.Binding
-
-	// Archive
-	Archive key.Binding
-	Restore key.Binding
+	Advance    key.Binding
+	Edit       key.Binding
+	Build      key.Binding
+	Block      key.Binding // x — toggle block (confirm modal)
+	Unblock    key.Binding // u — explicit unblock (kept for dispatch)
+	Revert     key.Binding
+	Focus      key.Binding // f — toggle focus
+	Open       key.Binding
+	Yank       key.Binding
+	Decide     key.Binding
+	Push       key.Binding
+	Sync       key.Binding
+	Archive    key.Binding // g a — archive (confirm modal)
+	Restore    key.Binding // g r — restore (confirm modal)
 
 	// Creation
 	NewSpec   key.Binding
 	NewIntake key.Binding
-	Standup   key.Binding
+	Standup   key.Binding // g s — standup
+
+	// Prefix keys
+	GPrefix key.Binding // g — arms prefix for g a / g r / g s
 }
 
 // DefaultKeyMap returns the default keybindings.
@@ -75,13 +79,21 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("pgdown"),
 			key.WithHelp("pgdn", "page down"),
 		),
+		Home: key.NewBinding(
+			key.WithKeys("home"),
+			key.WithHelp("home", "top"),
+		),
+		End: key.NewBinding(
+			key.WithKeys("end"),
+			key.WithHelp("end", "bottom"),
+		),
 		ScrollUp: key.NewBinding(
-			key.WithKeys("shift+up", "K"),
-			key.WithHelp("K", "scroll up"),
+			key.WithKeys("shift+up"),
+			key.WithHelp("shift+↑", "scroll up"),
 		),
 		ScrollDown: key.NewBinding(
-			key.WithKeys("shift+down", "J"),
-			key.WithHelp("J", "scroll down"),
+			key.WithKeys("shift+down"),
+			key.WithHelp("shift+↓", "scroll down"),
 		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
@@ -89,7 +101,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Back: key.NewBinding(
 			key.WithKeys("esc"),
-			key.WithHelp("esc", "back"),
+			key.WithHelp("esc", "back / arm exit"),
 		),
 
 		Tab1: key.NewBinding(
@@ -135,12 +147,12 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("/", "search"),
 		),
 		Refresh: key.NewBinding(
-			key.WithKeys("R"),
-			key.WithHelp("R", "refresh"),
+			key.WithKeys("r"),
+			key.WithHelp("r", "refresh"),
 		),
 		Quit: key.NewBinding(
-			key.WithKeys("q", "ctrl+c"),
-			key.WithHelp("q", "quit"),
+			key.WithKeys("ctrl+c"),
+			key.WithHelp("ctrl+c", "hard quit"),
 		),
 
 		Advance: key.NewBinding(
@@ -156,8 +168,8 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("b", "build"),
 		),
 		Block: key.NewBinding(
-			key.WithKeys("B"),
-			key.WithHelp("B", "block"),
+			key.WithKeys("x"),
+			key.WithHelp("x", "toggle block"),
 		),
 		Unblock: key.NewBinding(
 			key.WithKeys("u"),
@@ -169,11 +181,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Focus: key.NewBinding(
 			key.WithKeys("f"),
-			key.WithHelp("f", "focus"),
-		),
-		Unfocus: key.NewBinding(
-			key.WithKeys("F"),
-			key.WithHelp("F", "unfocus"),
+			key.WithHelp("f", "toggle focus"),
 		),
 		Open: key.NewBinding(
 			key.WithKeys("o"),
@@ -195,14 +203,13 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("s"),
 			key.WithHelp("s", "sync"),
 		),
-
 		Archive: key.NewBinding(
-			key.WithKeys("d"),
-			key.WithHelp("d", "archive"),
+			key.WithKeys(),
+			key.WithHelp("g a", "archive"),
 		),
 		Restore: key.NewBinding(
-			key.WithKeys("r"),
-			key.WithHelp("r", "restore"),
+			key.WithKeys(),
+			key.WithHelp("g r", "restore"),
 		),
 
 		NewSpec: key.NewBinding(
@@ -214,25 +221,42 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("i", "intake"),
 		),
 		Standup: key.NewBinding(
-			key.WithKeys("S"),
-			key.WithHelp("S", "standup"),
+			key.WithKeys(),
+			key.WithHelp("g s", "standup"),
+		),
+
+		GPrefix: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("g", "prefix"),
 		),
 	}
 }
 
 // NavigationBindings returns the nav-related bindings for help display.
 func (k KeyMap) NavigationBindings() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Back, k.NextTab, k.PrevTab}
+	return []key.Binding{
+		k.Up, k.Down, k.PageUp, k.PageDown, k.Home, k.End,
+		k.ScrollUp, k.ScrollDown, k.Enter, k.Back,
+	}
 }
 
 // ViewBindings returns the view-switching bindings for help display.
 func (k KeyMap) ViewBindings() []key.Binding {
-	return []key.Binding{k.Tab1, k.Tab2, k.Tab3, k.Tab4, k.Tab5, k.Tab6}
+	return []key.Binding{k.Tab1, k.Tab2, k.Tab3, k.Tab4, k.Tab5, k.Tab6, k.NextTab, k.PrevTab}
 }
 
-// ActionBindings returns the action bindings for help display.
+// ActionBindings returns the spec action bindings for help display.
 func (k KeyMap) ActionBindings() []key.Binding {
-	return []key.Binding{k.Advance, k.Revert, k.Edit, k.Build, k.Block, k.Focus, k.Open, k.Yank, k.Decide, k.Push, k.Sync, k.Archive, k.Restore, k.NewSpec, k.NewIntake, k.Standup}
+	return []key.Binding{
+		k.Advance, k.Revert, k.Edit, k.Build, k.Block, k.Unblock,
+		k.Focus, k.Open, k.Yank, k.Decide, k.Push, k.Sync,
+		k.Archive, k.Restore,
+	}
+}
+
+// CreationBindings returns the creation/tool bindings for help display.
+func (k KeyMap) CreationBindings() []key.Binding {
+	return []key.Binding{k.NewSpec, k.NewIntake, k.Standup}
 }
 
 // GlobalBindings returns bindings shown in every context.
@@ -251,9 +275,16 @@ func (k KeyMap) SettingsBindings() []key.Binding {
 		k.PageDown,
 		k.ScrollUp,
 		k.ScrollDown,
-		key.NewBinding(
-			key.WithKeys("space", "l", "h"),
-			key.WithHelp("space/l/h", "cycle role or theme"),
-		),
 	}
+}
+
+// AllBindings returns every binding for the full help view.
+func (k KeyMap) AllBindings() []key.Binding {
+	var all []key.Binding
+	all = append(all, k.NavigationBindings()...)
+	all = append(all, k.ViewBindings()...)
+	all = append(all, k.ActionBindings()...)
+	all = append(all, k.CreationBindings()...)
+	all = append(all, k.GlobalBindings()...)
+	return all
 }

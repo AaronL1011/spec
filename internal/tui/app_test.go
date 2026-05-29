@@ -74,11 +74,76 @@ func TestApp_TabSwitching(t *testing.T) {
 	}
 }
 
+// TestApp_QuitOnQ verifies that 'q' no longer quits the app (SPEC-010).
+// Quit is now double-esc at the top level or ctrl+c.
 func TestApp_QuitOnQ(t *testing.T) {
 	app := testApp()
 	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	// 'q' must NOT quit any more.
+	if cmd != nil {
+		t.Error("pressing 'q' should NOT return a quit command (retired by SPEC-010)")
+	}
+}
+
+// TestApp_CtrlCQuits verifies that ctrl+c is the hard-quit key.
+func TestApp_CtrlCQuits(t *testing.T) {
+	app := testApp()
+	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
-		t.Error("pressing 'q' should return a quit command")
+		t.Error("ctrl+c should return a quit command")
+	}
+}
+
+// TestApp_DoubleEscQuits verifies the double-esc-to-quit escalation (SPEC-010).
+func TestApp_DoubleEscQuits(t *testing.T) {
+	app := testApp()
+
+	// First esc at top level: arms exit, must NOT quit.
+	model, cmd := app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if cmd != nil {
+		t.Error("first esc at top level should not quit")
+	}
+	a := model.(App)
+	if !a.exitArmed {
+		t.Error("exitArmed should be true after first esc")
+	}
+
+	// Second esc within the window: must quit.
+	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if cmd == nil {
+		t.Error("second esc within arm window should quit")
+	}
+}
+
+// TestApp_SingleEscAtTopDoesNotQuit verifies that a single esc at the top
+// level only arms exit but does not exit (AC-3).
+func TestApp_SingleEscAtTopDoesNotQuit(t *testing.T) {
+	app := testApp()
+	model, cmd := app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if cmd != nil {
+		t.Error("single esc should not quit; it only arms exit")
+	}
+	a := model.(App)
+	if !a.exitArmed {
+		t.Error("exitArmed should be true after first esc at top level")
+	}
+}
+
+// TestApp_NonEscDisarmsExit verifies that pressing any non-esc key after
+// arming exit disarms it without quitting.
+func TestApp_NonEscDisarmsExit(t *testing.T) {
+	app := testApp()
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyEscape}) // arm
+	a := model.(App)
+	if !a.exitArmed {
+		t.Fatal("exitArmed should be true after first esc")
+	}
+
+	// Press '?' (help) — should disarm exit arm but not quit.
+	model, _ = a.Update(keyMsg("?"))
+	a = model.(App)
+	if a.exitArmed {
+		t.Error("exitArmed should be cleared after pressing a non-esc key")
 	}
 }
 
@@ -216,11 +281,11 @@ func TestApp_ModalInputFlow(t *testing.T) {
 	}
 	app.dashboard.items = app.dashboard.buildRows()
 
-	// Press 'B' to block — should open input modal.
-	model, _ := app.Update(keyMsg("B"))
+	// Press 'x' to toggle block — should open input modal.
+	model, _ := app.Update(keyMsg("x"))
 	a := model.(App)
 	if !a.modal.Visible {
-		t.Fatal("modal should be visible after pressing 'B'")
+		t.Fatal("modal should be visible after pressing 'x'")
 	}
 	if a.pendingAction != "block" {
 		t.Errorf("pendingAction = %q, want block", a.pendingAction)
@@ -330,8 +395,8 @@ func TestApp_SpinnerDuringBlock(t *testing.T) {
 	}
 	app.dashboard.items = app.dashboard.buildRows()
 
-	// Open block modal, type reason, submit.
-	model, _ := app.Update(keyMsg("B"))
+	// Open block modal with 'x', type reason, submit.
+	model, _ := app.Update(keyMsg("x"))
 	model, _ = model.Update(keyMsg("blocked"))
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	a := model.(App)
@@ -940,8 +1005,8 @@ func TestApp_ModalInputAcceptsSpaces(t *testing.T) {
 	}
 	app.dashboard.items = app.dashboard.buildRows()
 
-	// Open block modal.
-	model, _ := app.Update(keyMsg("B"))
+	// Open block modal with 'x'.
+	model, _ := app.Update(keyMsg("x"))
 	a := model.(App)
 	if !a.modal.Visible {
 		t.Fatal("modal should be visible")

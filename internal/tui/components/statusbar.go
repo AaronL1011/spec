@@ -19,6 +19,7 @@ type StatusBar struct {
 	width        int
 	busy         bool
 	busyLabel    string
+	exitArmed    bool // true while the first esc has been pressed at the top level
 	spinnerFrame int
 	styles       StatusBarStyles
 }
@@ -59,6 +60,9 @@ func (s *StatusBar) SetBusy(active bool, label string) {
 	s.busyLabel = strings.TrimSpace(label)
 }
 
+// SetExitArmed sets whether the status bar should show the double-esc-to-quit hint.
+func (s *StatusBar) SetExitArmed(armed bool) { s.exitArmed = armed }
+
 // NextSpinner advances the spinner animation frame.
 func (s *StatusBar) NextSpinner() {
 	s.spinnerFrame = (s.spinnerFrame + 1) % len(spinnerFrames)
@@ -97,7 +101,12 @@ func (s StatusBar) View() string {
 	if s.scrollPos != "" {
 		scrollPart = s.styles.Hint.Render(" " + s.scrollPos + " ")
 	}
-	hint := s.styles.Hint.Render(" ? help · q quit ")
+	var hint string
+	if s.exitArmed {
+		hint = s.styles.Pending.Render(" esc again to quit ")
+	} else {
+		hint = s.styles.Hint.Render(" ? help · esc/esc exit ")
+	}
 	clock := s.styles.Clock.Render(time.Now().Format(" 15:04 "))
 
 	left := viewPart
