@@ -349,10 +349,10 @@ func (m *settingsModel) appendDraft(s string) {
 }
 
 func (m *settingsModel) backspaceDraft() {
-	if len(m.draft) == 0 {
+	if m.draft == "" {
 		return
 	}
-	m.draft = m.draft[:len(m.draft)-1]
+	m.draft = dropLastRune(m.draft)
 	m.dirty = m.draft != m.snapshots[m.focused]
 }
 

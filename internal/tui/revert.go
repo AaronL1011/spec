@@ -85,9 +85,7 @@ func (r *revertOverlay) appendToReason(s string) {
 }
 
 func (r *revertOverlay) backspaceReason() {
-	if len(r.reason) > 0 {
-		r.reason = r.reason[:len(r.reason)-1]
-	}
+	r.reason = dropLastRune(r.reason)
 }
 
 func (r *revertOverlay) selectedStage() string {

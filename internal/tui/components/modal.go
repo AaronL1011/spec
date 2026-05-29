@@ -2,6 +2,7 @@ package components
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -67,11 +68,15 @@ func (m *Modal) Hide() {
 // AppendInput adds a character to the input.
 func (m *Modal) AppendInput(s string) { m.Input += s }
 
-// BackspaceInput removes the last character from the input.
+// BackspaceInput removes the last rune from the input. It deletes a whole
+// UTF-8 rune (not a single byte) so backspacing over a multi-byte character
+// never leaves invalid UTF-8 in the captured value.
 func (m *Modal) BackspaceInput() {
-	if len(m.Input) > 0 {
-		m.Input = m.Input[:len(m.Input)-1]
+	if m.Input == "" {
+		return
 	}
+	_, size := utf8.DecodeLastRuneInString(m.Input)
+	m.Input = m.Input[:len(m.Input)-size]
 }
 
 // SetSize updates modal dimensions.

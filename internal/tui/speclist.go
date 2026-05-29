@@ -35,6 +35,7 @@ type specListModel struct {
 	allSpecs     []specListItem
 	filtered     []specListItem
 	loading      bool
+	loaded       bool // true once at least one fetch has succeeded
 	err          error
 	cursor       int
 	searchActive bool
@@ -65,11 +66,15 @@ func (m specListModel) update(msg tea.Msg) (specListModel, tea.Cmd) {
 	case specListDataMsg:
 		m.loading = false
 		if msg.Err != nil {
-			m.err = msg.Err
+			// Keep cached data after the first successful load; degrade gracefully.
+			if !m.loaded {
+				m.err = msg.Err
+			}
 			return m, nil
 		}
 		m.allSpecs = msg.Specs
 		m.err = nil
+		m.loaded = true
 		m.applyFilter()
 		return m, nil
 
@@ -113,8 +118,8 @@ func (m specListModel) updateSearch(msg tea.KeyMsg) (specListModel, tea.Cmd) {
 		// First Esc exits search mode (keeps filter). Second clears filter.
 		m.searchActive = false
 	case tea.KeyBackspace:
-		if len(m.searchQuery) > 0 {
-			m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+		if m.searchQuery != "" {
+			m.searchQuery = dropLastRune(m.searchQuery)
 			m.applyFilter()
 		}
 	case tea.KeyEnter:

@@ -35,6 +35,7 @@ type triageModel struct {
 
 	items   []triageItem
 	loading bool
+	loaded  bool // true once at least one fetch has succeeded
 	err     error
 	cursor  int
 
@@ -62,11 +63,15 @@ func (m triageModel) update(msg tea.Msg) (triageModel, tea.Cmd) {
 	case triageDataMsg:
 		m.loading = false
 		if msg.Err != nil {
-			m.err = msg.Err
+			// Keep cached data after the first successful load; degrade gracefully.
+			if !m.loaded {
+				m.err = msg.Err
+			}
 			return m, nil
 		}
 		m.items = msg.Items
 		m.err = nil
+		m.loaded = true
 		if m.cursor >= len(m.items) {
 			m.cursor = max(0, len(m.items)-1)
 		}
