@@ -76,16 +76,45 @@ func (m pipelineModel) update(msg tea.Msg) (pipelineModel, tea.Cmd) {
 			}
 			return m, nil
 		}
+		// Preserve the currently selected spec ID so we can restore navigation
+		// position after refresh, instead of resetting to the top.
+		savedSelected := m.selectedSpecID()
+		savedStage := m.stageIdx
+
 		m.stages = msg.Stages
 		m.err = nil
 		m.loaded = true
-		// Start on the first non-empty stage so the cursor is immediately
-		// on a selectable spec, not an empty "—" placeholder.
-		if first := m.nextNonEmptyStage(-1); first >= 0 {
-			m.stageIdx = first
-			m.specIdx = 0
-		} else {
-			m.clampCursor()
+
+		// Try to restore the previously selected spec by ID.
+		restored := false
+		if savedSelected != "" {
+			for si, st := range m.stages {
+				for ri, sp := range st.Specs {
+					if sp.ID == savedSelected {
+						m.stageIdx = si
+						m.specIdx = ri
+						restored = true
+						break
+					}
+				}
+				if restored {
+					break
+				}
+			}
+		}
+
+		if !restored {
+			// Try to keep the same stage index if it's still in range and has specs.
+			if savedStage >= 0 && savedStage < len(m.stages) && len(m.stages[savedStage].Specs) > 0 {
+				m.stageIdx = savedStage
+				m.specIdx = 0
+			} else if first := m.nextNonEmptyStage(-1); first >= 0 {
+				// Fall back to the first non-empty stage.
+				m.stageIdx = first
+				m.specIdx = 0
+			} else {
+				m.clampCursor()
+			}
 		}
 		return m, nil
 
