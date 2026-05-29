@@ -100,8 +100,8 @@ func (m specListModel) update(msg tea.Msg) (specListModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Search):
 			m.searchActive = true
 			m.searchQuery = ""
-		case msg.String() == "x":
-			// x in spec list toggles archive mode
+		case key.Matches(msg, m.keys.ToggleArchive):
+			// ` toggles archive list mode
 			m.archiveMode = !m.archiveMode
 			m.cursor = 0
 			m.searchQuery = ""
@@ -158,9 +158,9 @@ func (m specListModel) view() string {
 		b.WriteString(m.styles.Muted.Render("(/ to search, esc to clear)"))
 	default:
 		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  %d %s  ", len(m.filtered), label)))
-		toggle := Hint("x", "archive")
+		toggle := Hint("`", "archive")
 		if m.archiveMode {
-			toggle = Hint("x", "specs")
+			toggle = Hint("`", "specs")
 		}
 		b.WriteString(HintStrip(m.styles, toggle, Hint("/", "search"), Hint("?", "help")))
 	}

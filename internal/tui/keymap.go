@@ -39,8 +39,9 @@ type KeyMap struct {
 	Advance key.Binding
 	Edit    key.Binding
 	Build   key.Binding
-	Block   key.Binding // x — toggle block (confirm modal)
-	Unblock key.Binding // u — explicit unblock (kept for dispatch)
+	Block         key.Binding // x — toggle block (confirm modal)
+	Unblock       key.Binding // u — explicit unblock (kept for dispatch)
+	ToggleArchive key.Binding // ` — toggle archive list in spec tab
 	Revert  key.Binding
 	Focus   key.Binding // f — toggle focus
 	Open    key.Binding
@@ -171,6 +172,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("x"),
 			key.WithHelp("x", "toggle block"),
 		),
+		ToggleArchive: key.NewBinding(
+			key.WithKeys("`"),
+			key.WithHelp("`", "toggle archive list"),
+		),
 		Unblock: key.NewBinding(
 			key.WithKeys("u"),
 			key.WithHelp("u", "unblock"),
@@ -250,7 +255,7 @@ func (k KeyMap) ActionBindings() []key.Binding {
 	return []key.Binding{
 		k.Advance, k.Revert, k.Edit, k.Build, k.Block, k.Unblock,
 		k.Focus, k.Open, k.Yank, k.Decide, k.Push, k.Sync,
-		k.Archive, k.Restore,
+		k.Archive, k.Restore, k.ToggleArchive,
 	}
 }
 

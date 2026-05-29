@@ -164,19 +164,19 @@ func TestSpecList_ArchiveToggle(t *testing.T) {
 		t.Error("initial archiveMode should be false")
 	}
 
-	// Toggle with 'x'
-	m, _ = m.update(keyMsg("x"))
+	// Toggle with '`'
+	m, _ = m.update(keyMsg("`"))
 	if !m.archiveMode {
-		t.Error("after 'x', archiveMode should be true")
+		t.Error("after '`', archiveMode should be true")
 	}
 	if m.cursor != 0 {
 		t.Errorf("cursor should reset to 0 after toggle, got %d", m.cursor)
 	}
 
-	// Toggle back with 'x'
-	m, _ = m.update(keyMsg("x"))
+	// Toggle back with '`'
+	m, _ = m.update(keyMsg("`"))
 	if m.archiveMode {
-		t.Error("after second 'x', archiveMode should be false")
+		t.Error("after second '`', archiveMode should be false")
 	}
 }
 
@@ -199,19 +199,19 @@ func TestSpecList_ArchiveView_Hints(t *testing.T) {
 	}
 	m.applyFilter()
 
-	// Active list shows "x archive" hint
+	// Active list shows "`  archive" hint
 	got := m.view()
-	if !strings.Contains(got, "x") || !strings.Contains(got, "archive") {
-		t.Error("active list should show 'x archive' hint")
+	if !strings.Contains(got, "`") || !strings.Contains(got, "archive") {
+		t.Error("active list should show '` archive' hint")
 	}
 
-	// Archive list shows "x specs" hint
+	// Archive list shows "` specs" hint
 	m.archiveMode = true
 	m.allSpecs = nil
 	m.applyFilter()
 	got = m.view()
-	if !strings.Contains(got, "x") || !strings.Contains(got, "specs") {
-		t.Error("archive list should show 'x specs' hint")
+	if !strings.Contains(got, "`") || !strings.Contains(got, "specs") {
+		t.Error("archive list should show '` specs' hint")
 	}
 }
 
