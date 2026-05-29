@@ -33,6 +33,26 @@ func TestResolveTheme_AutoFallback(t *testing.T) {
 	}
 }
 
+func TestHasDarkBackground_CachedAndStable(t *testing.T) {
+	// The detection is cached behind sync.Once so cycling onto the "auto"
+	// theme never re-queries the terminal (which would block once Bubble Tea
+	// owns stdin). Repeated calls must return the same value.
+	first := hasDarkBackground()
+	for range 100 {
+		if hasDarkBackground() != first {
+			t.Fatal("hasDarkBackground should return a stable, cached value")
+		}
+	}
+
+	// Resolving "auto" repeatedly must likewise stay consistent.
+	want := ResolveTheme("auto")
+	for range 100 {
+		if ResolveTheme("auto").Base != want.Base {
+			t.Fatal("ResolveTheme(\"auto\") should be deterministic across calls")
+		}
+	}
+}
+
 func TestNewStyles_AllFieldsSet(t *testing.T) {
 	theme := ResolveTheme("catppuccin-mocha")
 	styles := NewStyles(theme)

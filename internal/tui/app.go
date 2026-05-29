@@ -120,6 +120,12 @@ func (a App) Close() error {
 }
 
 func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string, db *store.DB) App {
+	// Warm the terminal background detection now, while stdin is still ours.
+	// Once Bubble Tea's event loop owns stdin the OSC query reply is swallowed
+	// and the call blocks until timeout, so doing it here keeps the "auto"
+	// theme instant even when the user cycles onto it mid-session.
+	_ = hasDarkBackground()
+
 	themePref := ""
 	if rc.User != nil {
 		themePref = rc.User.Preferences.Theme
