@@ -28,6 +28,7 @@ func init() {
 }
 
 func runPromote(cmd *cobra.Command, args []string) error {
+	p := newPrinter(cmd)
 	triageID := strings.ToUpper(args[0])
 	titleOverride, _ := cmd.Flags().GetString("title")
 
@@ -86,7 +87,7 @@ func runPromote(cmd *cobra.Command, args []string) error {
 		triageFile := filepath.Join(sd, "triage", triageID+".md")
 		if err := os.Remove(triageFile); err != nil {
 			// Non-fatal — the triage file might already be gone
-			warnf("could not remove triage file: %v", err)
+			p.Warn("could not remove triage file: %v", err)
 		}
 
 		newSpecID = specID
@@ -97,17 +98,18 @@ func runPromote(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create PM epic if configured
+	var epicKey string
 	if rc.HasIntegration("pm") {
-		epicKey, pmErr := reg.PM().CreateEpic(ctx(), adapter.SpecMeta{
+		key, pmErr := reg.PM().CreateEpic(ctx(), adapter.SpecMeta{
 			ID:    newSpecID,
 			Title: title,
 		})
 		if pmErr != nil {
-			warnf("could not create PM epic: %v", pmErr)
-		} else if epicKey != "" {
-			fmt.Printf("Created PM epic: %s\n", epicKey)
+			p.Warn("could not create PM epic: %v", pmErr)
+		} else if key != "" {
+			epicKey = key
 			if err := persistEpicKey(rc, newSpecID, epicKey); err != nil {
-				warnf("could not persist PM epic key: %v", err)
+				p.Warn("could not persist PM epic key: %v", err)
 			}
 		}
 	}
@@ -119,13 +121,21 @@ func runPromote(cmd *cobra.Command, args []string) error {
 			Title:   title,
 			Message: fmt.Sprintf("Promoted %s → %s — %s (status: draft)", triageID, newSpecID, title),
 		}); err != nil {
-			warnf("could not send notification: %v", err)
+			p.Warn("could not send notification: %v", err)
 		}
 	}
 
-	fmt.Printf("✓ Promoted %s → %s — %s\n", triageID, newSpecID, title)
-	fmt.Printf("  Status: draft\n")
-	fmt.Printf("  Edit with: spec edit %s\n", newSpecID)
-
+	if p.JSONEnabled() {
+		return p.JSON(map[string]interface{}{
+			"triage_id": triageID, "spec_id": newSpecID, "title": title,
+			"status": "draft", "epic_key": epicKey,
+		})
+	}
+	if epicKey != "" {
+		p.Line("Created PM epic: %s", epicKey)
+	}
+	p.Line("✓ Promoted %s → %s — %s", triageID, newSpecID, title)
+	p.Line("  Status: draft")
+	p.Line("  Edit with: spec edit %s", newSpecID)
 	return nil
 }

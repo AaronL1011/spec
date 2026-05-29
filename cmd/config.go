@@ -192,7 +192,7 @@ specs_repo:
   owner: %s
   repo: %s
   branch: main
-  token: ${GITHUB_TOKEN}
+  token: ${SPEC_GITHUB_TOKEN}
 
 integrations:
   comms:
@@ -204,7 +204,7 @@ integrations:
   repo:
     provider: %s
     owner: %s
-    token: ${GITHUB_TOKEN}
+    token: ${SPEC_GITHUB_TOKEN}
   agent:
     provider: none
   ai:

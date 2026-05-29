@@ -20,8 +20,9 @@ The repo is cloned to ~/.spec/repos/<owner>/<repo>/, and subsequent
 spec commands will automatically use the team configuration.
 
 Requires an access token with read permissions on the specs repo.
-Set GITHUB_TOKEN (or GITLAB_TOKEN / BITBUCKET_TOKEN) in your environment,
-or pass --token explicitly.`,
+Set SPEC_GITHUB_TOKEN (or SPEC_GITLAB_TOKEN / SPEC_BITBUCKET_TOKEN) in your environment,
+or pass --token explicitly. Legacy variables GITHUB_TOKEN, GITLAB_TOKEN, and
+BITBUCKET_TOKEN are still supported with a deprecation warning.`,
 	Example: `  spec join acme/specs
   spec join github.com/acme/specs
   spec join gitlab.com/acme/specs
@@ -32,7 +33,7 @@ or pass --token explicitly.`,
 
 func init() {
 	joinCmd.Flags().String("branch", "main", "branch to clone")
-	joinCmd.Flags().String("token", "", "access token (defaults to $GITHUB_TOKEN)")
+	joinCmd.Flags().String("token", "", "access token (defaults to $SPEC_GITHUB_TOKEN)")
 	rootCmd.AddCommand(joinCmd)
 }
 

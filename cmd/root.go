@@ -63,6 +63,9 @@ personal dashboard.`,
 		if err != nil {
 			return err
 		}
+		if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+			return newPrinter(cmd).JSON(data)
+		}
 		dashboard.Render(data, rc.UserName(), role, rc.CycleLabel())
 		return nil
 	},
@@ -80,6 +83,8 @@ func RootCmd() *cobra.Command {
 
 func init() {
 	rootCmd.PersistentFlags().String("role", "", "temporarily override owner_role for this invocation")
+	rootCmd.PersistentFlags().Bool("json", false, "output machine-readable JSON where supported")
+	rootCmd.PersistentFlags().Bool("quiet", false, "suppress non-essential output")
 	rootCmd.Flags().Bool("static", false, "render static dashboard instead of interactive TUI")
 
 	// Passive awareness: print pending count before every subcommand.
@@ -93,7 +98,9 @@ func init() {
 		}
 		// Only print for subcommands, not the root dashboard or completion.
 		// Awareness is best-effort — config resolution failure is not fatal.
-		if cmd != rootCmd && cmd.Name() != "completion" {
+		// Suppressed under --quiet/--json and when stderr is not a terminal so
+		// scripted and machine-readable invocations stay clean.
+		if cmd != rootCmd && cmd.Name() != "completion" && awarenessAllowed(cmd) {
 			if rc, err := resolveConfig(); err == nil {
 				role := rc.OwnerRole("")
 				dashboard.PrintAwarenessLine(rc, role)

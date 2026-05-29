@@ -14,6 +14,7 @@ import (
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/store"
+	"github.com/spf13/cobra"
 )
 
 // specsDir returns the specs content directory within a repo root path.
@@ -22,9 +23,41 @@ func specsDir(repoPath string) string {
 	return filepath.Join(repoPath, gitpkg.SpecsSubDir)
 }
 
-// resolveConfig loads the full configuration chain.
+// cachedConfig memoizes the resolved configuration for the lifetime of a
+// single CLI invocation. A process runs exactly one command, so resolving the
+// chain once (rather than separately for the pre-run awareness line and the
+// command body) is safe and avoids a redundant config load + specs-dir scan.
+var (
+	cachedConfig    *config.ResolvedConfig
+	cachedConfigEr  error
+	cachedConfigSet bool
+)
+
+// resolveConfig loads the full configuration chain, memoizing the result.
 func resolveConfig() (*config.ResolvedConfig, error) {
-	return config.Resolve()
+	if cachedConfigSet {
+		return cachedConfig, cachedConfigEr
+	}
+	cachedConfig, cachedConfigEr = config.Resolve()
+	cachedConfigSet = true
+	return cachedConfig, cachedConfigEr
+}
+
+// awarenessAllowed reports whether the passive "pending" line should print.
+// It is suppressed under --quiet/--json and when stderr is not a terminal,
+// keeping scripted and machine-readable invocations free of chatter.
+func awarenessAllowed(cmd *cobra.Command) bool {
+	if quiet, _ := cmd.Flags().GetBool("quiet"); quiet {
+		return false
+	}
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return false
+	}
+	fi, err := os.Stderr.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
 // requireRole ensures the user has a role configured (or overridden).

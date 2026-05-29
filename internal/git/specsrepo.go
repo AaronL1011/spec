@@ -448,7 +448,7 @@ func indentStatus(status string) string {
 func validateToken(cfg *config.SpecsRepoConfig) error {
 	token := cfg.Token
 	if token == "" {
-		return fmt.Errorf("specs repo token not configured — set GITHUB_TOKEN in your environment or add 'token' to specs_repo in spec.config.yaml")
+		return fmt.Errorf("specs repo token not configured — set SPEC_GITHUB_TOKEN (or legacy GITHUB_TOKEN) in your environment or add 'token' to specs_repo in spec.config.yaml")
 	}
 	if strings.HasPrefix(token, "${") {
 		return fmt.Errorf("specs repo token %s is not set in your environment — export it before running spec", token)

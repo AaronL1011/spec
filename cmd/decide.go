@@ -27,6 +27,8 @@ func init() {
 }
 
 func runDecide(cmd *cobra.Command, args []string) error {
+	p := newPrinter(cmd)
+
 	specID, err := resolveSpecIDArg(args, "spec decide <id>")
 	if err != nil {
 		return err
@@ -43,24 +45,22 @@ func runDecide(cmd *cobra.Command, args []string) error {
 	}
 
 	if listMode {
-		return listDecisions(rc, specID)
+		return listDecisions(p, rc, specID)
 	}
-
 	if question != "" {
-		return addQuestion(rc, specID, question)
+		return addQuestion(p, rc, specID, question)
 	}
-
 	if resolveNum > 0 {
 		if decision == "" {
 			return fmt.Errorf("--decision is required when resolving — what was decided?")
 		}
-		return resolveDecision(rc, specID, resolveNum, decision, rationale)
+		return resolveDecision(p, rc, specID, resolveNum, decision, rationale)
 	}
 
 	return fmt.Errorf("use --question, --resolve, or --list — run 'spec decide --help' for usage")
 }
 
-func listDecisions(rc *config.ResolvedConfig, specID string) error {
+func listDecisions(p *printer, rc *config.ResolvedConfig, specID string) error {
 	path, err := resolveSpecPath(rc, specID)
 	if err != nil {
 		return err
@@ -71,18 +71,22 @@ func listDecisions(rc *config.ResolvedConfig, specID string) error {
 		return err
 	}
 
+	if p.JSONEnabled() {
+		return p.JSON(entries)
+	}
+
 	if len(entries) == 0 {
-		fmt.Printf("No decisions recorded for %s.\n", specID)
-		fmt.Printf("Add one with: spec decide %s --question \"...\"\n", specID)
+		p.Line("No decisions recorded for %s.", specID)
+		p.Line("Add one with: spec decide %s --question \"...\"", specID)
 		return nil
 	}
 
-	fmt.Printf("Decision log for %s:\n\n", specID)
-	fmt.Print(markdown.FormatDecisionTable(entries))
+	p.Line("Decision log for %s:\n", specID)
+	p.Raw(markdown.FormatDecisionTable(entries))
 	return nil
 }
 
-func addQuestion(rc *config.ResolvedConfig, specID, question string) error {
+func addQuestion(p *printer, rc *config.ResolvedConfig, specID, question string) error {
 	if err := requireTeamConfig(rc); err != nil {
 		return err
 	}
@@ -106,25 +110,27 @@ func addQuestion(rc *config.ResolvedConfig, specID, question string) error {
 		return err
 	}
 
-	fmt.Printf("✓ Decision #%03d added to %s\n", decisionNum, specID)
-	fmt.Printf("  Question: %s\n", question)
-	fmt.Printf("  Resolve with: spec decide %s --resolve %d --decision \"...\" --rationale \"...\"\n", specID, decisionNum)
-
 	if db, dbErr := openDB(); dbErr == nil {
 		defer func() { _ = db.Close() }()
 		metaJSON := fmt.Sprintf(`{"number":%d}`, decisionNum)
 		_ = db.ActivityLog(specID, "decide", fmt.Sprintf("decision #%03d: %s", decisionNum, question), metaJSON, rc.UserName())
 	}
 
+	if p.JSONEnabled() {
+		return p.JSON(map[string]interface{}{"spec_id": specID, "number": decisionNum, "question": question})
+	}
+	p.Line("✓ Decision #%03d added to %s", decisionNum, specID)
+	p.Line("  Question: %s", question)
+	p.Line("  Resolve with: spec decide %s --resolve %d --decision \"...\" --rationale \"...\"", specID, decisionNum)
 	return nil
 }
 
-func resolveDecision(rc *config.ResolvedConfig, specID string, number int, decision, rationale string) error {
+func resolveDecision(p *printer, rc *config.ResolvedConfig, specID string, number int, decision, rationale string) error {
 	if err := requireTeamConfig(rc); err != nil {
 		return err
 	}
 
-	return gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	err := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
 			return "", err
@@ -134,18 +140,25 @@ func resolveDecision(rc *config.ResolvedConfig, specID string, number int, decis
 			return "", err
 		}
 
-		fmt.Printf("✓ Decision #%03d resolved in %s\n", number, specID)
-		fmt.Printf("  Decision: %s\n", decision)
-		if rationale != "" {
-			fmt.Printf("  Rationale: %s\n", rationale)
-		}
-
-		if db, dbErr := openDB(); dbErr == nil {
-			defer func() { _ = db.Close() }()
-			metaJSON := fmt.Sprintf(`{"number":%d}`, number)
-			_ = db.ActivityLog(specID, "decide_resolve", fmt.Sprintf("resolved #%03d: %s", number, decision), metaJSON, rc.UserName())
-		}
-
 		return fmt.Sprintf("docs: %s — resolve decision #%03d: %s", specID, number, decision), nil
 	})
+	if err != nil {
+		return err
+	}
+
+	if db, dbErr := openDB(); dbErr == nil {
+		defer func() { _ = db.Close() }()
+		metaJSON := fmt.Sprintf(`{"number":%d}`, number)
+		_ = db.ActivityLog(specID, "decide_resolve", fmt.Sprintf("resolved #%03d: %s", number, decision), metaJSON, rc.UserName())
+	}
+
+	if p.JSONEnabled() {
+		return p.JSON(map[string]interface{}{"spec_id": specID, "number": number, "decision": decision, "rationale": rationale})
+	}
+	p.Line("✓ Decision #%03d resolved in %s", number, specID)
+	p.Line("  Decision: %s", decision)
+	if rationale != "" {
+		p.Line("  Rationale: %s", rationale)
+	}
+	return nil
 }

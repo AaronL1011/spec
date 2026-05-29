@@ -9,7 +9,7 @@ specs_repo:
   owner: AaronL1011
   repo: specs-archive
   branch: main
-  token: ${GITHUB_TOKEN}
+  token: ${SPEC_GITHUB_TOKEN}
 
 integrations:
   comms:
@@ -21,7 +21,7 @@ integrations:
   repo:
     provider: github
     owner: AaronL1011
-    token: ${GITHUB_TOKEN}
+    token: ${SPEC_GITHUB_TOKEN}
   agent:
     provider: none
   ai:

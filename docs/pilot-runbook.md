@@ -68,7 +68,7 @@ specs_repo:
   owner: your-org
   repo: your-specs-repo
   branch: main
-  token: ${GITHUB_TOKEN}
+  token: ${SPEC_GITHUB_TOKEN}
 
 integrations:
   comms:
@@ -96,7 +96,7 @@ pipeline:
 For a Jira + Confluence + Microsoft Teams + GitHub pilot, use environment variables for secrets:
 
 ```bash
-export GITHUB_TOKEN="..."
+export SPEC_GITHUB_TOKEN="..."
 export JIRA_BASE_URL="https://your-domain.atlassian.net"
 export JIRA_EMAIL="you@example.com"
 export JIRA_API_TOKEN="..."
@@ -143,7 +143,7 @@ integrations:
   repo:
     provider: github
     owner: your-org
-    token: ${GITHUB_TOKEN}
+    token: ${SPEC_GITHUB_TOKEN}
 
   deploy:
     provider: none

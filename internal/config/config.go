@@ -187,14 +187,70 @@ type DashboardConfig struct {
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
 
 // interpolateEnvVars replaces ${VAR} patterns with environment variable values.
+// Token variables support a spec-prefixed/legacy alias so that configs written
+// against either naming convention resolve regardless of which variable the
+// user exported (see lookupEnvWithAlias).
 func interpolateEnvVars(data []byte) []byte {
 	return envVarPattern.ReplaceAllFunc(data, func(match []byte) []byte {
 		varName := string(envVarPattern.FindSubmatch(match)[1])
-		if val, ok := os.LookupEnv(varName); ok {
+		if val, ok := lookupEnvWithAlias(varName); ok {
 			return []byte(val)
 		}
 		return match
 	})
+}
+
+// lookupEnvWithAlias resolves an environment variable, falling back to a token
+// alias when the requested variable is unset. spec migrated provider tokens
+// from the legacy GITHUB_TOKEN style to the SPEC_GITHUB_TOKEN style; this lets
+// configs that reference either spelling resolve against whichever variable the
+// user has actually exported. The exact variable always wins; the alias is a
+// fallback so existing (already-joined) configs keep working.
+func lookupEnvWithAlias(varName string) (string, bool) {
+	if val, ok := lookupNonEmptyEnv(varName); ok {
+		return val, true
+	}
+	alias, ok := tokenEnvAlias(varName)
+	if !ok {
+		return "", false
+	}
+	if val, ok := lookupNonEmptyEnv(alias); ok {
+		if strings.HasPrefix(varName, specTokenPrefix) {
+			// Config asked for the new name but only the legacy var is set.
+			fmt.Fprintf(os.Stderr, "warning: $%s is unset; falling back to deprecated $%s — export $%s instead\n",
+				varName, alias, varName)
+		}
+		return val, true
+	}
+	return "", false
+}
+
+// lookupNonEmptyEnv reports an environment variable only when it is both set
+// and non-empty. An exported-but-empty token (e.g. GITHUB_TOKEN= in CI) is
+// treated as unset so the alias fallback can still resolve a usable value.
+func lookupNonEmptyEnv(name string) (string, bool) {
+	if val, ok := os.LookupEnv(name); ok && val != "" {
+		return val, true
+	}
+	return "", false
+}
+
+const (
+	specTokenPrefix = "SPEC_"
+	tokenSuffix     = "_TOKEN"
+)
+
+// tokenEnvAlias returns the alternate spelling for a provider token variable.
+// SPEC_GITHUB_TOKEN <-> GITHUB_TOKEN, and likewise for any *_TOKEN variable.
+// Non-token variables have no alias.
+func tokenEnvAlias(varName string) (string, bool) {
+	if !strings.HasSuffix(varName, tokenSuffix) {
+		return "", false
+	}
+	if strings.HasPrefix(varName, specTokenPrefix) {
+		return strings.TrimPrefix(varName, specTokenPrefix), true
+	}
+	return specTokenPrefix + varName, true
 }
 
 // LoadTeamConfig reads and parses a spec.config.yaml file.

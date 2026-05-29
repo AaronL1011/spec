@@ -21,10 +21,10 @@ func Join(ctx context.Context, repoRef, branch, tokenOverride string) error {
 		return err
 	}
 
-	// 2. Resolve token (flag > env var)
+	// 2. Resolve token (flag > spec env var > legacy env var)
 	token := resolveToken(provider, tokenOverride)
 	if token == "" {
-		return fmt.Errorf("no access token — set %s or pass --token", tokenEnvVar(provider))
+		return fmt.Errorf("no access token — set %s (or legacy %s) or pass --token", tokenEnvVar(provider), legacyTokenEnvVar(provider))
 	}
 
 	// 3. Check if already joined
@@ -140,6 +140,17 @@ func providerFromHost(host string) string {
 func tokenEnvVar(provider string) string {
 	switch provider {
 	case "gitlab":
+		return "SPEC_GITLAB_TOKEN"
+	case "bitbucket":
+		return "SPEC_BITBUCKET_TOKEN"
+	default:
+		return "SPEC_GITHUB_TOKEN"
+	}
+}
+
+func legacyTokenEnvVar(provider string) string {
+	switch provider {
+	case "gitlab":
 		return "GITLAB_TOKEN"
 	case "bitbucket":
 		return "BITBUCKET_TOKEN"
@@ -152,7 +163,17 @@ func resolveToken(provider, override string) string {
 	if override != "" {
 		return override
 	}
-	return os.Getenv(tokenEnvVar(provider))
+	// Primary: spec-specific token
+	if t := os.Getenv(tokenEnvVar(provider)); t != "" {
+		return t
+	}
+	// Fallback: legacy generic token (deprecated)
+	if t := os.Getenv(legacyTokenEnvVar(provider)); t != "" {
+		fmt.Fprintf(os.Stderr, "warning: $%s is deprecated for spec; use $%s instead\n",
+			legacyTokenEnvVar(provider), tokenEnvVar(provider))
+		return t
+	}
+	return ""
 }
 
 func hasUserConfig() bool {

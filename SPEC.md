@@ -454,7 +454,7 @@ specs_repo:
   owner: my-org
   repo: specs
   branch: main
-  token: ${GITHUB_TOKEN}
+  token: ${SPEC_GITHUB_TOKEN}
 
 integrations:
   comms:
@@ -477,7 +477,7 @@ integrations:
   repo:
     provider: github                   # github | gitlab | bitbucket
     owner: my-org
-    token: ${GITHUB_TOKEN}
+    token: ${SPEC_GITHUB_TOKEN}
 
   agent:
     provider: claude-code              # claude-code | cursor | copilot | pi | custom
