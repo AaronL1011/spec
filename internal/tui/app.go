@@ -20,6 +20,11 @@ import (
 const defaultRefreshInterval = 30 * time.Second
 const spinnerInterval = 100 * time.Millisecond
 
+// exitArmWindow is the duration after the first top-level esc press during
+// which a second esc confirms quit. Too short feels broken; too long lets a
+// stray second esc quit. 1.5 s matches the design spec.
+const exitArmWindow = 1500 * time.Millisecond
+
 const (
 	refreshKeyDashboard = "dashboard"
 	refreshKeyPipeline  = "pipeline"
@@ -76,6 +81,13 @@ type App struct {
 	standup standupOverlay
 	intake  intakeFormState
 	revert  revertOverlay
+
+	// Exit escalation — double-esc-to-quit state.
+	exitArmed   bool
+	exitArmedAt time.Time
+
+	// g-prefix state machine for g a / g r / g s sequences.
+	gPrefixArmed bool
 
 	// Pending action context (for modal confirmations)
 	pendingAction string
@@ -416,6 +428,9 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 	}
 
+	// Disarm g-prefix on any key that isn't handled by the g-prefix block.
+	// The prefix block below will re-arm / dispatch before returning.
+
 	// ── Layer 3: Text input mode (view captures keystrokes) ─────────
 	// The active view is consuming typed characters (e.g. search bar).
 	// Only Ctrl+C (above) bypasses this.
@@ -435,9 +450,55 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// ── Layer 5: Global keys (work on every top-level view) ─────────
 
+	// esc escalation: pop → arm → quit.
+	if key.Matches(msg, a.keys.Back) {
+		if a.exitArmed && time.Since(a.exitArmedAt) <= exitArmWindow {
+			return a, tea.Quit
+		}
+		// Nothing to pop at the top level — arm exit.
+		a.exitArmed = true
+		a.exitArmedAt = time.Now()
+		a.statusBar.SetExitArmed(true)
+		return a, nil
+	}
+
+	// Any key other than esc disarms the exit arm.
+	if a.exitArmed {
+		a.exitArmed = false
+		a.statusBar.SetExitArmed(false)
+	}
+
+	// g-prefix state machine: g alone arms the prefix.
+	// A subsequent a / r / s dispatches Archive / Restore / Standup.
+	if a.gPrefixArmed {
+		a.gPrefixArmed = false
+		switch {
+		case msg.Type == tea.KeyRunes && string(msg.Runes) == "a":
+			if specID := a.selectedSpecID(); isSpecID(specID) {
+				a.pendingAction = "archive"
+				a.pendingSpecID = specID
+				a.modal.ShowConfirm("Archive "+specID, "Remove this spec from the active list?")
+				a.modal.SetSize(a.width, a.contentHeight())
+			}
+			return a, nil
+		case msg.Type == tea.KeyRunes && string(msg.Runes) == "r":
+			if specID := a.selectedSpecID(); isSpecID(specID) {
+				a.pendingAction = "restore"
+				a.pendingSpecID = specID
+				a.modal.ShowConfirm("Restore "+specID, "Return this spec to the active list?")
+				a.modal.SetSize(a.width, a.contentHeight())
+			}
+			return a, nil
+		case msg.Type == tea.KeyRunes && string(msg.Runes) == "s":
+			return a, generateStandup(a.rc, a.reg, a.db)
+		}
+		// Unrecognised follow-up key — fall through normally.
+	}
+
 	switch {
-	case key.Matches(msg, a.keys.Quit):
-		return a, tea.Quit
+	case key.Matches(msg, a.keys.GPrefix):
+		a.gPrefixArmed = true
+		return a, nil
 	case key.Matches(msg, a.keys.Help):
 		a.help.setContext(a.activeView.Label())
 		a.help.toggle()
@@ -472,8 +533,6 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.modal.ShowInput("New Spec", "Title:")
 		a.modal.SetSize(a.width, a.contentHeight())
 		return a, nil
-	case key.Matches(msg, a.keys.Standup):
-		return a, generateStandup(a.rc, a.reg, a.db)
 
 	// Enter drills into spec detail.
 	case key.Matches(msg, a.keys.Enter):
@@ -533,6 +592,11 @@ func (a App) View() string {
 		contentHeight = 1
 	}
 
+	// Help overlay covers the full terminal — skip chrome entirely.
+	if a.help.visible {
+		return a.help.view()
+	}
+
 	var content string
 	switch {
 	case a.standup.visible:
@@ -541,8 +605,6 @@ func (a App) View() string {
 		content = a.renderIntakeForm()
 	case a.revert.active:
 		content = renderRevert(a.revert, a.styles)
-	case a.help.visible:
-		content = a.help.view()
 	case a.modal.Visible:
 		content = a.modal.View()
 	case a.showDetail:
@@ -818,8 +880,8 @@ func (a *App) closeDetail() tea.Cmd {
 }
 
 func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
-	// Quit always works.
-	if key.Matches(msg, a.keys.Quit) {
+	// Hard quit always works.
+	if msg.Type == tea.KeyCtrlC {
 		return a, tea.Quit
 	}
 
@@ -861,9 +923,39 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 		return a, a.switchView(ViewSettings)
 	}
 
-	// Overview mode: Esc goes back to the list.
+	// Overview mode: esc goes back to the list.
 	if key.Matches(msg, a.keys.Back) {
 		a.closeDetail()
+		return a, nil
+	}
+
+	// g-prefix state machine inside detail view.
+	if a.gPrefixArmed {
+		a.gPrefixArmed = false
+		specID := a.detail.specID
+		switch {
+		case msg.Type == tea.KeyRunes && string(msg.Runes) == "a" && isSpecID(specID):
+			if !a.detail.isArchived {
+				a.pendingAction = "archive"
+				a.pendingSpecID = specID
+				a.modal.ShowConfirm("Archive "+specID, "Remove this spec from the active list?")
+				a.modal.SetSize(a.width, a.contentHeight())
+			}
+			return a, nil
+		case msg.Type == tea.KeyRunes && string(msg.Runes) == "r" && isSpecID(specID):
+			if a.detail.isArchived {
+				a.pendingAction = "restore"
+				a.pendingSpecID = specID
+				a.modal.ShowConfirm("Restore "+specID, "Return this spec to the active list?")
+				a.modal.SetSize(a.width, a.contentHeight())
+			}
+			return a, nil
+		case msg.Type == tea.KeyRunes && string(msg.Runes) == "s":
+			return a, generateStandup(a.rc, a.reg, a.db)
+		}
+	}
+	if key.Matches(msg, a.keys.GPrefix) {
+		a.gPrefixArmed = true
 		return a, nil
 	}
 
@@ -909,9 +1001,11 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return nil, true
 	case key.Matches(msg, a.keys.Focus) && specID != "":
+		// f toggles focus: set if not already focused, clear if it is.
+		if a.focusedSpecID == specID {
+			return unfocusSpec(a.db), true
+		}
 		return focusSpec(a.db, specID), true
-	case key.Matches(msg, a.keys.Unfocus):
-		return unfocusSpec(a.db), true
 	case key.Matches(msg, a.keys.Yank) && specID != "":
 		return yankSpecID(specID), true
 	case key.Matches(msg, a.keys.Edit) && isSpecID(specID):
@@ -1050,6 +1144,8 @@ func (a *App) executeActionWithInput(input string) tea.Cmd {
 // updateStandup handles keys within the standup overlay.
 func (a App) updateStandup(msg tea.KeyMsg) (App, tea.Cmd) {
 	switch {
+	case msg.Type == tea.KeyCtrlC:
+		return a, tea.Quit
 	case msg.Type == tea.KeyEscape:
 		a.standup.hide()
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "c":
@@ -1060,8 +1156,6 @@ func (a App) updateStandup(msg tea.KeyMsg) (App, tea.Cmd) {
 		a.standup.scrollUp()
 	case key.Matches(msg, a.keys.Down):
 		a.standup.scrollDown()
-	case key.Matches(msg, a.keys.Quit):
-		return a, tea.Quit
 	}
 	return a, nil
 }
@@ -1168,8 +1262,8 @@ func (a App) renderIntakeForm() string {
 		label := a.styles.Subtitle.Render(fmt.Sprintf("  %-10s", fld.label))
 		value := fld.value
 		if fld.idx == f.field {
-			value += a.styles.Accent.Render("▌")
-			b.WriteString(a.styles.Accent.Render("▸ "))
+			value += a.styles.Accent.Render(IconCaret)
+			b.WriteString(a.styles.Accent.Render(IconCursor + " "))
 		} else {
 			b.WriteString("  ")
 		}
@@ -1180,7 +1274,8 @@ func (a App) renderIntakeForm() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(a.styles.Muted.Render("  tab next field · enter submit/cycle · esc cancel"))
+	b.WriteString(HintStrip(a.styles,
+		Hint("tab", "next field"), Hint("enter", "submit/cycle"), Hint("esc", "cancel")))
 
 	return b.String()
 }
@@ -1220,7 +1315,7 @@ func (a *App) propagateSize() {
 		a.detail.setSize(a.width, ch)
 	}
 	a.modal.SetSize(a.width, ch)
-	a.help.setSize(a.width, ch)
+	a.help.setSize(a.width, a.height)
 	a.standup.setSize(a.width, ch)
 }
 

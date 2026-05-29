@@ -10,8 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Common icons for stages
-var StageIcons = []string{"📥", "📝", "👀", "🎨", "🔧", "🏗️", "👁️", "✅", "🚀", "📊", "🎉", "📦", "🔒", "💬", "📋", "○"}
+// StageIcons lives in icons.go (the single source of truth for glyphs).
 
 // Common roles
 var CommonRoles = []string{"anyone", "author", "pm", "tl", "designer", "engineer", "qa", "security"}
@@ -200,7 +199,7 @@ func PromptStageOwner(defaultOwner string) (string, error) {
 // PromptStageIcon prompts for a stage icon.
 func PromptStageIcon() (string, error) {
 	if !IsInteractive() {
-		return "○", nil
+		return IconOpen, nil
 	}
 
 	options := make([]huh.Option[string], len(StageIcons))
@@ -488,12 +487,12 @@ func PromptMultiSelectStages(stages []string, title, description string) ([]stri
 
 // PrintSuccess prints a success message.
 func PrintSuccess(message string) {
-	fmt.Println(successStyle.Render("✓ " + message))
+	fmt.Println(successStyle.Render(IconToastOK + " " + message))
 }
 
 // PrintError prints an error message.
 func PrintError(message string) {
-	fmt.Println(errorStyle.Render("✗ " + message))
+	fmt.Println(errorStyle.Render(IconToastErr + " " + message))
 }
 
 // PrintTitle prints a title.

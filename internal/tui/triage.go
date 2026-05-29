@@ -106,15 +106,12 @@ func (m triageModel) view() string {
 	b.WriteString("\n\n")
 
 	if len(m.items) == 0 {
-		b.WriteString(m.styles.Success.Render("  ✓ Triage queue is empty"))
+		b.WriteString(m.styles.Success.Render(Indent(1) + IconToastOK + " Triage queue is empty"))
 		b.WriteString("\n")
 		return b.String()
 	}
 
-	contentWidth := m.width - 4
-	if contentWidth < 40 {
-		contentWidth = 40
-	}
+	contentWidth := ContentWidth(m.width)
 
 	visibleRows := m.height - 5
 	if visibleRows < 3 {
@@ -152,7 +149,7 @@ func (m triageModel) renderTriageRow(item triageItem, selected bool, width int) 
 		detail += item.Created
 	}
 
-	line := fmt.Sprintf("  %s %s %-*s", icon, idStr, titleMax, title)
+	line := fmt.Sprintf("%s%s %s %-*s", Indent(1), icon, idStr, titleMax, title)
 	if detail != "" && width > 70 {
 		line += "  " + detail
 	}
@@ -170,18 +167,7 @@ func (m triageModel) renderTriageRow(item triageItem, selected bool, width int) 
 }
 
 func priorityIcon(p string) string {
-	switch p {
-	case "critical":
-		return "🔴"
-	case "high":
-		return "🟠"
-	case "medium":
-		return "🟡"
-	case "low":
-		return "🟢"
-	default:
-		return "⚪"
-	}
+	return PriorityIconFor(p)
 }
 
 func (m triageModel) selectedItemID() string {

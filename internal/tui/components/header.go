@@ -134,10 +134,10 @@ func (h Header) greeting() string {
 	case hour >= 5 && hour < 12:
 		return fmt.Sprintf("Good morning, %s", name)
 	case hour >= 12 && hour < 17:
-		return fmt.Sprintf("Afternoon, %s", name)
+		return fmt.Sprintf("Good afternoon, %s", name)
 	case hour >= 17 && hour < 21:
 		return fmt.Sprintf("Good evening, %s", name)
 	default:
-		return fmt.Sprintf("Late night, %s", name)
+		return fmt.Sprintf("Burning the midnight oil, %s?", name)
 	}
 }

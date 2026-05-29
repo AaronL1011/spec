@@ -5,6 +5,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/aaronl1011/spec/internal/tui/glyph"
 )
 
 // ModalKind distinguishes between confirmation and text input modals.
@@ -114,7 +116,7 @@ func (m Modal) View() string {
 	case ModalConfirm:
 		content.WriteString(m.styles.Hint.Render("[y] confirm  [n/esc] cancel"))
 	case ModalInput:
-		inputLine := m.styles.Input.Width(innerWidth).Render(m.Input + "▌")
+		inputLine := m.styles.Input.Width(innerWidth).Render(m.Input + glyph.Caret)
 		content.WriteString(inputLine)
 		content.WriteString("\n")
 		content.WriteString(m.styles.Hint.Render("[enter] submit  [esc] cancel"))

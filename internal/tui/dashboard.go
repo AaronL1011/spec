@@ -117,13 +117,10 @@ func (m dashboardModel) view() string {
 	}
 
 	if len(m.items) == 0 {
-		return m.styles.Success.Render("  ✓ All clear — nothing needs your attention")
+		return m.styles.Success.Render(Indent(1) + IconToastOK + " All clear — nothing needs your attention")
 	}
 
-	contentWidth := m.width - 4
-	if contentWidth < 30 {
-		contentWidth = 30
-	}
+	contentWidth := ContentWidth(m.width)
 
 	// Build all lines first, then apply scroll window.
 	var allLines []string
@@ -240,7 +237,7 @@ func (m dashboardModel) buildRows() []dashboardRow {
 	for _, item := range m.data.Blocked {
 		blocked = append(blocked, dashboardRow{
 			section:  "BLOCKED",
-			icon:     "🚫",
+			icon:     IconBlocked,
 			specID:   item.SpecID,
 			title:    item.Title,
 			detail:   item.Detail,
@@ -251,9 +248,9 @@ func (m dashboardModel) buildRows() []dashboardRow {
 
 	do := make([]dashboardRow, 0, len(m.data.Do))
 	for _, item := range m.data.Do {
-		icon := "⚡"
+		icon := IconActive
 		if item.Urgency == "stale" {
-			icon = "⏰"
+			icon = IconStale
 		}
 		do = append(do, dashboardRow{
 			section:  "DO",
@@ -271,7 +268,7 @@ func (m dashboardModel) buildRows() []dashboardRow {
 	for _, item := range m.data.Review {
 		review = append(review, dashboardRow{
 			section:  "REVIEW",
-			icon:     "📋",
+			icon:     IconReview,
 			specID:   item.SpecID,
 			title:    item.Title,
 			detail:   item.Detail,
@@ -283,9 +280,9 @@ func (m dashboardModel) buildRows() []dashboardRow {
 
 	incoming := make([]dashboardRow, 0, len(m.data.Incoming))
 	for _, item := range m.data.Incoming {
-		icon := "📨"
+		icon := IconIncoming
 		if item.Urgency == "critical" {
-			icon = "🔴"
+			icon = IconActive
 		}
 		incoming = append(incoming, dashboardRow{
 			section:  "INCOMING",
@@ -336,7 +333,7 @@ func (m dashboardModel) sectionHeader(section string, count, width int) string {
 	if lineLen < 2 {
 		lineLen = 2
 	}
-	line := strings.Repeat("─", lineLen)
+	line := RuleLine(lineLen)
 	return renderedLabel + m.styles.Separator.Render(line) + renderedCount
 }
 
@@ -346,23 +343,23 @@ func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) st
 	// Focused spec indicator.
 	icon := row.icon
 	if m.focusedSpecID != "" && row.specID == m.focusedSpecID {
-		icon = "★"
+		icon = IconFocus
 	}
 
 	var line string
 	if compact {
 		idStr := row.specID
-		titleMax := width - len(idStr) - 6 // icon + spaces
+		titleMax := width - len(idStr) - 6 // indent + 1-cell icon + spaces
 		if titleMax < 5 {
 			titleMax = 5
 		}
 		title := truncate(row.title, titleMax)
-		line = fmt.Sprintf("  %s %s %s", icon, idStr, title)
+		line = fmt.Sprintf("%s%s %s %s", Indent(1), icon, idStr, title)
 	} else {
 		// Wide: columnar layout — icon | id (fixed) | title (flex) | detail (right).
 		idStr := fmt.Sprintf("%-11s", row.specID)
 		detailLen := len(row.detail)
-		titleMax := width - 17 - detailLen // 2 indent + icon(2) + space + 11 id + 2 gap
+		titleMax := width - 16 - detailLen // 2 indent + 1 icon + space + 11 id + 2 gap
 		if titleMax < 10 {
 			titleMax = 10
 		}
@@ -370,9 +367,9 @@ func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) st
 		title = fmt.Sprintf("%-*s", titleMax, title)
 
 		if detailLen > 0 {
-			line = fmt.Sprintf("  %s %s %s  %s", icon, idStr, title, row.detail)
+			line = fmt.Sprintf("%s%s %s %s  %s", Indent(1), icon, idStr, title, row.detail)
 		} else {
-			line = fmt.Sprintf("  %s %s %s", icon, idStr, title)
+			line = fmt.Sprintf("%s%s %s %s", Indent(1), icon, idStr, title)
 		}
 	}
 

@@ -24,7 +24,6 @@ type pipelineDataMsg struct {
 type pipelineStage struct {
 	Name  string
 	Owner string
-	Icon  string
 	Specs []pipelineSpec
 }
 
@@ -77,16 +76,45 @@ func (m pipelineModel) update(msg tea.Msg) (pipelineModel, tea.Cmd) {
 			}
 			return m, nil
 		}
+		// Preserve the currently selected spec ID so we can restore navigation
+		// position after refresh, instead of resetting to the top.
+		savedSelected := m.selectedSpecID()
+		savedStage := m.stageIdx
+
 		m.stages = msg.Stages
 		m.err = nil
 		m.loaded = true
-		// Start on the first non-empty stage so the cursor is immediately
-		// on a selectable spec, not an empty "—" placeholder.
-		if first := m.nextNonEmptyStage(-1); first >= 0 {
-			m.stageIdx = first
-			m.specIdx = 0
-		} else {
-			m.clampCursor()
+
+		// Try to restore the previously selected spec by ID.
+		restored := false
+		if savedSelected != "" {
+			for si, st := range m.stages {
+				for ri, sp := range st.Specs {
+					if sp.ID == savedSelected {
+						m.stageIdx = si
+						m.specIdx = ri
+						restored = true
+						break
+					}
+				}
+				if restored {
+					break
+				}
+			}
+		}
+
+		if !restored {
+			// Try to keep the same stage index if it's still in range and has specs.
+			if savedStage >= 0 && savedStage < len(m.stages) && len(m.stages[savedStage].Specs) > 0 {
+				m.stageIdx = savedStage
+				m.specIdx = 0
+			} else if first := m.nextNonEmptyStage(-1); first >= 0 {
+				// Fall back to the first non-empty stage.
+				m.stageIdx = first
+				m.specIdx = 0
+			} else {
+				m.clampCursor()
+			}
 		}
 		return m, nil
 
@@ -142,15 +170,15 @@ func (m pipelineModel) view() string {
 	for si, stage := range m.stages {
 		isActiveStage := si == m.stageIdx
 
-		icon := stage.Icon
-		if icon == "" {
-			icon = "○"
-		}
+		// Stage glyph is derived from stage POSITION (mono-width set), not the
+		// emoji stored in config — keeps the pipeline visually uniform.
+		icon := StageIconAt(si)
 		countStr := fmt.Sprintf(" %d", len(stage.Specs))
 
 		var header string
 		if isActiveStage {
-			header = m.styles.SectionTitle.Render(fmt.Sprintf(" %s %s", icon, stage.Name))
+			label := m.styles.Accent.Bold(true).Render(fmt.Sprintf(" %s %s", icon, stage.Name))
+			header = label
 		} else {
 			header = m.styles.Subtitle.Render(fmt.Sprintf(" %s %s", icon, stage.Name))
 		}
@@ -167,7 +195,7 @@ func (m pipelineModel) view() string {
 		allLines = append(allLines, header)
 
 		if len(stage.Specs) == 0 {
-			allLines = append(allLines, m.styles.Muted.Render("    —"))
+			allLines = append(allLines, m.styles.Muted.Render(Indent(2)+"—"))
 		} else {
 			for ri, spec := range stage.Specs {
 				selected := isActiveStage && ri == m.specIdx
@@ -195,10 +223,7 @@ func (m pipelineModel) view() string {
 }
 
 func (m pipelineModel) renderPipelineRow(spec pipelineSpec, selected bool) string {
-	contentWidth := m.width - 6
-	if contentWidth < 30 {
-		contentWidth = 30
-	}
+	contentWidth := ContentWidth(m.width)
 
 	idStr := fmt.Sprintf("%-11s", spec.ID)
 	titleMax := contentWidth - 14
@@ -207,7 +232,7 @@ func (m pipelineModel) renderPipelineRow(spec pipelineSpec, selected bool) strin
 	}
 	title := truncate(spec.Title, titleMax)
 
-	line := fmt.Sprintf("    %s %s", idStr, title)
+	line := fmt.Sprintf("%s%s %s", Indent(2), idStr, title)
 
 	if spec.Updated != "" {
 		remaining := contentWidth - lipgloss.Width(line)
@@ -333,7 +358,6 @@ func loadPipelineData(_ context.Context, rc *config.ResolvedConfig) ([]pipelineS
 		stages = append(stages, pipelineStage{
 			Name:  sc.Name,
 			Owner: owner,
-			Icon:  sc.Icon,
 			Specs: specsByStage[sc.Name],
 		})
 	}

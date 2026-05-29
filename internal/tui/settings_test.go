@@ -358,10 +358,10 @@ func TestSettings_ScrollDownReachesConfigPaths(t *testing.T) {
 	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
 	m.setSize(80, 5)
 
-	// Scroll down line-by-line (J = ScrollDown) until Config Paths is visible.
+	// Scroll down line-by-line (shift+↓ = ScrollDown) until Config Paths is visible.
 	var found bool
 	for range 50 {
-		m, _ = m.update(keyMsg("J"))
+		m, _ = m.update(tea.KeyMsg{Type: tea.KeyShiftDown})
 		got := m.view()
 		if strings.Contains(got, "Config Paths") {
 			found = true

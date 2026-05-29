@@ -357,22 +357,22 @@ func renderSectionContent(ctx context.Context, renderer Renderer, heading, owner
 	var b strings.Builder
 
 	b.WriteString("\n")
-	b.WriteString(styles.Title.Render(fmt.Sprintf("  %s", heading)))
+	b.WriteString(styles.Title.Render(Indent(1) + heading))
 	b.WriteString("\n")
 	if owner != "" && owner != "auto" {
-		b.WriteString(styles.Muted.Render(fmt.Sprintf("  [%s]", owner)))
+		b.WriteString(styles.Muted.Render(fmt.Sprintf("%s[%s]", Indent(1), owner)))
 		b.WriteString("\n")
 	}
-	sepWidth := width - 4
+	sepWidth := width - 2*Gutter
 	if sepWidth < 10 {
 		sepWidth = 10
 	}
-	b.WriteString(styles.Separator.Render(strings.Repeat("─", sepWidth)))
+	b.WriteString(styles.Separator.Render(RuleLine(sepWidth)))
 	b.WriteString("\n\n")
 
 	trimmed := strings.TrimSpace(body)
 	if trimmed == "" {
-		b.WriteString(styles.Muted.Render("  (empty section)"))
+		b.WriteString(styles.Muted.Render(Indent(1) + "(empty section)"))
 		b.WriteString("\n")
 	} else {
 		rendered, err := renderer.Render(ctx, trimmed, width-2)
@@ -380,16 +380,18 @@ func renderSectionContent(ctx context.Context, renderer Renderer, heading, owner
 			return "", err
 		}
 		for _, line := range splitLines(rendered) {
-			b.WriteString("  ")
+			b.WriteString(Indent(1))
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
 	}
 
-	nav := fmt.Sprintf("  § %d/%d", sectionIdx+1, total)
-	hints := "n next · p prev · 1-9 jump · o overview · tab switch view"
+	nav := fmt.Sprintf("%s%s %d/%d", Indent(1), GlyphSection, sectionIdx+1, total)
+	hints := HintStrip(styles,
+		Hint("n", "next"), Hint("p", "prev"), Hint("1-9", "jump"),
+		Hint("o", "overview"), Hint("tab", "switch view"))
 	b.WriteString("\n")
-	b.WriteString(styles.Muted.Render(nav + "  " + hints))
+	b.WriteString(styles.Muted.Render(nav) + "  " + hints)
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
@@ -434,11 +436,11 @@ func (m specDetailModel) viewReaderWithSidebar() string {
 
 	sections := m.readableSections()
 	var sidebar []string
-	sidebar = append(sidebar, m.styles.SectionTitle.Render(" § Sections"), "")
+	sidebar = append(sidebar, m.styles.SectionTitle.Render(" "+GlyphSection+" Sections"), "")
 	for i, sec := range sections {
-		fill := "◻"
+		fill := IconPending
 		if len(strings.TrimSpace(sec.Content)) > 20 {
-			fill = "◼"
+			fill = IconFilled
 		}
 		line := fmt.Sprintf(" %s %d %s", fill, i+1, truncate(sec.Slug, sidebarWidth-5))
 		if i == m.sectionIdx {
@@ -464,7 +466,7 @@ func (m specDetailModel) viewReaderWithSidebar() string {
 		content = content[:visible]
 	}
 
-	sep := m.styles.Separator.Render("│")
+	sep := m.styles.Separator.Render(GlyphVSep)
 	var out []string
 	for i := 0; i < visible; i++ {
 		sl := ""
@@ -486,10 +488,7 @@ func (m specDetailModel) viewReaderWithSidebar() string {
 
 func (m specDetailModel) viewOverview() string {
 	var b strings.Builder
-	contentWidth := m.width - 4
-	if contentWidth < 40 {
-		contentWidth = 40
-	}
+	contentWidth := ContentWidth(m.width)
 
 	b.WriteString("\n")
 	b.WriteString(m.styles.Title.Render(fmt.Sprintf("  %s — %s", m.meta.ID, m.meta.Title)))
@@ -511,7 +510,7 @@ func (m specDetailModel) viewOverview() string {
 	if len(m.meta.Steps) > 0 {
 		b.WriteString(m.styles.SectionTitle.Render("  Build Steps") + "\n")
 		for i, step := range m.meta.Steps {
-			line := fmt.Sprintf("    %s %d. %s", stepIcon(step.Status), i+1, step.Description)
+			line := fmt.Sprintf("%s%s %d. %s", Indent(2), stepIcon(step.Status), i+1, step.Description)
 			if step.Repo != "" {
 				line += m.styles.Muted.Render(fmt.Sprintf("  (%s)", step.Repo))
 			}
@@ -523,13 +522,13 @@ func (m specDetailModel) viewOverview() string {
 	if len(m.decisions) > 0 {
 		b.WriteString(m.styles.SectionTitle.Render("  Decisions") + "\n")
 		for _, d := range m.decisions {
-			dot := "○"
+			dot := IconOpen
 			if d.Decision != "" {
-				dot = "●"
+				dot = IconActive
 			}
-			b.WriteString(m.styles.RowNormal.Render(fmt.Sprintf("    %s #%d %s", dot, d.Number, truncate(d.Question, contentWidth-20))) + "\n")
+			b.WriteString(m.styles.RowNormal.Render(fmt.Sprintf("%s%s #%d %s", Indent(2), dot, d.Number, truncate(d.Question, contentWidth-20))) + "\n")
 			if d.Decision != "" {
-				b.WriteString(m.styles.Success.Render(fmt.Sprintf("      → %s", truncate(d.Decision, contentWidth-10))) + "\n")
+				b.WriteString(m.styles.Success.Render(fmt.Sprintf("%s→ %s", Indent(3), truncate(d.Decision, contentWidth-10))) + "\n")
 			}
 		}
 		b.WriteString("\n")
@@ -540,13 +539,13 @@ func (m specDetailModel) viewOverview() string {
 		if sec.Level > 3 {
 			continue
 		}
-		indent := "    "
+		indent := Indent(2)
 		if sec.Level == 3 {
-			indent = "      "
+			indent = Indent(3)
 		}
-		fill := "◻"
+		fill := IconPending
 		if len(strings.TrimSpace(sec.Content)) > 20 {
-			fill = "◼"
+			fill = IconFilled
 		}
 		owner := ""
 		if sec.Owner != "" && sec.Owner != "auto" {
@@ -555,21 +554,13 @@ func (m specDetailModel) viewOverview() string {
 		fmt.Fprintf(&b, "%s%s %s%s\n", indent, fill, sec.Slug, owner)
 	}
 	// Contextual action hints
-	var hints string
+	archiveHint := Hint("d", "archive")
 	if m.isArchived {
-		hints = fmt.Sprintf("  %s archive  %s read sections  %s edit  %s back",
-			m.styles.Accent.Render("r"),
-			m.styles.Accent.Render("o"),
-			m.styles.Accent.Render("e"),
-			m.styles.Accent.Render("esc"))
-	} else {
-		hints = fmt.Sprintf("  %s archive  %s read sections  %s edit  %s back",
-			m.styles.Accent.Render("d"),
-			m.styles.Accent.Render("o"),
-			m.styles.Accent.Render("e"),
-			m.styles.Accent.Render("esc"))
+		archiveHint = Hint("r", "restore")
 	}
-	b.WriteString(m.styles.Muted.Render(hints) + "\n")
+	hints := HintStrip(m.styles, archiveHint,
+		Hint("o", "read sections"), Hint("e", "edit"), Hint("esc", "back"))
+	b.WriteString(hints + "\n")
 
 	lines := splitLines(b.String())
 	visible := m.height
@@ -680,16 +671,7 @@ func (m specDetailModel) maxScroll() int {
 }
 
 func stepIcon(status string) string {
-	switch status {
-	case "done":
-		return "✅"
-	case "in_progress", "active":
-		return "🔧"
-	case "blocked":
-		return "🚫"
-	default:
-		return "○"
-	}
+	return StepIconFor(status)
 }
 
 func (m specDetailModel) estimateContentLines() int {

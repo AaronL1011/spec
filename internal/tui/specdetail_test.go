@@ -483,12 +483,12 @@ func TestStepIcon(t *testing.T) {
 		status string
 		want   string
 	}{
-		{"done", "✅"},
-		{"in_progress", "🔧"},
-		{"active", "🔧"},
-		{"blocked", "🚫"},
-		{"", "○"},
-		{"pending", "○"},
+		{"done", IconDone},
+		{"in_progress", IconActive},
+		{"active", IconActive},
+		{"blocked", IconBlocked},
+		{"", IconOpen},
+		{"pending", IconOpen},
 	}
 	for _, tt := range tests {
 		if got := stepIcon(tt.status); got != tt.want {

@@ -108,15 +108,12 @@ func (m reviewModel) view() string {
 	b.WriteString("\n\n")
 
 	if len(m.items) == 0 {
-		b.WriteString(m.styles.Success.Render("  ✓ No pending reviews"))
+		b.WriteString(m.styles.Success.Render(Indent(1) + IconToastOK + " No pending reviews"))
 		b.WriteString("\n")
 		return b.String()
 	}
 
-	contentWidth := m.width - 4
-	if contentWidth < 40 {
-		contentWidth = 40
-	}
+	contentWidth := ContentWidth(m.width)
 
 	visibleRows := m.height - 5
 	if visibleRows < 3 {
@@ -145,14 +142,15 @@ func (m reviewModel) renderReviewRow(item reviewItem, selected bool, width int) 
 		if titleMax < 10 {
 			titleMax = 10
 		}
-		line = fmt.Sprintf("  %s %-10s %s", ci, prLabel, truncate(item.Title, titleMax))
+		line = fmt.Sprintf("%s%s %-10s %s", Indent(1), ci, prLabel, truncate(item.Title, titleMax))
 	} else {
 		titleMax := width - 42
 		if titleMax < 10 {
 			titleMax = 10
 		}
 		ago := timeAgo(item.CreatedAt)
-		line = fmt.Sprintf("  %s %-10s %-*s  %-15s %s",
+		line = fmt.Sprintf("%s%s %-10s %-*s  %-15s %s",
+			Indent(1),
 			ci,
 			prLabel,
 			titleMax, truncate(item.Title, titleMax),
@@ -168,16 +166,7 @@ func (m reviewModel) renderReviewRow(item reviewItem, selected bool, width int) 
 }
 
 func ciIcon(status string) string {
-	switch status {
-	case "passing":
-		return "✅"
-	case "failing":
-		return "❌"
-	case "pending":
-		return "🔄"
-	default:
-		return "⬜"
-	}
+	return CIIconFor(status)
 }
 
 func (m reviewModel) selectedURL() string {

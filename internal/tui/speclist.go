@@ -151,20 +151,18 @@ func (m specListModel) view() string {
 	}
 	switch {
 	case m.searchActive:
-		prompt := m.styles.Accent.Render("  / ") + m.searchQuery + m.styles.Muted.Render("▌")
+		prompt := m.styles.Accent.Render("  / ") + m.searchQuery + m.styles.Muted.Render(IconCaret)
 		b.WriteString(prompt)
 	case m.searchQuery != "":
 		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  filter: %s  ", m.searchQuery)))
 		b.WriteString(m.styles.Muted.Render("(/ to search, esc to clear)"))
 	default:
 		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  %d %s  ", len(m.filtered), label)))
+		toggle := Hint("x", "archive")
 		if m.archiveMode {
-			b.WriteString(m.styles.Accent.Render("x") + m.styles.Muted.Render(" specs  "))
-		} else {
-			b.WriteString(m.styles.Accent.Render("x") + m.styles.Muted.Render(" archive  "))
+			toggle = Hint("x", "specs")
 		}
-		b.WriteString(m.styles.Accent.Render("/") + m.styles.Muted.Render(" search  "))
-		b.WriteString(m.styles.Accent.Render("?") + m.styles.Muted.Render(" help"))
+		b.WriteString(HintStrip(m.styles, toggle, Hint("/", "search"), Hint("?", "help")))
 	}
 	b.WriteString("\n\n")
 
@@ -182,14 +180,11 @@ func (m specListModel) view() string {
 	}
 
 	// Column header
-	contentWidth := m.width - 4
-	if contentWidth < 40 {
-		contentWidth = 40
-	}
+	contentWidth := ContentWidth(m.width)
 	headerLine := m.formatRow("ID", "TITLE", "STATUS", "AUTHOR", "UPDATED", contentWidth)
 	b.WriteString(m.styles.Subtitle.Render(headerLine))
 	b.WriteString("\n")
-	b.WriteString(m.styles.Separator.Render(strings.Repeat("─", contentWidth)))
+	b.WriteString(m.styles.Separator.Render(RuleLine(contentWidth)))
 	b.WriteString("\n")
 
 	// Visible window — scroll if needed.

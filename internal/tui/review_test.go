@@ -66,10 +66,10 @@ func TestCIIcon(t *testing.T) {
 		status string
 		want   string
 	}{
-		{"passing", "✅"},
-		{"failing", "❌"},
-		{"pending", "🔄"},
-		{"", "⬜"},
+		{"passing", IconDone},
+		{"failing", IconRejected},
+		{"pending", IconChanges},
+		{"", IconPending},
 	}
 	for _, tt := range tests {
 		if got := ciIcon(tt.status); got != tt.want {

@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/aaronl1011/spec/internal/tui/glyph"
 )
 
 // ToastKind distinguishes toast types.
@@ -55,10 +57,10 @@ func (t Toast) View() string {
 
 	switch t.Kind {
 	case ToastSuccess:
-		return t.styles.Success.Render(" ✓ " + t.Message + " ")
+		return t.styles.Success.Render(" " + glyph.ToastOK + " " + t.Message + " ")
 	case ToastError:
-		return t.styles.Error.Render(" ✗ " + t.Message + " ")
+		return t.styles.Error.Render(" " + glyph.ToastErr + " " + t.Message + " ")
 	default:
-		return t.styles.Info.Render(" ℹ " + t.Message + " ")
+		return t.styles.Info.Render(" " + glyph.ToastInfo + " " + t.Message + " ")
 	}
 }
