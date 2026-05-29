@@ -1,7 +1,6 @@
 package onboard
 
 import (
-	"os"
 	"testing"
 )
 
@@ -174,21 +173,14 @@ func TestLegacyTokenEnvVar(t *testing.T) {
 }
 
 func TestResolveToken(t *testing.T) {
-	// Save and restore env vars
-	oldSpec := os.Getenv("SPEC_GITHUB_TOKEN")
-	oldLegacy := os.Getenv("GITHUB_TOKEN")
-	defer func() {
-		os.Setenv("SPEC_GITHUB_TOKEN", oldSpec)
-		os.Setenv("GITHUB_TOKEN", oldLegacy)
-	}()
-
-	// Clean slate
-	os.Unsetenv("SPEC_GITHUB_TOKEN")
-	os.Unsetenv("GITHUB_TOKEN")
+	// t.Setenv restores prior values automatically when each (sub)test ends.
+	// Establish a clean slate at the parent level.
+	t.Setenv("SPEC_GITHUB_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
 
 	t.Run("override takes precedence", func(t *testing.T) {
-		os.Setenv("SPEC_GITHUB_TOKEN", "spec-token")
-		os.Setenv("GITHUB_TOKEN", "legacy-token")
+		t.Setenv("SPEC_GITHUB_TOKEN", "spec-token")
+		t.Setenv("GITHUB_TOKEN", "legacy-token")
 		got := resolveToken("github", "override")
 		if got != "override" {
 			t.Errorf("resolveToken override = %q, want %q", got, "override")
@@ -196,8 +188,8 @@ func TestResolveToken(t *testing.T) {
 	})
 
 	t.Run("spec env var takes precedence over legacy", func(t *testing.T) {
-		os.Setenv("SPEC_GITHUB_TOKEN", "spec-token")
-		os.Setenv("GITHUB_TOKEN", "legacy-token")
+		t.Setenv("SPEC_GITHUB_TOKEN", "spec-token")
+		t.Setenv("GITHUB_TOKEN", "legacy-token")
 		got := resolveToken("github", "")
 		if got != "spec-token" {
 			t.Errorf("resolveToken = %q, want %q", got, "spec-token")
@@ -205,8 +197,8 @@ func TestResolveToken(t *testing.T) {
 	})
 
 	t.Run("fallback to legacy when spec not set", func(t *testing.T) {
-		os.Unsetenv("SPEC_GITHUB_TOKEN")
-		os.Setenv("GITHUB_TOKEN", "legacy-token")
+		t.Setenv("SPEC_GITHUB_TOKEN", "")
+		t.Setenv("GITHUB_TOKEN", "legacy-token")
 		got := resolveToken("github", "")
 		if got != "legacy-token" {
 			t.Errorf("resolveToken = %q, want %q", got, "legacy-token")
@@ -214,8 +206,8 @@ func TestResolveToken(t *testing.T) {
 	})
 
 	t.Run("no token returns empty", func(t *testing.T) {
-		os.Unsetenv("SPEC_GITHUB_TOKEN")
-		os.Unsetenv("GITHUB_TOKEN")
+		t.Setenv("SPEC_GITHUB_TOKEN", "")
+		t.Setenv("GITHUB_TOKEN", "")
 		got := resolveToken("github", "")
 		if got != "" {
 			t.Errorf("resolveToken = %q, want empty", got)
@@ -223,7 +215,7 @@ func TestResolveToken(t *testing.T) {
 	})
 
 	t.Run("works for gitlab", func(t *testing.T) {
-		os.Setenv("SPEC_GITLAB_TOKEN", "gl-token")
+		t.Setenv("SPEC_GITLAB_TOKEN", "gl-token")
 		got := resolveToken("gitlab", "")
 		if got != "gl-token" {
 			t.Errorf("resolveToken = %q, want %q", got, "gl-token")
