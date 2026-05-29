@@ -362,25 +362,34 @@ detail view; `esc` goes back.
 
 ### Keybindings
 
-**Navigation:** `↑/k` `↓/j` move · `enter` open · `esc` back · `pgup/pgdn` page ·
-`K/J` scroll
+**Navigation:** `↑/k` `↓/j` move · `enter` open · `esc` back · `pgup/pgdn` page
 
 **Spec actions** (on the selected spec):
 
-| Key | Action | Key | Action |
-|---|---|---|---|
-| `a` | advance | `c` | record a decision |
-| `v` | revert | `p` | push local edits |
-| `e` | edit in `$EDITOR` | `s` | sync with docs |
-| `b` | build | `f` | focus (★) |
-| `B` | block | `F` | unfocus |
-| `u` | unblock | `y` | copy spec ID |
-| `d` | archive | `o` | open in browser (Reviews) |
-| `r` | restore | | |
+| Key | Action | Notes |
+|---|---|---|
+| `a` | advance | confirm modal |
+| `v` | revert | |
+| `e` | edit in `$EDITOR` | |
+| `b` | build | |
+| `x` | toggle block | confirm modal |
+| `u` | unblock | confirm modal |
+| `f` | toggle focus (★) | single key, toggles on/off |
+| `c` | record a decision | |
+| `p` | push local edits | |
+| `s` | sync with docs | |
+| `y` | copy spec ID | |
+| `o` | open in browser | Reviews tab only |
+| `g a` | archive | confirm modal |
+| `g r` | restore | confirm modal |
 
-**Creation:** `n` new spec · `i` new triage item · `S` standup
+**Creation:** `n` new spec · `i` new triage item · `g s` standup
 
-**Global:** `?` help (context-aware) · `/` search · `R` refresh · `q` quit
+**Global:** `?` help · `/` search · `r` refresh · `esc esc` quit · `ctrl+c` hard quit
+
+> Destructive actions (`x` block, `g a` archive, `g r` restore, `a` advance) show a
+> confirm modal — press `enter` to confirm or `esc` to cancel. `esc` always goes back
+> one level; pressing it twice at a top-level tab quits the app.
 
 The focused spec is marked with a ★ across list views and persists between sessions.
 
