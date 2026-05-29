@@ -10,6 +10,7 @@ import (
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/thread"
 )
 
 // GenericHandler provides spec resources and tools without requiring a build session.
@@ -195,6 +196,31 @@ func (h *GenericHandler) ListTools() []Tool {
 				"required": []string{"id"},
 			},
 		},
+		{
+			Name:        "spec_list_threads",
+			Description: "List inline discussion threads (Q&A) on a spec, with status and replies",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"id":   map[string]interface{}{"type": "string", "description": "Spec ID"},
+					"open": map[string]interface{}{"type": "boolean", "description": "When true, return only open threads"},
+				},
+				"required": []string{"id"},
+			},
+		},
+		{
+			Name:        "spec_reply_thread",
+			Description: "Reply to an inline discussion thread on a spec",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"id":        map[string]interface{}{"type": "string", "description": "Spec ID"},
+					"thread_id": map[string]interface{}{"type": "string", "description": "Thread ID (e.g. 'T-7f3a')"},
+					"body":      map[string]interface{}{"type": "string", "description": "Reply text"},
+				},
+				"required": []string{"id", "thread_id", "body"},
+			},
+		},
 	}
 }
 
@@ -217,6 +243,10 @@ func (h *GenericHandler) CallTool(name string, args json.RawMessage) (*ToolResul
 		return h.toolPipeline()
 	case "spec_validate":
 		return h.toolValidate(args)
+	case "spec_list_threads":
+		return h.toolListThreads(args)
+	case "spec_reply_thread":
+		return h.toolReplyThread(args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
@@ -640,4 +670,65 @@ func (h *GenericHandler) toolValidate(args json.RawMessage) (*ToolResult, error)
 	}
 
 	return &ToolResult{Success: allPassed, Message: sb.String()}, nil
+}
+
+func (h *GenericHandler) toolListThreads(args json.RawMessage) (*ToolResult, error) {
+	var params struct {
+		ID   string `json:"id"`
+		Open bool   `json:"open"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, err
+	}
+
+	specID := strings.ToUpper(params.ID)
+	store := thread.NewSidecarStore(h.specsDir)
+	threads, err := store.List(specID)
+	if err != nil {
+		return &ToolResult{Success: false, Message: err.Error()}, nil
+	}
+
+	var sb strings.Builder
+	count := 0
+	for _, t := range threads {
+		if params.Open && !t.IsOpen() {
+			continue
+		}
+		count++
+		state := "open"
+		if !t.IsOpen() {
+			state = "resolved"
+		}
+		fmt.Fprintf(&sb, "%s [%s] §%s — %s: %s\n", t.ID, state, t.Section, t.Author, t.Question)
+		for _, r := range t.Replies {
+			fmt.Fprintf(&sb, "    ↳ %s: %s\n", r.Author, r.Body)
+		}
+	}
+	if count == 0 {
+		return &ToolResult{Success: true, Message: fmt.Sprintf("No discussion threads on %s.", specID)}, nil
+	}
+	return &ToolResult{Success: true, Message: fmt.Sprintf("%d thread(s) on %s:\n%s", count, specID, sb.String())}, nil
+}
+
+func (h *GenericHandler) toolReplyThread(args json.RawMessage) (*ToolResult, error) {
+	var params struct {
+		ID       string `json:"id"`
+		ThreadID string `json:"thread_id"`
+		Body     string `json:"body"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, err
+	}
+
+	specID := strings.ToUpper(params.ID)
+	store := thread.NewSidecarStore(h.specsDir)
+	// Agents are attributed as "agent", mirroring spec_decide.
+	t, err := store.Reply(specID, params.ThreadID, "agent", params.Body)
+	if err != nil {
+		return &ToolResult{Success: false, Message: err.Error()}, nil
+	}
+	return &ToolResult{
+		Success: true,
+		Message: fmt.Sprintf("Replied to %s on %s (§%s).", t.ID, specID, t.Section),
+	}, nil
 }

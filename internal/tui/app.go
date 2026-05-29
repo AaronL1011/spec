@@ -577,7 +577,12 @@ func (a App) View() string {
 		sections := a.detail.readableSections()
 		if a.detail.sectionIdx < len(sections) {
 			sec := sections[a.detail.sectionIdx]
-			a.statusBar.SetView(a.activeView.Label() + " › " + a.detail.specID + " › § " + sec.Slug)
+			crumb := a.activeView.Label() + " › " + a.detail.specID + " › § " + sec.Slug
+			// Surface open discussion as a calm awareness cue.
+			if n := a.detail.totalOpenThreads(); n > 0 {
+				crumb += fmt.Sprintf("  ●%d", n)
+			}
+			a.statusBar.SetView(crumb)
 		}
 	}
 
@@ -893,12 +898,16 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 	}
 
 	// In reader mode, reserve digit keys for section jumps.
-	// Keep tab/shift+tab view switching available.
+	// Keep tab/shift+tab view switching available, except when the reader
+	// is using tab to move focus between prose and the thread pane, or while
+	// an inline ask/reply prompt is capturing input.
 	if a.detail.readerMode {
+		readerUsesTab := a.detail.paneActiveForCurrentSection()
+		capturing := a.detail.input.active()
 		switch {
-		case key.Matches(msg, a.keys.NextTab):
+		case key.Matches(msg, a.keys.NextTab) && !readerUsesTab && !capturing:
 			return a, a.switchView(a.activeView.Next())
-		case key.Matches(msg, a.keys.PrevTab):
+		case key.Matches(msg, a.keys.PrevTab) && !capturing:
 			return a, a.switchView(a.activeView.Prev())
 		}
 		var cmd tea.Cmd

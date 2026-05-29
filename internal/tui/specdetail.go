@@ -20,6 +20,7 @@ import (
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/thread"
 )
 
 // ── Messages ──────────────────────────────────────────────────────────────────
@@ -28,9 +29,17 @@ type specDetailDataMsg struct {
 	Meta      *markdown.SpecMeta
 	Sections  []markdown.Section
 	Decisions []markdown.DecisionEntry
+	Threads   []thread.Thread
 	Hash      string
 	Archived  bool
 	Err       error
+}
+
+// threadsChangedMsg carries the refreshed thread set after a mutation.
+type threadsChangedMsg struct {
+	Threads []thread.Thread
+	Err     error
+	Toast   string
 }
 
 type sectionRenderedMsg struct {
@@ -70,6 +79,14 @@ type specDetailModel struct {
 	readerViewport viewport.Model
 	readerErr      error
 	readerCache    map[string]string
+
+	// Threads — inline Q&A (SPEC-012)
+	threads      []thread.Thread
+	paneVisible  bool // thread pane shown (toggled with 't')
+	paneFocused  bool // arrow keys target the pane, not the prose
+	threadIdx    int  // selected thread within the focused section
+	threadScroll int  // scroll offset within the (possibly tall) pane body
+	input        threadInput
 
 	// Render lifecycle — single-flight + pending coalesce
 	renderInFlight bool
@@ -111,6 +128,7 @@ func newSpecDetail(rc *config.ResolvedConfig, specID string, styles Styles, keys
 		readerCache:    make(map[string]string),
 		renderer:       NewGlamourRenderer(theme),
 		readerViewport: vp,
+		paneVisible:    true,
 	}
 }
 
@@ -126,11 +144,26 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 		return m.handleDataMsg(msg)
 	case sectionRenderedMsg:
 		return m.handleRenderedMsg(msg)
+	case threadsChangedMsg:
+		return m.handleThreadsChanged(msg)
 	case tea.KeyMsg:
 		if m.readerMode {
 			return m.updateReader(msg)
 		}
 		return m.updateOverview(msg)
+	}
+	return m, nil
+}
+
+func (m specDetailModel) handleThreadsChanged(msg threadsChangedMsg) (specDetailModel, tea.Cmd) {
+	if msg.Err != nil {
+		m.readerErr = msg.Err
+		return m, nil
+	}
+	m.threads = msg.Threads
+	// Clamp selection to the new thread set for the focused section.
+	if n := len(m.threadsForSection(m.currentSectionSlug())); m.threadIdx >= n {
+		m.threadIdx = max(0, n-1)
 	}
 	return m, nil
 }
@@ -151,6 +184,7 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	m.meta = msg.Meta
 	m.sections = msg.Sections
 	m.decisions = msg.Decisions
+	m.threads = msg.Threads
 	m.err = nil
 	m.contentHash = msg.Hash
 	m.isArchived = msg.Archived
@@ -224,18 +258,47 @@ func (m specDetailModel) updateOverview(msg tea.KeyMsg) (specDetailModel, tea.Cm
 }
 
 func (m specDetailModel) updateReader(msg tea.KeyMsg) (specDetailModel, tea.Cmd) {
+	// Active ask/reply prompt captures all keys first.
+	if nm, cmd, handled := m.handleThreadInputKey(msg); handled {
+		return nm, cmd
+	}
+	// Thread action keys (a/r/x/t/tab) take precedence over navigation so
+	// they work regardless of which pane has focus.
+	if nm, cmd, handled := m.handleThreadActionKey(msg); handled {
+		return nm, cmd
+	}
+
 	switch {
 	case key.Matches(msg, m.keys.Up):
+		if m.paneFocused {
+			// Scroll the pane body so long threads are fully readable.
+			if m.threadScroll > 0 {
+				m.threadScroll--
+			}
+			return m, nil
+		}
 		m.readerViewport.ScrollUp(1)
 	case key.Matches(msg, m.keys.Down):
+		if m.paneFocused {
+			if m.threadScroll < m.maxThreadScroll() {
+				m.threadScroll++
+			}
+			return m, nil
+		}
 		m.readerViewport.ScrollDown(1)
 	case msg.Type == tea.KeyPgUp:
 		m.readerViewport.PageUp()
 	case msg.Type == tea.KeyPgDown:
 		m.readerViewport.PageDown()
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "n":
+		if m.paneFocused {
+			return m.selectThread(1), nil // next thread when reading threads
+		}
 		return m.withSection(m.sectionIdx + 1)
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "p":
+		if m.paneFocused {
+			return m.selectThread(-1), nil
+		}
 		return m.withSection(m.sectionIdx - 1)
 	case msg.Type == tea.KeyRunes && string(msg.Runes) == "g":
 		m.readerViewport.GotoTop()
@@ -265,6 +328,10 @@ func (m specDetailModel) withSection(idx int) (specDetailModel, tea.Cmd) {
 		return m, nil
 	}
 	m.sectionIdx = idx
+	// Reset thread focus/selection when moving to a new section.
+	m.threadIdx = 0
+	m.threadScroll = 0
+	m.paneFocused = false
 	m.readerViewport.GotoTop()
 	return m.requestCurrentSectionRender()
 }
@@ -426,7 +493,22 @@ func (m specDetailModel) viewReader() string {
 	if m.width >= 100 {
 		return m.viewReaderWithSidebar()
 	}
-	return m.readerViewport.View()
+	return m.viewReaderNarrow()
+}
+
+// viewReaderNarrow renders the reader on terminals too narrow for a sidebar.
+// The thread pane drops to a full-width bottom drawer so the prose stays
+// readable.
+func (m specDetailModel) viewReaderNarrow() string {
+	// Cap the pane to roughly half the reader so prose stays visible; the pane
+	// body scrolls when a thread is taller than its budget.
+	paneBudget := max(m.height/2, 6)
+	pane := m.renderThreadPane(max(m.width, 20), paneBudget)
+	if len(pane) == 0 {
+		return m.readerViewport.View()
+	}
+	content := composeContentColumn(m.readerViewport.View(), pane, max(m.height, 3))
+	return strings.Join(content, "\n")
 }
 
 func (m specDetailModel) viewReaderWithSidebar() string {
@@ -438,13 +520,22 @@ func (m specDetailModel) viewReaderWithSidebar() string {
 
 	sections := m.readableSections()
 	var sidebar []string
-	sidebar = append(sidebar, m.styles.SectionTitle.Render(" "+GlyphSection+" Sections"), "")
+	// Use a plain accent-styled header rather than SectionTitle: the latter
+	// carries MarginTop(1), which embeds a newline and would desync this
+	// column's row count from the content column on its right.
+	sidebar = append(sidebar, m.styles.Accent.Bold(true).Render(" "+GlyphSection+" Sections"), "")
 	for i, sec := range sections {
 		fill := IconPending
 		if len(strings.TrimSpace(sec.Content)) > 20 {
 			fill = IconFilled
 		}
-		line := fmt.Sprintf(" %s %d %s", fill, i+1, truncate(sec.Slug, sidebarWidth-5))
+		// Open-thread badge keeps attention on unresolved review work.
+		badge := ""
+		if n := m.openCountForSection(sec.Slug); n > 0 {
+			badge = fmt.Sprintf(" ●%d", n)
+		}
+		label := truncate(sec.Slug, sidebarWidth-7-len(badge))
+		line := fmt.Sprintf(" %s %d %s%s", fill, i+1, label, badge)
 		if i == m.sectionIdx {
 			line = m.styles.Accent.Bold(true).Render(line)
 		} else {
@@ -460,13 +551,15 @@ func (m specDetailModel) viewReaderWithSidebar() string {
 		sidebar = sidebar[ss:se]
 	}
 
-	content := splitLines(m.readerViewport.View())
-	for len(content) < visible {
-		content = append(content, "")
-	}
-	if len(content) > visible {
-		content = content[:visible]
-	}
+	// Thread pane is drawn at the bottom of the content column. Build the
+	// content column to exactly `visible` rows: prose on top, pane pinned to
+	// the bottom, so the input line is always the last visible row.
+	contentWidth := max(m.width-sidebarWidth-1, 20)
+	// Cap the pane to roughly half the reader so prose stays visible; the pane
+	// body scrolls when a thread is taller than its budget.
+	paneBudget := max(visible/2, 6)
+	pane := m.renderThreadPane(contentWidth, paneBudget)
+	content := composeContentColumn(m.readerViewport.View(), pane, visible)
 
 	sep := m.styles.Separator.Render(GlyphVSep)
 	var out []string
@@ -486,6 +579,33 @@ func (m specDetailModel) viewReaderWithSidebar() string {
 		out = append(out, sl+strings.Repeat(" ", pad)+sep+cl)
 	}
 	return strings.Join(out, "\n")
+}
+
+// composeContentColumn lays out the reader's content column to exactly
+// `height` rows: viewport prose fills the top and, when a thread pane is
+// present, the pane is pinned to the bottom so its input line is always the
+// final visible row. All entries are flattened to single rows so the row
+// count is exact regardless of any margin-bearing styles.
+func composeContentColumn(viewportView string, pane []string, height int) []string {
+	pane = flattenLines(pane)
+	if len(pane) > height {
+		pane = pane[len(pane)-height:] // pane alone exceeds height: keep its tail
+	}
+	proseRows := height - len(pane)
+
+	prose := flattenLines(splitLines(viewportView))
+	if len(prose) > proseRows {
+		prose = prose[:proseRows]
+	}
+	for len(prose) < proseRows {
+		prose = append(prose, "")
+	}
+
+	out := append(prose, pane...)
+	if len(out) > height {
+		out = out[:height]
+	}
+	return out
 }
 
 func (m specDetailModel) viewOverview() string {
@@ -513,7 +633,7 @@ func (m specDetailModel) viewOverview() string {
 		metaParts = append(metaParts, "updated "+m.meta.Updated)
 	}
 	metaLine := truncate(strings.Join(metaParts, " · "), contentWidth)
-	b.WriteString(m.styles.Muted.Render(Indent(1)+metaLine))
+	b.WriteString(m.styles.Muted.Render(Indent(1) + metaLine))
 	b.WriteString("\n")
 
 	// ── Review status block ───────────────────────────────────────────────────
@@ -749,7 +869,7 @@ func (m specDetailModel) estimateContentLines() int {
 // latestEscapeReason parses the most recent entry from the escape hatch log
 // section and returns the reason text. Entries have the form:
 //
-//	- **2026-05-29** (user): Blocked from `stage`. Reason: the reason text
+//   - **2026-05-29** (user): Blocked from `stage`. Reason: the reason text
 //
 // Returns an empty string when the section is absent or contains no entries.
 var escapeReasonRe = regexp.MustCompile(`(?i)Reason:\s*(.+)$`)
@@ -770,6 +890,25 @@ func latestEscapeReason(sections []markdown.Section) string {
 }
 
 // ── Data Fetching ─────────────────────────────────────────────────────────────
+
+// specFilePath resolves the on-disk path for this spec in the specs-repo clone,
+// checking root, triage/, then archive/. Returns "" when unresolved.
+func (m specDetailModel) specFilePath() string {
+	if m.rc.SpecsRepoDir == "" {
+		return ""
+	}
+	candidates := []string{
+		filepath.Join(m.rc.SpecsRepoDir, m.specID+".md"),
+		filepath.Join(m.rc.SpecsRepoDir, "triage", m.specID+".md"),
+		filepath.Join(m.rc.SpecsRepoDir, config.ArchiveDir(m.rc.Team), m.specID+".md"),
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
 
 func (m specDetailModel) fetchData() tea.Cmd {
 	rc := m.rc
@@ -802,10 +941,14 @@ func (m specDetailModel) fetchData() tea.Cmd {
 			return specDetailDataMsg{Err: err}
 		}
 		decisions, _ := markdown.ParseDecisionLog(content)
+		// Threads are a best-effort sidecar load: a parse error must never
+		// block reading the spec.
+		threads, _ := thread.NewSidecarStore(filepath.Dir(path)).List(specID)
 		return specDetailDataMsg{
 			Meta:      meta,
 			Sections:  markdown.ExtractSections(content),
 			Decisions: decisions,
+			Threads:   threads,
 			Hash:      contentHash(data),
 			Archived:  isArchived,
 		}
