@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -93,13 +94,38 @@ type App struct {
 	spinnerOn       bool
 }
 
-// New creates a new App ready to run as a tea.Program.
+// New creates a new App ready to run as a tea.Program. The caller is
+// responsible for invoking Close once the program exits.
 func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
-	db, _ := store.Open(store.DefaultDBPath())
-	return newAppWithDB(rc, reg, role, db)
+	db, err := store.Open(store.DefaultDBPath())
+	app := newAppWithDB(rc, reg, role, db)
+	if err != nil {
+		// Degrade gracefully: focus and standup persistence are unavailable,
+		// but the rest of the TUI still works. Tell the user why.
+		app.toast.Show(
+			"Local store unavailable — focus & standup disabled: "+err.Error(),
+			components.ToastError, 6*time.Second,
+		)
+	}
+	return app
+}
+
+// Close releases resources held by the App, notably the local store.
+// It is safe to call when the store failed to open.
+func (a App) Close() error {
+	if a.db == nil {
+		return nil
+	}
+	return a.db.Close()
 }
 
 func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string, db *store.DB) App {
+	// Warm the terminal background detection now, while stdin is still ours.
+	// Once Bubble Tea's event loop owns stdin the OSC query reply is swallowed
+	// and the call blocks until timeout, so doing it here keeps the "auto"
+	// theme instant even when the user cycles onto it mid-session.
+	_ = hasDarkBackground()
+
 	themePref := ""
 	if rc.User != nil {
 		themePref = rc.User.Preferences.Theme
@@ -240,6 +266,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.markRefreshDone(refreshKeyDashboard)
 		var cmd tea.Cmd
 		a.dashboard, cmd = a.dashboard.update(msg)
+		a.notifyStaleRefresh(msg.Err, a.dashboard.loaded)
 		a.statusBar.SetPending(a.dashboard.pendingCount())
 		a.statusBar.SetRefresh(time.Now())
 		return a, cmd
@@ -248,24 +275,28 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.markRefreshDone(refreshKeyPipeline)
 		var cmd tea.Cmd
 		a.pipeline, cmd = a.pipeline.update(msg)
+		a.notifyStaleRefresh(msg.Err, a.pipeline.loaded)
 		return a, cmd
 
 	case specListDataMsg:
 		a.markRefreshDone(refreshKeySpecs)
 		var cmd tea.Cmd
 		a.specs, cmd = a.specs.update(msg)
+		a.notifyStaleRefresh(msg.Err, a.specs.loaded)
 		return a, cmd
 
 	case triageDataMsg:
 		a.markRefreshDone(refreshKeyTriage)
 		var cmd tea.Cmd
 		a.triage, cmd = a.triage.update(msg)
+		a.notifyStaleRefresh(msg.Err, a.triage.loaded)
 		return a, cmd
 
 	case reviewDataMsg:
 		a.markRefreshDone(refreshKeyReviews)
 		var cmd tea.Cmd
 		a.reviews, cmd = a.reviews.update(msg)
+		a.notifyStaleRefresh(msg.Err, a.reviews.loaded)
 		return a, cmd
 
 	case specDetailDataMsg:
@@ -282,6 +313,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case settingsAppliedMsg:
 		a.applySettingsField(msg.Field)
+		return a, nil
+
+	case settingsThemePreviewMsg:
+		// Live, non-persisted preview while editing the Theme field.
+		a.applyTheme(msg.Theme)
 		return a, nil
 
 	case settingsPersistedMsg:
@@ -725,6 +761,17 @@ func (a *App) scheduleRefresh(key string, cmd tea.Cmd) tea.Cmd {
 	}
 	a.refreshInFlight[key] = true
 	return cmd
+}
+
+// notifyStaleRefresh shows a non-destructive toast when a background refresh
+// fails while a view already holds cached data. The cached data stays on
+// screen (the view suppresses its error screen once loaded), so the toast is
+// the only signal that the latest poll did not succeed.
+func (a *App) notifyStaleRefresh(err error, loaded bool) {
+	if err == nil || !loaded {
+		return
+	}
+	a.toast.Show("Refresh failed — showing cached data: "+err.Error(), components.ToastError, 5*time.Second)
 }
 
 func (a *App) markRefreshDone(key string) {
@@ -1359,6 +1406,18 @@ func normalizeLineWidth(line string, width int) string {
 		line += strings.Repeat(" ", width-w)
 	}
 	return line
+}
+
+// dropLastRune removes the final UTF-8 rune from s. Text-input handlers use
+// it for backspace so deleting a multi-byte character removes the whole rune
+// rather than a single byte, which would leave invalid UTF-8 in the string
+// (corrupting rendering and any value persisted to a spec).
+func dropLastRune(s string) string {
+	if s == "" {
+		return ""
+	}
+	_, size := utf8.DecodeLastRuneInString(s)
+	return s[:len(s)-size]
 }
 
 func splitLines(s string) []string {

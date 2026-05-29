@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -30,6 +31,7 @@ type dashboardModel struct {
 
 	data          *dashboard.DashboardData
 	loading       bool
+	loaded        bool // true once at least one fetch has succeeded
 	err           error
 	cursor        int
 	items         []dashboardRow
@@ -71,11 +73,17 @@ func (m dashboardModel) update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 	case dashboardDataMsg:
 		m.loading = false
 		if msg.Err != nil {
-			m.err = msg.Err
+			// Only surface an error screen before the first successful load.
+			// Afterwards, keep cached data on screen and let the app degrade
+			// gracefully (the failure is surfaced via a toast).
+			if !m.loaded {
+				m.err = msg.Err
+			}
 			return m, nil
 		}
 		m.data = msg.Data
 		m.err = nil
+		m.loaded = true
 		m.items = m.buildRows()
 		if m.cursor >= len(m.items) {
 			m.cursor = max(0, len(m.items)-1)
@@ -381,14 +389,22 @@ func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) st
 	}
 }
 
+// truncate shortens s to at most maxLen runes, appending an ellipsis when
+// space allows. It operates on runes (not bytes) so multi-byte UTF-8 titles
+// are never split mid-character, which would emit invalid UTF-8 and corrupt
+// terminal rendering and width calculations.
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if maxLen <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= maxLen {
 		return s
 	}
+	runes := []rune(s)
 	if maxLen < 4 {
-		return s[:maxLen]
+		return string(runes[:maxLen])
 	}
-	return s[:maxLen-3] + "..."
+	return string(runes[:maxLen-3]) + "..."
 }
 
 // timeAgo formats a duration as a human-readable string.

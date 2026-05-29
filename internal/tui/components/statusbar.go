@@ -104,13 +104,24 @@ func (s StatusBar) View() string {
 	}
 	right := scrollPart + hint + clock
 
-	gap := s.width - lipgloss.Width(left) - lipgloss.Width(right)
+	// Lay the bar out inside the style's content box. The Bar style adds
+	// horizontal padding, so the usable width is narrower than s.width;
+	// filling to the full width would overflow and wrap onto a second line,
+	// which the app's single-row status budget cannot absorb.
+	inner := s.width - s.styles.Bar.GetHorizontalFrameSize()
+	if inner < 0 {
+		inner = 0
+	}
+
+	gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 0 {
 		gap = 0
 	}
 
+	// MaxHeight(1) keeps the status bar a single row even if content is
+	// wider than the box; the app reserves exactly one row for it.
 	bar := left + strings.Repeat(" ", gap) + right
-	return s.styles.Bar.Width(s.width).Render(bar)
+	return s.styles.Bar.Width(s.width).MaxHeight(1).Render(bar)
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}

@@ -6,6 +6,8 @@
 package tui
 
 import (
+	"sync"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
@@ -175,9 +177,27 @@ func ResolveTheme(pref string) Theme {
 	}
 }
 
+// darkBackgroundOnce caches the terminal background detection. termenv queries
+// the terminal via an OSC escape sequence and waits for a reply; once Bubble
+// Tea owns stdin that reply never arrives, so the call blocks until it times
+// out. Detecting exactly once (at first resolve, before the program loop has
+// fully taken over) keeps the "auto" theme from freezing every time the user
+// cycles onto it.
+var (
+	darkBackgroundOnce sync.Once
+	darkBackground     bool
+)
+
+func hasDarkBackground() bool {
+	darkBackgroundOnce.Do(func() {
+		darkBackground = termenv.HasDarkBackground()
+	})
+	return darkBackground
+}
+
 // autoTheme detects dark/light terminal and returns a neutral palette.
 func autoTheme() Theme {
-	if termenv.HasDarkBackground() {
+	if hasDarkBackground() {
 		return darkDefault()
 	}
 	return lightDefault()

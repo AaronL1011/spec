@@ -574,12 +574,55 @@ func TestApp_SettingsAppliedMsg_Role(t *testing.T) {
 	}
 }
 
+func TestApp_SettingsThemePreview_AppliesWithoutPersisting(t *testing.T) {
+	app := testApp()
+	app.rc.User.Preferences.Theme = "" // unset; "auto" is the effective value
+
+	model, _ := app.Update(settingsThemePreviewMsg{Theme: "dracula"})
+	a := model.(App)
+
+	if a.theme.Base != ResolveTheme("dracula").Base {
+		t.Error("preview should apply the dracula theme to the live styles")
+	}
+	if a.rc.User.Preferences.Theme != "" {
+		t.Errorf("preview must not persist the theme, got %q", a.rc.User.Preferences.Theme)
+	}
+}
+
 func TestApp_SettingsPersistedMsg_SuccessToast(t *testing.T) {
 	app := testApp()
 	model, _ := app.Update(settingsPersistedMsg{Field: fieldName, Err: nil})
 	a := model.(App)
 	if !a.toast.Visible() {
 		t.Error("toast should show after successful settings persist")
+	}
+}
+
+// TestApp_ViewFitsTerminalHeight guards against the chrome (header/status bar)
+// rendering more rows than the layout budgets for them. When that happened,
+// View() exceeded the terminal height and the alt-screen renderer left a stale
+// full-width bar at the top of the screen — visible as a flash when saving a
+// setting toggled the toast (and thus the line count). The view must always be
+// exactly a.height lines, with and without the toast showing.
+func TestApp_ViewFitsTerminalHeight(t *testing.T) {
+	for _, sz := range []struct{ w, h int }{{120, 40}, {100, 30}, {80, 24}, {60, 12}} {
+		app := testApp()
+		m, _ := app.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+		app = m.(App)
+		app.activeView = ViewSettings
+
+		if lines := strings.Count(app.View(), "\n") + 1; lines != sz.h {
+			t.Errorf("%dx%d: View() = %d lines, want %d (no toast)", sz.w, sz.h, lines, sz.h)
+		}
+
+		m, _ = app.Update(settingsPersistedMsg{Field: fieldTheme, Err: nil})
+		app = m.(App)
+		if !app.toast.Visible() {
+			t.Fatal("toast should be visible after persist")
+		}
+		if lines := strings.Count(app.View(), "\n") + 1; lines != sz.h {
+			t.Errorf("%dx%d: View() = %d lines, want %d (toast showing)", sz.w, sz.h, lines, sz.h)
+		}
 	}
 }
 

@@ -40,6 +40,7 @@ type pipelineModel struct {
 
 	stages  []pipelineStage
 	loading bool
+	loaded  bool // true once at least one fetch has succeeded
 	err     error
 
 	// Navigation: which stage column, which spec row within it.
@@ -70,11 +71,15 @@ func (m pipelineModel) update(msg tea.Msg) (pipelineModel, tea.Cmd) {
 	case pipelineDataMsg:
 		m.loading = false
 		if msg.Err != nil {
-			m.err = msg.Err
+			// Keep cached data after the first successful load; degrade gracefully.
+			if !m.loaded {
+				m.err = msg.Err
+			}
 			return m, nil
 		}
 		m.stages = msg.Stages
 		m.err = nil
+		m.loaded = true
 		// Start on the first non-empty stage so the cursor is immediately
 		// on a selectable spec, not an empty "—" placeholder.
 		if first := m.nextNonEmptyStage(-1); first >= 0 {

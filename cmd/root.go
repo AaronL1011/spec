@@ -50,6 +50,7 @@ personal dashboard.`,
 		// Non-interactive (piped, redirected) → static dashboard render.
 		if !staticMode && tui.IsInteractive() {
 			app := tui.New(rc, reg, role)
+			defer func() { _ = app.Close() }()
 			opts := []tea.ProgramOption{tea.WithAltScreen()}
 			if rc.User != nil && rc.User.Preferences.Mouse {
 				opts = append(opts, tea.WithMouseCellMotion())

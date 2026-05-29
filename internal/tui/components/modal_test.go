@@ -97,3 +97,26 @@ func TestModal_BackspaceEmpty(t *testing.T) {
 		t.Errorf("input should still be empty, got %q", m.Input)
 	}
 }
+
+func TestModal_BackspaceInput_RuneSafe(t *testing.T) {
+	m := NewModal(testModalStyles())
+	m.ShowInput("Title", "Enter:")
+	m.AppendInput("café")
+	m.BackspaceInput()
+	if m.Input != "caf" {
+		t.Errorf("backspace = %q, want %q", m.Input, "caf")
+	}
+
+	m.Input = "日本"
+	m.BackspaceInput()
+	if m.Input != "日" {
+		t.Errorf("multibyte backspace = %q, want %q", m.Input, "日")
+	}
+
+	// Backspacing empty input must not panic or corrupt.
+	m.Input = ""
+	m.BackspaceInput()
+	if m.Input != "" {
+		t.Errorf("empty backspace = %q, want empty", m.Input)
+	}
+}

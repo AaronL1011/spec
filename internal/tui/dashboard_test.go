@@ -226,6 +226,10 @@ func TestTruncate(t *testing.T) {
 		{"exactly10!", 10, "exactly10!"},
 		{"this is too long", 10, "this is..."},
 		{"ab", 1, "a"},
+		// Multi-byte UTF-8 must never be split mid-rune.
+		{"日本語タイトル長い", 5, "日本..."},
+		{"café — résumé naïve", 8, "café ..."},
+		{"日本語", 2, "日本"},
 	}
 	for _, tt := range tests {
 		got := truncate(tt.input, tt.maxLen)

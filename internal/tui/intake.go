@@ -77,13 +77,9 @@ func (f *intakeFormState) appendToField(s string) {
 func (f *intakeFormState) backspaceField() {
 	switch f.field {
 	case intakeFieldTitle:
-		if len(f.title) > 0 {
-			f.title = f.title[:len(f.title)-1]
-		}
+		f.title = dropLastRune(f.title)
 	case intakeFieldSource:
-		if len(f.source) > 0 {
-			f.source = f.source[:len(f.source)-1]
-		}
+		f.source = dropLastRune(f.source)
 	}
 }
 
