@@ -32,7 +32,6 @@ func TestPipeline_WithStages(t *testing.T) {
 		{
 			Name:  "draft",
 			Owner: "pm",
-			Icon:  "📝",
 			Specs: []pipelineSpec{
 				{ID: "SPEC-001", Title: "Auth service"},
 			},
@@ -40,7 +39,6 @@ func TestPipeline_WithStages(t *testing.T) {
 		{
 			Name:  "build",
 			Owner: "engineer",
-			Icon:  "🏗️",
 			Specs: []pipelineSpec{
 				{ID: "SPEC-002", Title: "User onboarding"},
 				{ID: "SPEC-003", Title: "Payments v2"},

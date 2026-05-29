@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/aaronl1011/spec/internal/tui/glyph"
 )
 
 // StatusBar renders the bottom bar: view name, pending count, help hint, time.
@@ -69,7 +71,7 @@ func (s StatusBar) View() string {
 	var parts []string
 	if s.pendingCount > 0 {
 		parts = append(parts, s.styles.Pending.Render(
-			fmt.Sprintf(" ⚡ %d pending ", s.pendingCount),
+			fmt.Sprintf(" %s %d pending ", glyph.Active, s.pendingCount),
 		))
 	}
 
@@ -80,7 +82,7 @@ func (s StatusBar) View() string {
 		if age > 120*time.Second {
 			staleLabel = fmt.Sprintf("%dm ago", int(age.Minutes()))
 		}
-		parts = append(parts, s.styles.Stale.Render(" ⏳ "+staleLabel+" "))
+		parts = append(parts, s.styles.Stale.Render(" "+glyph.Clock+" "+staleLabel+" "))
 	}
 	if s.busy {
 		label := s.busyLabel
@@ -124,4 +126,4 @@ func (s StatusBar) View() string {
 	return s.styles.Bar.Width(s.width).MaxHeight(1).Render(bar)
 }
 
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+var spinnerFrames = glyph.SpinnerFrames

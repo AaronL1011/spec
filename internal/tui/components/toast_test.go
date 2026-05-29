@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/aaronl1011/spec/internal/tui/glyph"
 )
 
 func testToastStyles() ToastStyles {
@@ -38,8 +40,8 @@ func TestToast_ShowSuccess(t *testing.T) {
 	if !strings.Contains(got, "Spec advanced") {
 		t.Errorf("toast should contain message, got: %q", got)
 	}
-	if !strings.Contains(got, "✓") {
-		t.Error("success toast should contain ✓")
+	if !strings.Contains(got, glyph.ToastOK) {
+		t.Error("success toast should contain success glyph")
 	}
 }
 
@@ -48,8 +50,8 @@ func TestToast_ShowError(t *testing.T) {
 	toast.Show("something broke", ToastError, 5*time.Second)
 
 	got := toast.View()
-	if !strings.Contains(got, "✗") {
-		t.Error("error toast should contain ✗")
+	if !strings.Contains(got, glyph.ToastErr) {
+		t.Error("error toast should contain error glyph")
 	}
 }
 

@@ -115,7 +115,7 @@ func renderRevert(r revertOverlay, styles Styles) string {
 
 	label := styles.Subtitle.Render(fmt.Sprintf("  %-10s", "Stage"))
 	if r.field == revertFieldStage {
-		b.WriteString(styles.Accent.Render("▸ "))
+		b.WriteString(styles.Accent.Render(IconCursor + " "))
 		b.WriteString(label)
 		b.WriteString(stageHint)
 	} else {
@@ -130,11 +130,11 @@ func renderRevert(r revertOverlay, styles Styles) string {
 	label = styles.Subtitle.Render(fmt.Sprintf("  %-10s", "Reason"))
 	reasonValue := r.reason
 	if r.field == revertFieldReason {
-		b.WriteString(styles.Accent.Render("▸ "))
+		b.WriteString(styles.Accent.Render(IconCursor + " "))
 		b.WriteString(label)
 		b.WriteString("  ")
 		b.WriteString(styles.RowNormal.Render(reasonValue))
-		b.WriteString(styles.Accent.Render("▌"))
+		b.WriteString(styles.Accent.Render(IconCaret))
 	} else {
 		b.WriteString("  ")
 		b.WriteString(label)
@@ -144,7 +144,8 @@ func renderRevert(r revertOverlay, styles Styles) string {
 	b.WriteString("\n")
 
 	b.WriteString("\n")
-	b.WriteString(styles.Muted.Render("  tab next field · enter cycle stage/submit · esc cancel"))
+	b.WriteString(HintStrip(styles,
+		Hint("tab", "next field"), Hint("enter", "cycle stage/submit"), Hint("esc", "cancel")))
 
 	return b.String()
 }

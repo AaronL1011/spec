@@ -24,7 +24,6 @@ type pipelineDataMsg struct {
 type pipelineStage struct {
 	Name  string
 	Owner string
-	Icon  string
 	Specs []pipelineSpec
 }
 
@@ -142,10 +141,9 @@ func (m pipelineModel) view() string {
 	for si, stage := range m.stages {
 		isActiveStage := si == m.stageIdx
 
-		icon := stage.Icon
-		if icon == "" {
-			icon = "○"
-		}
+		// Stage glyph is derived from stage POSITION (mono-width set), not the
+		// emoji stored in config — keeps the pipeline visually uniform.
+		icon := StageIconAt(si)
 		countStr := fmt.Sprintf(" %d", len(stage.Specs))
 
 		var header string
@@ -167,7 +165,7 @@ func (m pipelineModel) view() string {
 		allLines = append(allLines, header)
 
 		if len(stage.Specs) == 0 {
-			allLines = append(allLines, m.styles.Muted.Render("    —"))
+			allLines = append(allLines, m.styles.Muted.Render(Indent(2)+"—"))
 		} else {
 			for ri, spec := range stage.Specs {
 				selected := isActiveStage && ri == m.specIdx
@@ -195,10 +193,7 @@ func (m pipelineModel) view() string {
 }
 
 func (m pipelineModel) renderPipelineRow(spec pipelineSpec, selected bool) string {
-	contentWidth := m.width - 6
-	if contentWidth < 30 {
-		contentWidth = 30
-	}
+	contentWidth := ContentWidth(m.width)
 
 	idStr := fmt.Sprintf("%-11s", spec.ID)
 	titleMax := contentWidth - 14
@@ -207,7 +202,7 @@ func (m pipelineModel) renderPipelineRow(spec pipelineSpec, selected bool) strin
 	}
 	title := truncate(spec.Title, titleMax)
 
-	line := fmt.Sprintf("    %s %s", idStr, title)
+	line := fmt.Sprintf("%s%s %s", Indent(2), idStr, title)
 
 	if spec.Updated != "" {
 		remaining := contentWidth - lipgloss.Width(line)
@@ -333,7 +328,6 @@ func loadPipelineData(_ context.Context, rc *config.ResolvedConfig) ([]pipelineS
 		stages = append(stages, pipelineStage{
 			Name:  sc.Name,
 			Owner: owner,
-			Icon:  sc.Icon,
 			Specs: specsByStage[sc.Name],
 		})
 	}

@@ -72,12 +72,12 @@ func TestPriorityIcon(t *testing.T) {
 		priority string
 		want     string
 	}{
-		{"critical", "🔴"},
-		{"high", "🟠"},
-		{"medium", "🟡"},
-		{"low", "🟢"},
-		{"", "⚪"},
-		{"unknown", "⚪"},
+		{"critical", IconActive},
+		{"high", IconActive},
+		{"medium", IconActive},
+		{"low", IconActive},
+		{"", IconOpen},
+		{"unknown", IconOpen},
 	}
 	for _, tt := range tests {
 		got := priorityIcon(tt.priority)

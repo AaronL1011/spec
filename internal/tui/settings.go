@@ -655,7 +655,7 @@ func (m settingsModel) renderEditableRow(label string, field settingsField) stri
 	var valuePart strings.Builder
 	if editing && m.isTextField(field) {
 		valuePart.WriteString(m.styles.RowNormal.Render(value))
-		valuePart.WriteString(m.styles.Accent.Render("▌"))
+		valuePart.WriteString(m.styles.Accent.Render(IconCaret))
 	} else {
 		valuePart.WriteString(m.styles.RowNormal.Render(value))
 	}
@@ -678,7 +678,7 @@ func (m settingsModel) renderEditableRow(label string, field settingsField) stri
 		return m.styles.RowSelected.Render(line)
 	}
 	if editing {
-		return m.styles.Accent.Render("▸ ") + line
+		return m.styles.Accent.Render(IconCursor+" ") + line
 	}
 	return line
 }

@@ -62,7 +62,7 @@ func (m helpModel) view() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(m.styles.Muted.Render("  Press ? or esc to close"))
+	b.WriteString(HintStrip(m.styles, Hint("?", "close"), Hint("esc", "close")))
 
 	lines := splitLines(b.String())
 	visible := m.height
@@ -77,7 +77,7 @@ func (m helpModel) view() string {
 
 func (m helpModel) section(title string, bindings []key.Binding) string {
 	var b strings.Builder
-	b.WriteString(m.styles.SectionTitle.Render("  " + title))
+	b.WriteString(m.styles.SectionTitle.Render(Indent(1) + title))
 	b.WriteString("\n")
 
 	maxKey := 0
@@ -90,7 +90,8 @@ func (m helpModel) section(title string, bindings []key.Binding) string {
 
 	for _, bind := range bindings {
 		help := bind.Help()
-		fmt.Fprintf(&b, "    %s%s  %s\n",
+		fmt.Fprintf(&b, "%s%s%s  %s\n",
+			Indent(2),
 			m.styles.Accent.Render(help.Key),
 			strings.Repeat(" ", maxKey-len(help.Key)),
 			m.styles.RowNormal.Render(help.Desc),

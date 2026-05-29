@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/aaronl1011/spec/internal/tui/glyph"
 )
 
 // Tab represents a single tab in the tab strip.
@@ -70,7 +72,7 @@ func (t TabStrip) View() string {
 	if compact {
 		sep = t.styles.Separator.Render(" ")
 	} else {
-		sep = t.styles.Separator.Render(" │ ")
+		sep = t.styles.Separator.Render(" " + glyph.VSep + " ")
 	}
 	strip := strings.Join(rendered, sep)
 

@@ -72,11 +72,11 @@ func (s standupOverlay) view() string {
 	var b strings.Builder
 	b.WriteString(s.styles.Title.Render("  Standup"))
 	b.WriteString("\n")
-	b.WriteString(s.styles.Separator.Render(strings.Repeat("─", s.width-4)))
+	b.WriteString(s.styles.Separator.Render(RuleLine(ContentWidth(s.width))))
 	b.WriteString("\n")
 	b.WriteString(s.text)
 	b.WriteString("\n\n")
-	b.WriteString(s.styles.Muted.Render("  c copy · esc close · j/k scroll"))
+	b.WriteString(HintStrip(s.styles, Hint("c", "copy"), Hint("esc", "close"), Hint("j/k", "scroll")))
 
 	lines := splitLines(b.String())
 
@@ -132,7 +132,7 @@ func buildStandupText(rc *config.ResolvedConfig, reg *adapter.Registry, db *stor
 		b.WriteString("    (no tracked activity)\n")
 	} else {
 		for _, e := range entries {
-			fmt.Fprintf(&b, "    • %s: %s\n", e.SpecID, e.Summary)
+			fmt.Fprintf(&b, "    "+IconBullet+" %s: %s\n", e.SpecID, e.Summary)
 		}
 	}
 
@@ -142,13 +142,13 @@ func buildStandupText(rc *config.ResolvedConfig, reg *adapter.Registry, db *stor
 
 	recent, _ := db.SessionMostRecent()
 	if recent != "" {
-		fmt.Fprintf(&b, "    • Continue %s\n", recent)
+		fmt.Fprintf(&b, "    "+IconBullet+" Continue %s\n", recent)
 		todayItems++
 	}
 
 	owned := standupOwnedSpecs(rc.SpecsRepoDir, userRole, rc.Pipeline())
 	for _, s := range owned {
-		fmt.Fprintf(&b, "    • %s: %s [%s]\n", s.id, s.title, s.stage)
+		fmt.Fprintf(&b, "    "+IconBullet+" %s: %s [%s]\n", s.id, s.title, s.stage)
 		todayItems++
 	}
 
@@ -163,7 +163,7 @@ func buildStandupText(rc *config.ResolvedConfig, reg *adapter.Registry, db *stor
 		b.WriteString("    (none)\n")
 	} else {
 		for _, bl := range blockers {
-			fmt.Fprintf(&b, "    • %s\n", bl)
+			fmt.Fprintf(&b, "    "+IconBullet+" %s\n", bl)
 		}
 	}
 

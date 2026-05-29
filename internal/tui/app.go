@@ -1168,8 +1168,8 @@ func (a App) renderIntakeForm() string {
 		label := a.styles.Subtitle.Render(fmt.Sprintf("  %-10s", fld.label))
 		value := fld.value
 		if fld.idx == f.field {
-			value += a.styles.Accent.Render("▌")
-			b.WriteString(a.styles.Accent.Render("▸ "))
+			value += a.styles.Accent.Render(IconCaret)
+			b.WriteString(a.styles.Accent.Render(IconCursor + " "))
 		} else {
 			b.WriteString("  ")
 		}
@@ -1180,7 +1180,8 @@ func (a App) renderIntakeForm() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(a.styles.Muted.Render("  tab next field · enter submit/cycle · esc cancel"))
+	b.WriteString(HintStrip(a.styles,
+		Hint("tab", "next field"), Hint("enter", "submit/cycle"), Hint("esc", "cancel")))
 
 	return b.String()
 }
