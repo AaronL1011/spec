@@ -242,7 +242,7 @@ func TestSettings_ThemeCyclePreviews(t *testing.T) {
 	m.enumIdx = 0
 	m.draft = ThemeNames()[0]
 
-	m, cmd := m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	_, cmd := m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
 	if cmd == nil {
 		t.Fatal("cycling theme in edit mode should emit a preview command")
 	}
