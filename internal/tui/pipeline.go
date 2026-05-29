@@ -148,7 +148,8 @@ func (m pipelineModel) view() string {
 
 		var header string
 		if isActiveStage {
-			header = m.styles.SectionTitle.Render(fmt.Sprintf(" %s %s", icon, stage.Name))
+			label := m.styles.Accent.Bold(true).Render(fmt.Sprintf(" %s %s", icon, stage.Name))
+			header = label
 		} else {
 			header = m.styles.Subtitle.Render(fmt.Sprintf(" %s %s", icon, stage.Name))
 		}
