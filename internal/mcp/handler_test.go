@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/aaronl1011/spec/internal/thread"
 )
 
 func TestGenericHandler_ListTools(t *testing.T) {
@@ -20,6 +23,8 @@ func TestGenericHandler_ListTools(t *testing.T) {
 		"spec_search",
 		"spec_pipeline",
 		"spec_validate",
+		"spec_list_threads",
+		"spec_reply_thread",
 	}
 
 	if len(tools) != len(expected) {
@@ -141,5 +146,41 @@ func TestGenericHandler_ToolList(t *testing.T) {
 
 	if !result.Success {
 		t.Errorf("expected success, got: %s", result.Message)
+	}
+}
+
+func TestThreadTools_ListAndReply(t *testing.T) {
+	dir := t.TempDir()
+	specContent := "---\nid: SPEC-012\ntitle: Discussion\nstatus: review\n---\n# SPEC-012\n"
+	if err := os.WriteFile(filepath.Join(dir, "SPEC-012.md"), []byte(specContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed a thread directly through the engine so the tools have something
+	// to operate on.
+	store := thread.NewSidecarStore(dir)
+	seeded, err := store.Create("SPEC-012", "technical_implementation", "@mike", "Why Redis?")
+	if err != nil {
+		t.Fatalf("seed thread: %v", err)
+	}
+
+	handler := NewGenericHandler(nil, dir)
+
+	// Reply via MCP — attributed to the agent.
+	replyArgs, _ := json.Marshal(map[string]string{
+		"id": "SPEC-012", "thread_id": seeded.ID, "body": "Shared state across instances.",
+	})
+	if res, err := handler.CallTool("spec_reply_thread", replyArgs); err != nil || !res.Success {
+		t.Fatalf("reply failed: err=%v res=%+v", err, res)
+	}
+
+	// List should now show the thread plus the agent reply.
+	listArgs, _ := json.Marshal(map[string]string{"id": "SPEC-012"})
+	res, err := handler.CallTool("spec_list_threads", listArgs)
+	if err != nil || !res.Success {
+		t.Fatalf("list failed: err=%v res=%+v", err, res)
+	}
+	if !strings.Contains(res.Message, seeded.ID) || !strings.Contains(res.Message, "agent") {
+		t.Errorf("list output missing thread or agent reply:\n%s", res.Message)
 	}
 }
