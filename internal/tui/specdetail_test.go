@@ -94,24 +94,61 @@ func TestSpecDetail_RendersMetadata(t *testing.T) {
 	}
 }
 
-func TestSpecDetail_BuildSteps(t *testing.T) {
-	m := testSpecDetailModel()
-	m.meta = &markdown.SpecMeta{
-		ID:    "SPEC-001",
-		Title: "Test",
-		Steps: []markdown.BuildStep{
-			{Description: "Setup schema", Repo: "db-service", Status: "done"},
-			{Description: "Add API endpoints", Repo: "api-service", Status: "in_progress"},
-			{Description: "Update client", Repo: "web-app", Status: ""},
+func TestSpecDetail_SpecBlocked(t *testing.T) {
+	escapeSection := markdown.Section{
+		Slug:    "escape_hatch_log",
+		Heading: "## 8. Escape Hatch Log",
+		Level:   2,
+		Owner:   "auto",
+		Content: "\n- **2026-05-29** (aaron): Blocked from `engineering`. Reason: waiting on legal review\n",
+	}
+
+	tests := []struct {
+		name        string
+		status      string
+		sections    []markdown.Section
+		wantBlocked bool
+		wantReason  string
+	}{
+		{
+			name:        "blocked status shows header and reason",
+			status:      "blocked",
+			sections:    []markdown.Section{escapeSection},
+			wantBlocked: true,
+			wantReason:  "waiting on legal review",
+		},
+		{
+			name:        "blocked status with no escape log shows header only",
+			status:      "blocked",
+			sections:    nil,
+			wantBlocked: true,
+			wantReason:  "",
+		},
+		{
+			name:        "non-blocked status shows no blocked block",
+			status:      "draft",
+			sections:    []markdown.Section{escapeSection},
+			wantBlocked: false,
+			wantReason:  "",
 		},
 	}
 
-	got := m.view()
-	if !strings.Contains(got, "Build Steps") {
-		t.Error("should contain 'Build Steps' header")
-	}
-	if !strings.Contains(got, "Setup schema") {
-		t.Error("should contain first step description")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := testSpecDetailModel()
+			m.meta = &markdown.SpecMeta{ID: "SPEC-001", Title: "Test", Status: tt.status}
+			m.sections = tt.sections
+			got := m.view()
+			if tt.wantBlocked && !strings.Contains(got, "Blocked") {
+				t.Error("expected 'Blocked' header in view")
+			}
+			if !tt.wantBlocked && strings.Contains(got, "Blocked") {
+				t.Error("unexpected 'Blocked' header in view")
+			}
+			if tt.wantReason != "" && !strings.Contains(got, tt.wantReason) {
+				t.Errorf("expected reason %q in view, got:\n%s", tt.wantReason, got)
+			}
+		})
 	}
 }
 

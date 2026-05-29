@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/pipeline"
 )
 
 // ── Messages ──────────────────────────────────────────────────────────────────
@@ -490,58 +492,82 @@ func (m specDetailModel) viewOverview() string {
 	var b strings.Builder
 	contentWidth := ContentWidth(m.width)
 
+	// ── Identity block ────────────────────────────────────────────────────────
 	b.WriteString("\n")
 	b.WriteString(m.styles.Title.Render(fmt.Sprintf("  %s — %s", m.meta.ID, m.meta.Title)))
-	b.WriteString("\n\n")
-	b.WriteString(m.metaLine("Status", m.meta.Status))
-	b.WriteString(m.metaLine("Author", m.meta.Author))
-	if m.meta.Version != "" {
-		b.WriteString(m.metaLine("Version", m.meta.Version))
+	b.WriteString("\n")
+	var metaParts []string
+	if m.meta.Author != "" {
+		metaParts = append(metaParts, m.meta.Author)
+	}
+	if m.meta.Status != "" {
+		metaParts = append(metaParts, m.meta.Status)
 	}
 	if m.meta.Cycle != "" {
-		b.WriteString(m.metaLine("Cycle", m.meta.Cycle))
+		metaParts = append(metaParts, m.meta.Cycle)
 	}
-	if len(m.meta.Repos) > 0 {
-		b.WriteString(m.metaLine("Repos", strings.Join(m.meta.Repos, ", ")))
+	if m.meta.Version != "" {
+		metaParts = append(metaParts, "v"+m.meta.Version)
 	}
-	b.WriteString(m.metaLine("Updated", m.meta.Updated))
+	if m.meta.Updated != "" {
+		metaParts = append(metaParts, "updated "+m.meta.Updated)
+	}
+	metaLine := truncate(strings.Join(metaParts, " · "), contentWidth)
+	b.WriteString(m.styles.Muted.Render(Indent(1)+metaLine))
 	b.WriteString("\n")
 
-	if len(m.meta.Steps) > 0 {
-		b.WriteString(m.styles.SectionTitle.Render("  Build Steps") + "\n")
-		for i, step := range m.meta.Steps {
-			line := fmt.Sprintf("%s%s %d. %s", Indent(2), stepIcon(step.Status), i+1, step.Description)
-			if step.Repo != "" {
-				line += m.styles.Muted.Render(fmt.Sprintf("  (%s)", step.Repo))
-			}
-			b.WriteString(line + "\n")
+	// ── Review status block ───────────────────────────────────────────────────
+	if m.meta.Review != nil {
+		b.WriteString("\n")
+		var reviewStatus string
+		var reviewStyle lipgloss.Style
+		switch m.meta.Review.Status {
+		case markdown.ReviewStatusApproved:
+			reviewStatus = "approved"
+			reviewStyle = m.styles.Success
+		case markdown.ReviewStatusChangesRequested:
+			reviewStatus = "changes requested"
+			reviewStyle = m.styles.Warning
+		default:
+			reviewStatus = "awaiting approval"
+			reviewStyle = m.styles.Warning
 		}
+		if len(m.meta.Review.Reviewers) > 0 {
+			reviewStatus += " · " + strings.Join(m.meta.Review.Reviewers, ", ")
+		}
+		b.WriteString(m.styles.Subtitle.Render(Indent(1)+"Review  ") + reviewStyle.Render(reviewStatus))
 		b.WriteString("\n")
 	}
 
+	// ── Decisions block ───────────────────────────────────────────────────────
 	if len(m.decisions) > 0 {
-		b.WriteString(m.styles.SectionTitle.Render("  Decisions") + "\n")
+		b.WriteString("\n")
+		b.WriteString(m.styles.SectionTitle.Render(Indent(1)+"Decisions") + "\n")
 		for _, d := range m.decisions {
-			dot := IconOpen
 			if d.Decision != "" {
-				dot = IconActive
-			}
-			b.WriteString(m.styles.RowNormal.Render(fmt.Sprintf("%s%s #%d %s", Indent(2), dot, d.Number, truncate(d.Question, contentWidth-20))) + "\n")
-			if d.Decision != "" {
+				b.WriteString(m.styles.Muted.Render(fmt.Sprintf("%s%s #%d %s", Indent(2), IconActive, d.Number, truncate(d.Question, contentWidth-20))) + "\n")
 				b.WriteString(m.styles.Success.Render(fmt.Sprintf("%s→ %s", Indent(3), truncate(d.Decision, contentWidth-10))) + "\n")
+			} else {
+				b.WriteString(m.styles.RowNormal.Render(fmt.Sprintf("%s%s #%d %s", Indent(2), IconOpen, d.Number, truncate(d.Question, contentWidth-20))) + "\n")
 			}
 		}
-		b.WriteString("\n")
 	}
 
-	b.WriteString(m.styles.SectionTitle.Render("  Sections") + "\n")
-	for _, sec := range m.sections {
-		if sec.Level > 3 {
-			continue
+	// ── Spec blocked block ───────────────────────────────────────────────────
+	if m.meta.Status == pipeline.StatusBlocked {
+		b.WriteString("\n")
+		b.WriteString(m.styles.Error.Bold(true).Render(Indent(1)+IconBlocked+" Blocked") + "\n")
+		if reason := latestEscapeReason(m.sections); reason != "" {
+			b.WriteString(m.styles.Error.Render(Indent(2)+truncate(reason, contentWidth-8)) + "\n")
 		}
-		indent := Indent(2)
-		if sec.Level == 3 {
-			indent = Indent(3)
+	}
+
+	// ── Sections list ─────────────────────────────────────────────────────────
+	b.WriteString("\n")
+	b.WriteString(m.styles.SectionTitle.Render(Indent(1)+"Sections") + "\n")
+	for _, sec := range m.sections {
+		if sec.Level != 2 {
+			continue
 		}
 		fill := IconPending
 		if len(strings.TrimSpace(sec.Content)) > 20 {
@@ -551,9 +577,10 @@ func (m specDetailModel) viewOverview() string {
 		if sec.Owner != "" && sec.Owner != "auto" {
 			owner = m.styles.Muted.Render(fmt.Sprintf("  [%s]", sec.Owner))
 		}
-		fmt.Fprintf(&b, "%s%s %s%s\n", indent, fill, sec.Slug, owner)
+		fmt.Fprintf(&b, "%s%s %s%s\n", Indent(2), fill, sec.Slug, owner)
 	}
-	// Contextual action hints
+
+	// ── Hint strip ────────────────────────────────────────────────────────────
 	archiveHint := Hint("d", "archive")
 	if m.isArchived {
 		archiveHint = Hint("r", "restore")
@@ -678,19 +705,15 @@ func (m specDetailModel) estimateContentLines() int {
 	if m.meta == nil {
 		return 1
 	}
-	lines := 8 // title + meta block
-	if m.meta.Version != "" {
-		lines++
+	// Identity: blank + title + compact meta line
+	lines := 3
+
+	// Review block: blank + 1 line
+	if m.meta.Review != nil {
+		lines += 2
 	}
-	if m.meta.Cycle != "" {
-		lines++
-	}
-	if len(m.meta.Repos) > 0 {
-		lines++
-	}
-	if len(m.meta.Steps) > 0 {
-		lines += 2 + len(m.meta.Steps)
-	}
+
+	// Decisions block: blank + header + one line per entry (resolved gets an extra line)
 	if len(m.decisions) > 0 {
 		lines += 2
 		for _, d := range m.decisions {
@@ -700,13 +723,50 @@ func (m specDetailModel) estimateContentLines() int {
 			}
 		}
 	}
-	lines += 2
-	for _, sec := range m.sections {
-		if sec.Level <= 3 {
+
+	// Spec blocked block: blank + header + optional reason line
+	if m.meta.Status == pipeline.StatusBlocked {
+		lines += 2
+		if latestEscapeReason(m.sections) != "" {
 			lines++
 		}
 	}
+
+	// Sections list: blank + header + one line per level-2 section
+	lines += 2
+	for _, sec := range m.sections {
+		if sec.Level == 2 {
+			lines++
+		}
+	}
+
+	// Hint strip
+	lines++
+
 	return lines
+}
+
+// latestEscapeReason parses the most recent entry from the escape hatch log
+// section and returns the reason text. Entries have the form:
+//
+//	- **2026-05-29** (user): Blocked from `stage`. Reason: the reason text
+//
+// Returns an empty string when the section is absent or contains no entries.
+var escapeReasonRe = regexp.MustCompile(`(?i)Reason:\s*(.+)$`)
+
+func latestEscapeReason(sections []markdown.Section) string {
+	s := markdown.FindSection(sections, "escape_hatch_log")
+	if s == nil {
+		return ""
+	}
+	// Walk lines in reverse to find the most recent entry.
+	lines := strings.Split(s.Content, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if m := escapeReasonRe.FindStringSubmatch(strings.TrimSpace(lines[i])); m != nil {
+			return strings.TrimSpace(m[1])
+		}
+	}
+	return ""
 }
 
 // ── Data Fetching ─────────────────────────────────────────────────────────────

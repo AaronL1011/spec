@@ -131,7 +131,9 @@ func (h Header) greeting() string {
 		name = "there"
 	}
 	switch {
-	case hour >= 5 && hour < 12:
+	case hour >= 4 && hour < 6:
+		return fmt.Sprintf("Catching the early worm, %s?", name)
+	case hour >= 6 && hour < 12:
 		return fmt.Sprintf("Good morning, %s", name)
 	case hour >= 12 && hour < 17:
 		return fmt.Sprintf("Good afternoon, %s", name)
