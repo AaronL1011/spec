@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/aaronl1011/spec/internal/store"
+	"github.com/aaronl1011/spec/internal/thread"
 )
 
 // testAppWithSpecsDir builds an app whose specs repo points at a temp dir
@@ -107,6 +108,36 @@ func TestFileChangedMsg_TriggersRefreshAndRearm(t *testing.T) {
 	}
 	if !app.watchRefreshPending {
 		t.Error("a delivered file change should mark a pending refresh for the cue")
+	}
+}
+
+// A thread mutation returns a threadsChangedMsg. It must reach the open detail
+// model through the top-level Update so the pane updates immediately, rather
+// than being misrouted to the active tab view (the bug fixed for SPEC-007:
+// posted questions/replies only appeared after closing and reopening the spec).
+func TestThreadsChangedMsg_RoutesToOpenDetail(t *testing.T) {
+	app, _ := testAppWithSpecsDir(t)
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	app = model.(App)
+	m2, _ := app.Update(navigateToSpecMsg{SpecID: "SPEC-007"})
+	app = m2.(App)
+	defer app.stopWatch()
+
+	// Detail starts with no threads; a mutation delivers a fresh set.
+	if len(app.detail.threads) != 0 {
+		t.Fatalf("precondition: expected 0 threads, got %d", len(app.detail.threads))
+	}
+	newThreads := []thread.Thread{
+		{ID: "T-1", Section: "problem_statement", Status: thread.StatusOpen, Author: "@me", Question: "just posted", Created: time.Now()},
+	}
+	m3, _ := app.Update(threadsChangedMsg{Threads: newThreads, Toast: "Question added"})
+	app = m3.(App)
+
+	if len(app.detail.threads) != 1 {
+		t.Fatalf("threadsChangedMsg did not reach the detail model: have %d threads", len(app.detail.threads))
+	}
+	if app.detail.threads[0].ID != "T-1" {
+		t.Errorf("detail threads not updated: %+v", app.detail.threads)
 	}
 }
 

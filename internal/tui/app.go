@@ -366,6 +366,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.syncBusyState()
 		return a, cmd
 
+	case threadsChangedMsg:
+		// A thread mutation (ask/reply/resolve) completed. Route the refreshed
+		// thread set to the detail model so the pane updates immediately, and
+		// surface the accompanying toast. This must be handled here rather than
+		// via delegateToActive, which only routes to the active tab view.
+		var cmd tea.Cmd
+		a.detail, cmd = a.detail.update(msg)
+		if msg.Err != nil {
+			a.toast.Show(msg.Err.Error(), components.ToastError, 5*time.Second)
+		} else if msg.Toast != "" {
+			a.toast.Show(msg.Toast, components.ToastSuccess, 2*time.Second)
+		}
+		return a, cmd
+
 	case settingsAppliedMsg:
 		a.applySettingsField(msg.Field)
 		return a, nil
