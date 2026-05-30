@@ -993,6 +993,16 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 		return a, tea.Quit
 	}
 
+	// While an inline ask/reply prompt is open, every printable key is text —
+	// including '?', which would otherwise toggle help. Route straight to the
+	// detail model so the thread input captures the keystroke.
+	if a.detail.readerMode && a.detail.input.active() {
+		var cmd tea.Cmd
+		a.detail, cmd = a.detail.update(msg)
+		a.syncBusyState()
+		return a, cmd
+	}
+
 	// Help.
 	if key.Matches(msg, a.keys.Help) {
 		a.help.setContext("Detail: " + a.detail.specID)

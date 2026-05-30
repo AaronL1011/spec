@@ -141,6 +141,40 @@ func TestThreadsChangedMsg_RoutesToOpenDetail(t *testing.T) {
 	}
 }
 
+// While an inline ask/reply prompt is open, printable keys that are otherwise
+// global hotkeys ('?' for help, 'a'/'r'/'e' for actions) must be captured as
+// literal text by the thread input rather than intercepted by updateDetail.
+func TestDetailInput_CapturesHotkeyChars(t *testing.T) {
+	app, _ := testAppWithSpecsDir(t)
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	app = model.(App)
+	m2, _ := app.Update(navigateToSpecMsg{SpecID: "SPEC-007"})
+	app = m2.(App)
+	defer app.stopWatch()
+
+	// Enter reader mode and open an ask prompt.
+	app.detail.readerMode = true
+	app.detail.input = threadInput{kind: "ask", section: "problem_statement"}
+
+	if app.help.visible {
+		t.Fatal("precondition: help should not be visible")
+	}
+
+	// Type a question containing every char that doubles as a global hotkey.
+	for _, r := range "why redis?" {
+		var m tea.Model
+		m, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		app = m.(App)
+	}
+
+	if app.help.visible {
+		t.Error("'?' toggled help instead of being captured as input text")
+	}
+	if app.detail.input.buffer != "why redis?" {
+		t.Errorf("input buffer = %q, want \"why redis?\"", app.detail.input.buffer)
+	}
+}
+
 func TestFileChangedMsg_IgnoredWhenDetailClosed(t *testing.T) {
 	app, _ := testAppWithSpecsDir(t)
 	// No detail open, no watcher.
