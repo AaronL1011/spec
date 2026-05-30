@@ -69,7 +69,7 @@ func (db *DB) Conn() *sql.DB {
 	return db.conn
 }
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 func (db *DB) migrate() error {
 	// Create migrations table if not exists
@@ -95,6 +95,11 @@ func (db *DB) migrate() error {
 	}
 	if currentVersion < 2 {
 		if err := db.migrateV2(); err != nil {
+			return err
+		}
+	}
+	if currentVersion < 3 {
+		if err := db.migrateV3(); err != nil {
 			return err
 		}
 	}
@@ -196,6 +201,60 @@ func (db *DB) migrateV2() error {
 	for _, stmt := range statements {
 		if _, err := tx.Exec(stmt); err != nil {
 			return fmt.Errorf("migration v2 statement failed: %w\nSQL: %s", err, stmt)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) migrateV3() error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning migration v3: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }() // Rollback is no-op after Commit
+
+	statements := []string{
+		// Sync audit: append-only log of every fetch/commit/push/recovery
+		// with actor, surface, trigger, and outcome. Substrate for the
+		// `spec status` freshness/health line. (SPEC-013 §Decision 007)
+		`CREATE TABLE IF NOT EXISTS sync_audit (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			op         TEXT NOT NULL,
+			actor      TEXT NOT NULL,
+			surface    TEXT NOT NULL,
+			trigger    TEXT NOT NULL,
+			spec_id    TEXT,
+			outcome    TEXT NOT NULL,
+			detail     TEXT,
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_audit_time ON sync_audit(created_at)`,
+
+		// Sync queue: committed-but-unpushed operations awaiting an online
+		// flush. Each entry is reconciled independently. (SPEC-013 §7.1)
+		`CREATE TABLE IF NOT EXISTS sync_queue (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			repo_key   TEXT NOT NULL,
+			branch     TEXT NOT NULL,
+			commit_sha TEXT NOT NULL,
+			surface    TEXT NOT NULL,
+			trigger    TEXT NOT NULL,
+			spec_id    TEXT,
+			status     TEXT NOT NULL,
+			detail     TEXT,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_queue_repo ON sync_queue(repo_key, status)`,
+
+		// Record migration
+		`INSERT INTO migrations (version) VALUES (3)`,
+	}
+
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("migration v3 statement failed: %w\nSQL: %s", err, stmt)
 		}
 	}
 

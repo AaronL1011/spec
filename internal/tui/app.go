@@ -153,6 +153,9 @@ func (a App) Close() error {
 }
 
 func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string, db *store.DB) App {
+	// Inject the store-backed sync audit/freshness recorder so TUI actions
+	// auto-push with tracked audit and the read path honours the freshness TTL.
+	setTUIRecorder(db)
 	// Warm the terminal background detection now, while stdin is still ours.
 	// Once Bubble Tea's event loop owns stdin the OSC query reply is swallowed
 	// and the call blocks until timeout, so doing it here keeps the "auto"

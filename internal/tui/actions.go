@@ -18,7 +18,49 @@ import (
 	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/aaronl1011/spec/internal/store"
 	syncengine "github.com/aaronl1011/spec/internal/sync"
+	"github.com/aaronl1011/spec/internal/syncaudit"
 )
+
+// tuiRecorder backs TUI auto-push audit, queue, and freshness. Set once at app
+// construction. A nil DB leaves git's no-op recorder in place.
+var tuiRecorder gitpkg.Recorder = nil
+
+func setTUIRecorder(db *store.DB) {
+	rec := syncaudit.New(db)
+	if rec == nil {
+		gitpkg.SetRecorder(nil)
+		tuiRecorder = nil
+		return
+	}
+	gitpkg.SetRecorder(rec)
+	gitpkg.SetReadSurface(store.SurfaceTUI)
+	tuiRecorder = rec
+}
+
+// tuiSyncOpts attributes a committing TUI action to the tui surface so the
+// audit log records which surface triggered each sync (SPEC-013 §Decision 007).
+func tuiSyncOpts(trigger, specID string) gitpkg.SyncOptions {
+	return gitpkg.SyncOptions{
+		Surface:  store.SurfaceTUI,
+		Trigger:  trigger,
+		SpecID:   specID,
+		Recorder: tuiRecorder,
+	}
+}
+
+// pushOutcome maps a committing-action error to an inline status string and a
+// flag for whether the action otherwise succeeded. A queued/offline push is
+// NOT an error in the new model — the commit is durable and the work survives.
+func pushOutcome(err error) (status string, fatal bool) {
+	switch {
+	case err == nil:
+		return "pushed", false
+	case gitpkg.IsSectionConflict(err):
+		return "conflict", true
+	default:
+		return "error", true
+	}
+}
 
 // actionResultMsg carries the result of any TUI-initiated mutation.
 type actionResultMsg struct {
@@ -32,7 +74,7 @@ type actionResultMsg struct {
 func advanceSpec(rc *config.ResolvedConfig, specID, role string) tea.Cmd {
 	return func() tea.Msg {
 		pl := rc.Pipeline()
-		err := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("advance", specID), func(repoPath string) (string, error) {
 			path, pErr := resolveSpecIn(repoPath, rc, specID)
 			if pErr != nil {
 				return "", pErr
@@ -58,9 +100,11 @@ func advanceSpec(rc *config.ResolvedConfig, specID, role string) tea.Cmd {
 			return fmt.Sprintf("chore: advance %s %s → %s", specID, result.PreviousStage, result.NewStage), nil
 		})
 
+		status, fatal := pushOutcome(err)
 		detail := ""
-		if err == nil {
-			detail = "advanced to next stage"
+		if !fatal {
+			detail = "advanced to next stage (" + status + ")"
+			err = nil
 		}
 		return actionResultMsg{Action: "advance", SpecID: specID, Detail: detail, Err: err}
 	}
@@ -69,7 +113,7 @@ func advanceSpec(rc *config.ResolvedConfig, specID, role string) tea.Cmd {
 // blockSpec transitions a spec to blocked status with a reason.
 func blockSpec(rc *config.ResolvedConfig, specID, reason, user string) tea.Cmd {
 	return func() tea.Msg {
-		err := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("block", specID), func(repoPath string) (string, error) {
 			path, pErr := resolveSpecIn(repoPath, rc, specID)
 			if pErr != nil {
 				return "", pErr
@@ -90,7 +134,13 @@ func blockSpec(rc *config.ResolvedConfig, specID, reason, user string) tea.Cmd {
 			return fmt.Sprintf("chore: block %s — %s", specID, reason), nil
 		})
 
-		return actionResultMsg{Action: "block", SpecID: specID, Err: err}
+		status, fatal := pushOutcome(err)
+		detail := ""
+		if !fatal {
+			detail = "blocked (" + status + ")"
+			err = nil
+		}
+		return actionResultMsg{Action: "block", SpecID: specID, Detail: detail, Err: err}
 	}
 }
 
@@ -98,7 +148,7 @@ func blockSpec(rc *config.ResolvedConfig, specID, reason, user string) tea.Cmd {
 func unblockSpec(rc *config.ResolvedConfig, specID string) tea.Cmd {
 	return func() tea.Msg {
 		pl := rc.Pipeline()
-		err := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("unblock", specID), func(repoPath string) (string, error) {
 			path, pErr := resolveSpecIn(repoPath, rc, specID)
 			if pErr != nil {
 				return "", pErr
@@ -129,14 +179,20 @@ func unblockSpec(rc *config.ResolvedConfig, specID string) tea.Cmd {
 			return fmt.Sprintf("chore: unblock %s → %s", specID, prev), nil
 		})
 
-		return actionResultMsg{Action: "unblock", SpecID: specID, Err: err}
+		status, fatal := pushOutcome(err)
+		detail := ""
+		if !fatal {
+			detail = "unblocked (" + status + ")"
+			err = nil
+		}
+		return actionResultMsg{Action: "unblock", SpecID: specID, Detail: detail, Err: err}
 	}
 }
 
 // revertSpec sends a spec back to a previous stage.
 func revertSpec(rc *config.ResolvedConfig, specID, targetStage, reason, user string) tea.Cmd {
 	return func() tea.Msg {
-		err := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("revert", specID), func(repoPath string) (string, error) {
 			path, pErr := resolveSpecIn(repoPath, rc, specID)
 			if pErr != nil {
 				return "", pErr
@@ -152,7 +208,13 @@ func revertSpec(rc *config.ResolvedConfig, specID, targetStage, reason, user str
 			return fmt.Sprintf("chore: revert %s → %s", specID, targetStage), nil
 		})
 
-		return actionResultMsg{Action: "revert", SpecID: specID, Err: err}
+		status, fatal := pushOutcome(err)
+		detail := ""
+		if !fatal {
+			detail = "reverted (" + status + ")"
+			err = nil
+		}
+		return actionResultMsg{Action: "revert", SpecID: specID, Detail: detail, Err: err}
 	}
 }
 
@@ -270,12 +332,15 @@ func resolveLocalSpecPath(rc *config.ResolvedConfig, specID string) string {
 // pushSpec commits and pushes local spec edits to the specs repo.
 func pushSpec(rc *config.ResolvedConfig, specID string) tea.Cmd {
 	return func() tea.Msg {
-		pushed, err := gitpkg.PushLocalEdits(
+		pushed, err := gitpkg.PushLocalEditsOpts(
 			context.Background(),
 			&rc.Team.SpecsRepo,
 			fmt.Sprintf("feat: update %s", specID),
+			tuiSyncOpts("push", specID),
 		)
 		if err != nil {
+			// A genuine same-section conflict is fatal; transient/offline is
+			// queued (non-fatal) and handled inside PushLocalEditsOpts.
 			return actionResultMsg{Action: "push", SpecID: specID, Err: fmt.Errorf("pushing %s: %w", specID, err)}
 		}
 		if !pushed {
@@ -295,7 +360,7 @@ func syncSpec(rc *config.ResolvedConfig, reg *adapter.Registry, db *store.DB, sp
 		engine := syncengine.NewEngine(reg.Docs(), db)
 		var prepared *syncengine.PreparedRun
 
-		err := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("sync", specID), func(repoPath string) (string, error) {
 			path, pErr := resolveSpecIn(repoPath, rc, specID)
 			if pErr != nil {
 				return "", pErr

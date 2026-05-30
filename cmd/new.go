@@ -64,7 +64,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 	content := markdown.ScaffoldSpec(specID, title, author, cycle, "direct")
 
 	// Write to specs repo via WithSpecsRepo
-	err = gitpkg.WithSpecsRepo(ctx(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	err = gitpkg.WithSpecsRepoOpts(ctx(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
 		sd := specsDir(repoPath)
 		_ = os.MkdirAll(sd, 0o755)
 

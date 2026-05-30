@@ -101,6 +101,19 @@ func CommittedFiles(ctx context.Context, dir, ref string) ([]string, error) {
 	return strings.Split(out, "\n"), nil
 }
 
+// CommitsBehind returns how many commits the local HEAD is behind the remote
+// branch (i.e. new upstream commits not yet on HEAD). Returns 0 if the remote
+// ref is unknown.
+func CommitsBehind(ctx context.Context, dir, remoteBranch string) (int, error) {
+	out, err := Run(ctx, dir, "rev-list", "--count", "HEAD.."+remoteBranch)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	_, _ = fmt.Sscanf(out, "%d", &n)
+	return n, nil
+}
+
 // HasUnpushedCommits returns true if there are local commits not on the remote branch.
 func HasUnpushedCommits(ctx context.Context, dir, remoteBranch string) (bool, error) {
 	count, err := Run(ctx, dir, "rev-list", "--count", remoteBranch+"..HEAD")

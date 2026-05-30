@@ -3,10 +3,13 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aaronl1011/spec/internal/config"
+	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/syncaudit"
 	"github.com/spf13/cobra"
 )
 
@@ -69,6 +72,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
+	// Sync freshness/health line (AC-9, AC-19). Best-effort: drains the
+	// queued-push backlog opportunistically, then reports staleness.
+	printSyncFreshness(cmd, rc)
+
 	// Pipeline diagram
 	fmt.Println("Pipeline:")
 	renderPipelineDiagram(pl, meta.Status)
@@ -108,6 +115,56 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// printSyncFreshness drains the queued-push backlog and prints a one-line
+// freshness/health summary plus recent audit events.
+func printSyncFreshness(cmd *cobra.Command, rc *config.ResolvedConfig) {
+	if rc.Team == nil {
+		return
+	}
+	rec := syncaudit.New(recorderDB)
+	// Opportunistic queue drain on status (SPEC-013 §7.1).
+	gitpkg.FlushQueue(ctx(), &rc.Team.SpecsRepo, syncOpts(cmd, ""))
+
+	f := gitpkg.SyncFreshness(ctx(), &rc.Team.SpecsRepo, rec)
+	age := "never"
+	if !f.LastFetch.IsZero() {
+		age = humanizeAge(time.Since(f.LastFetch))
+	}
+	fmt.Printf("Sync: last fetch %s ago", age)
+	if f.CommitsBehind > 0 {
+		fmt.Printf(" · %d new upstream commit(s)", f.CommitsBehind)
+	}
+	if f.QueuedPushes > 0 {
+		fmt.Printf(" · %d queued push(es)", f.QueuedPushes)
+	}
+	fmt.Println()
+
+	if recorderDB != nil {
+		if entries, err := recorderDB.SyncAuditRecent(3); err == nil && len(entries) > 0 {
+			fmt.Println("Recent sync activity:")
+			for _, e := range entries {
+				fmt.Printf("  %s %s/%s %s [%s]\n",
+					humanizeAge(time.Since(e.CreatedAt)), e.Surface, e.Trigger, e.Op, e.Outcome)
+			}
+		}
+	}
+	fmt.Println()
+}
+
+// humanizeAge renders a duration as a compact age string.
+func humanizeAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
 }
 
 func renderPipelineDiagram(pl config.PipelineConfig, current string) {

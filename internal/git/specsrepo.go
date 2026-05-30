@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,7 +20,32 @@ const (
 	// files are stored. All spec, triage, and archive content lives under
 	// this path.
 	SpecsSubDir = "specs"
+
+	// lockRetryInterval is how often a blocked lock acquisition re-polls.
+	lockRetryInterval = 50 * time.Millisecond
+
+	// fetchTTL bounds how long a cached fetch is considered fresh. Reads
+	// within this window skip the network fetch entirely. Kept short so
+	// rapid command sequences are fast without going stale (SPEC-013 axis 3).
+	fetchTTL = 8 * time.Second
+
+	// pushBackoffBase is the base unit of randomized backoff inserted
+	// between rebase-retry attempts to reduce thrash under contention.
+	pushBackoffBase = 300 * time.Millisecond
 )
+
+// backoff sleeps for a small randomized interval that grows with the attempt
+// number, reducing synchronized-retry thrash when several clients push at once.
+func backoff(attempt int) {
+	jitter := time.Duration(rand.Int63n(int64(pushBackoffBase)))
+	time.Sleep(time.Duration(attempt+1)*pushBackoffBase + jitter)
+}
+
+// repoKey returns the "owner/repo" identifier used to scope store-side state
+// (freshness timestamps, queued pushes) to one clone.
+func repoKey(cfg *config.SpecsRepoConfig) string {
+	return cfg.Owner + "/" + cfg.Repo
+}
 
 // SpecsRepoDir returns the local path for the specs repo clone.
 func SpecsRepoDir(cfg *config.SpecsRepoConfig) string {
@@ -49,7 +75,44 @@ func SpecsRepoURL(cfg *config.SpecsRepoConfig) string {
 	return fmt.Sprintf("https://%s/%s/%s.git", host, cfg.Owner, cfg.Repo)
 }
 
-// EnsureSpecsRepo clones the specs repo if not present, otherwise fetches latest.
+// readRecorder is an optional package-level recorder for read-path freshness
+// bookkeeping. Read callers (list/search/pull) don't thread SyncOptions, so a
+// process-wide recorder injected once via SetRecorder backs the TTL skip and
+// last-fetch timestamp. It defaults to a no-op so git stays usable without a
+// store.
+var readRecorder Recorder = noopRecorder{}
+
+// readSurface attributes read-path fetches in the audit log. Defaults to the
+// CLI; the MCP server / TUI override it once at startup so freshness fetches
+// are attributed to the right surface.
+var readSurface = "cli"
+
+// SetRecorder injects the process-wide recorder used by the read path for
+// freshness bookkeeping. Callers that own a store inject it once at startup.
+// Passing nil resets to a no-op. git never imports the store directly — the
+// recorder is the only bridge (AGENTS.md adapter-isolation rules).
+func SetRecorder(r Recorder) {
+	if r == nil {
+		readRecorder = noopRecorder{}
+		return
+	}
+	readRecorder = r
+}
+
+// SetReadSurface sets the surface label attributed to read-path fetches.
+func SetReadSurface(surface string) {
+	if surface != "" {
+		readSurface = surface
+	}
+}
+
+// EnsureSpecsRepo clones the specs repo if not present, otherwise fetches the
+// latest under a SHARED (read) lock. It is the non-destructive read path: it
+// never runs `reset --hard` and never blocks on or discards local edits, so a
+// working tree with in-flight changes survives a read command untouched
+// (SPEC-013 axes 1–3). The destructive reset is reserved for the mutate path
+// (WithSpecsRepo). A fetch is skipped entirely when one completed within the
+// freshness TTL.
 func EnsureSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig) (string, error) {
 	if err := validateToken(cfg); err != nil {
 		return "", err
@@ -66,29 +129,33 @@ func EnsureSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig) (string, 
 		if err := Clone(ctx, url, dir); err != nil {
 			return "", fmt.Errorf("cloning specs repo %s/%s: %w", cfg.Owner, cfg.Repo, redactToken(err))
 		}
+		readRecorder.SetLastFetch(repoKey(cfg), time.Now().Unix())
 		return dir, nil
 	}
+
+	// Shared lock: multiple reads proceed together but a mutate's exclusive
+	// critical section excludes them (AC-2 / AC-3).
+	release, err := acquireShared(ctx, dir)
+	if err != nil {
+		return dir, err
+	}
+	defer release()
 
 	// Ensure the remote URL has the current token
 	if err := ensureRemoteURL(ctx, dir, cfg); err != nil {
 		return dir, fmt.Errorf("updating remote URL: %w", err)
 	}
 
-	// Guard against nuking unpushed local edits (needs remote URL set first)
-	if err := guardUnpushedChanges(ctx, dir, cfg.Branch); err != nil {
-		return dir, err
+	// Freshness TTL: skip the network fetch if we fetched recently (AC-5/AC-6).
+	if !fetchFresh(cfg) {
+		if err := Fetch(ctx, dir); err != nil {
+			return dir, fmt.Errorf("fetching specs repo: %w", redactToken(err))
+		}
+		readRecorder.SetLastFetch(repoKey(cfg), time.Now().Unix())
+		readRecorder.Record(AuditEvent{Op: OpFetch, Surface: readSurface, Trigger: "read", Outcome: OutcomeOK})
 	}
 
-	// Fetch and reset to latest
-	if err := Fetch(ctx, dir); err != nil {
-		return dir, fmt.Errorf("fetching specs repo: %w", redactToken(err))
-	}
-	ref := fmt.Sprintf("origin/%s", cfg.Branch)
-	if err := ResetHard(ctx, dir, ref); err != nil {
-		return dir, fmt.Errorf("resetting specs repo: %w", redactToken(err))
-	}
-
-	// Ensure specs sub-directory exists
+	// Ensure specs sub-directory exists (no reset — reads never touch the tree).
 	specsDir := filepath.Join(dir, SpecsSubDir)
 	if err := os.MkdirAll(specsDir, 0o755); err != nil {
 		return dir, fmt.Errorf("creating specs directory: %w", err)
@@ -97,134 +164,228 @@ func EnsureSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig) (string, 
 	return dir, nil
 }
 
-// WithSpecsRepo fetches the latest, calls the mutator function exactly once,
-// then commits and pushes. If the push fails due to a concurrent update, it
-// rebases (rather than re-running the mutation) and retries the push.
-//
-// After a successful rebase, it verifies that no files touched by the local
-// commit were also changed upstream. This catches the case where two users
-// concurrently mutate the same spec — the rebase may auto-merge different
-// hunks, but the result would be semantically wrong (e.g. double-advance).
+// Freshness summarizes how current the local view of the specs repo is.
+type Freshness struct {
+	LastFetch     time.Time // zero if never recorded
+	CommitsBehind int       // new upstream commits since HEAD
+	QueuedPushes  int       // committed-but-unpushed operations awaiting flush
+}
+
+// SyncFreshness reports the freshness/health of the specs-repo clone for the
+// `spec status` line (AC-9). It does not fetch — it reads the cached last-fetch
+// timestamp and counts new upstream commits against the already-fetched ref.
+func SyncFreshness(ctx context.Context, cfg *config.SpecsRepoConfig, rec Recorder) Freshness {
+	if rec == nil {
+		rec = readRecorder
+	}
+	dir := SpecsRepoDir(cfg)
+	var f Freshness
+	if secs, ok := rec.LastFetch(repoKey(cfg)); ok {
+		f.LastFetch = time.Unix(secs, 0)
+	}
+	if n, err := CommitsBehind(ctx, dir, remoteBranchRef(cfg)); err == nil {
+		f.CommitsBehind = n
+	}
+	f.QueuedPushes = len(rec.Pending(repoKey(cfg)))
+	return f
+}
+
+// fetchFresh reports whether the last fetch is within the TTL window.
+func fetchFresh(cfg *config.SpecsRepoConfig) bool {
+	last, ok := readRecorder.LastFetch(repoKey(cfg))
+	if !ok {
+		return false
+	}
+	return time.Since(time.Unix(last, 0)) < fetchTTL
+}
+
+// WithSpecsRepo is the legacy entry point: a committing operation attributed
+// to the CLI with no audit recorder. Prefer WithSpecsRepoOpts for surface and
+// trigger attribution.
 func WithSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig, mutate func(repoPath string) (commitMsg string, err error)) error {
+	return WithSpecsRepoOpts(ctx, cfg, SyncOptions{}, mutate)
+}
+
+// errSameSection is the sentinel for a genuine same-section collision, which
+// must abort rather than be reclassified as a queued push.
+type sectionConflictError struct{ desc string }
+
+func (e *sectionConflictError) Error() string {
+	return fmt.Sprintf("%s was modified by another user while you were editing — pull the latest with 'spec pull' and retry", e.desc)
+}
+
+// WithSpecsRepoOpts runs a committing operation through the full lifecycle:
+// exclusive-lock the local critical section (fetch → recover → mutate →
+// commit), release it, then push under a separate narrower push-lock with the
+// section-aware conflict check, randomized backoff, and queue-on-exhaustion.
+//
+// The exclusive lock covers only the local work, so a shared-lock reader
+// (notably the same-host MCP agent) waits milliseconds, never the network push
+// (SPEC-013 §Decision 008, AC-21). The commit is durable before the lock is
+// released, so a reader that proceeds during the push sees committed state.
+//
+// Cross-teammate safety is git's atomic push + the section-aware rebase-retry,
+// NOT the lock (which is single-host only).
+func WithSpecsRepoOpts(ctx context.Context, cfg *config.SpecsRepoConfig, opts SyncOptions, mutate func(repoPath string) (commitMsg string, err error)) error {
 	if err := validateToken(cfg); err != nil {
 		return err
 	}
-
+	opts = opts.normalized(ctx)
 	dir := SpecsRepoDir(cfg)
+	remoteRef := remoteBranchRef(cfg)
 
-	// Ensure the remote URL has the current token
-	if err := ensureRemoteURL(ctx, dir, cfg); err != nil {
-		return fmt.Errorf("updating remote URL: %w", err)
-	}
+	// Drain any queued (offline / contention) pushes first so the backlog
+	// never starves behind new work.
+	FlushQueue(ctx, cfg, opts)
 
-	// Guard against nuking unpushed local edits
-	if err := guardUnpushedChanges(ctx, dir, cfg.Branch); err != nil {
+	// --- Exclusive critical section: local work only ---
+	commitSHA, baseRef, ourFiles, err := func() (string, string, []string, error) {
+		release, err := acquireExclusive(ctx, dir)
+		if err != nil {
+			return "", "", nil, err
+		}
+		defer release()
+
+		if err := ensureRemoteURL(ctx, dir, cfg); err != nil {
+			return "", "", nil, fmt.Errorf("updating remote URL: %w", err)
+		}
+
+		// Auto-recover any stranded state before doing our own work.
+		if err := autoRecover(ctx, cfg, dir, opts); err != nil {
+			return "", "", nil, err
+		}
+
+		if err := Fetch(ctx, dir); err != nil {
+			return "", "", nil, fmt.Errorf("fetching specs repo: %w", redactToken(err))
+		}
+		readRecorder.SetLastFetch(repoKey(cfg), time.Now().Unix())
+		if err := ResetHard(ctx, dir, remoteRef); err != nil {
+			return "", "", nil, fmt.Errorf("resetting specs repo: %w", redactToken(err))
+		}
+
+		base, err := RevParse(ctx, dir, "HEAD")
+		if err != nil {
+			return "", "", nil, fmt.Errorf("reading HEAD: %w", err)
+		}
+
+		commitMsg, err := mutate(dir)
+		if err != nil {
+			return "", "", nil, fmt.Errorf("mutation failed: %w", err)
+		}
+
+		hasChanges, err := HasChanges(ctx, dir)
+		if err != nil {
+			return "", "", nil, fmt.Errorf("checking changes: %w", err)
+		}
+		if !hasChanges {
+			return "", base, nil, nil
+		}
+
+		if err := Commit(ctx, dir, commitMsg); err != nil {
+			return "", "", nil, fmt.Errorf("committing: %w", err)
+		}
+		opts.record(OpCommit, OutcomeOK, commitMsg)
+
+		sha, _ := RevParse(ctx, dir, "HEAD")
+		files, err := CommittedFiles(ctx, dir, "HEAD")
+		if err != nil {
+			return "", "", nil, fmt.Errorf("listing committed files: %w", err)
+		}
+		return sha, base, files, nil
+	}()
+	if err != nil {
 		return err
 	}
-
-	// Fetch and reset to latest remote state
-	if err := Fetch(ctx, dir); err != nil {
-		return fmt.Errorf("fetching specs repo: %w", redactToken(err))
-	}
-	remoteRef := fmt.Sprintf("origin/%s", cfg.Branch)
-	if err := ResetHard(ctx, dir, remoteRef); err != nil {
-		return fmt.Errorf("resetting specs repo: %w", redactToken(err))
-	}
-
-	// Record the remote HEAD before mutation so we can detect upstream
-	// changes if we need to rebase after a push conflict.
-	baseRef, err := RevParse(ctx, dir, "HEAD")
-	if err != nil {
-		return fmt.Errorf("reading HEAD: %w", err)
-	}
-
-	// Apply mutation exactly once
-	commitMsg, err := mutate(dir)
-	if err != nil {
-		return fmt.Errorf("mutation failed: %w", err)
-	}
-
-	// Check if there are changes to commit
-	hasChanges, err := HasChanges(ctx, dir)
-	if err != nil {
-		return fmt.Errorf("checking changes: %w", err)
-	}
-	if !hasChanges {
+	if commitSHA == "" {
+		// Nothing to commit.
 		return nil
 	}
 
-	// Commit
-	if err := Commit(ctx, dir, commitMsg); err != nil {
-		return fmt.Errorf("committing: %w", err)
-	}
+	// --- Push phase: outside the exclusive lock, under the push-lock ---
+	return pushWithRecovery(ctx, cfg, dir, opts, baseRef, ourFiles, true)
+}
 
-	// Get the files we changed so we can detect same-file conflicts after rebase
-	ourFiles, err := CommittedFiles(ctx, dir, "HEAD")
+// pushWithRecovery pushes committed work with section-aware rebase-retry. On a
+// genuine same-section collision it aborts (resetHardOnConflict controls
+// whether the working tree is reset to remote). On retry exhaustion from pure
+// contention (online) or any transient/offline failure, it reclassifies the
+// operation as queued and returns nil — the work is already durable.
+func pushWithRecovery(ctx context.Context, cfg *config.SpecsRepoConfig, dir string, opts SyncOptions, baseRef string, ourFiles []string, resetHardOnConflict bool) error {
+	remoteRef := remoteBranchRef(cfg)
+
+	pushRelease, err := acquirePushLock(ctx, dir)
 	if err != nil {
-		return fmt.Errorf("listing committed files: %w", err)
+		return err
 	}
+	defer pushRelease()
 
-	// Push with rebase-retry on conflict
 	for attempt := 0; attempt <= maxPushRetries; attempt++ {
 		pushErr := Push(ctx, dir, cfg.Branch)
 		if pushErr == nil {
+			opts.record(OpPush, OutcomeOK, "")
 			return nil
 		}
 
 		if attempt >= maxPushRetries {
-			return fmt.Errorf("push failed after %d retries — another user may have modified the specs repo: %w", maxPushRetries, redactToken(pushErr))
+			// Retry exhaustion from contention is NOT a hard error — queue it.
+			return queuePush(ctx, cfg, dir, opts, "push exhausted retries under contention")
 		}
 
-		// Fetch the new remote state
+		// Fetch the new remote state.
 		if err := Fetch(ctx, dir); err != nil {
-			return fmt.Errorf("fetching after push conflict: %w", redactToken(err))
+			// Offline / transient: queue and drain later.
+			return queuePush(ctx, cfg, dir, opts, "offline: "+redactToken(err).Error())
 		}
 
-		// Check what the remote changed since our base
 		upstreamFiles, err := DiffNameOnly(ctx, dir, baseRef, remoteRef)
 		if err != nil {
 			return fmt.Errorf("checking upstream changes: %w", err)
 		}
 
-		// If any file we mutated was also changed upstream, abort.
-		// Auto-merge would be technically possible but semantically dangerous
-		// for spec state (e.g. two concurrent advances to the same spec).
-		if conflict := findOverlap(ourFiles, upstreamFiles); conflict != "" {
-			// Reset to remote state so the repo isn't left in a wedged state
-			_ = ResetHard(ctx, dir, remoteRef)
-			return fmt.Errorf("%s was modified by another user while you were editing — pull the latest with 'spec pull' and retry", conflict)
+		// Section-aware collision check, shared with PushLocalEdits.
+		conflict, err := sectionOverlap(ctx, dir, ourFiles, upstreamFiles, baseRef, remoteRef)
+		if err != nil {
+			return fmt.Errorf("checking section overlap: %w", err)
+		}
+		if conflict != "" {
+			if resetHardOnConflict {
+				_ = ResetHard(ctx, dir, remoteRef)
+			}
+			opts.record(OpPush, OutcomeConflict, conflict)
+			return &sectionConflictError{desc: conflict}
 		}
 
-		// Different files — rebase is safe
 		if err := Rebase(ctx, dir, remoteRef); err != nil {
 			RebaseAbort(ctx, dir)
 			return fmt.Errorf("rebasing after push conflict — resolve manually in %s: %w", dir, err)
 		}
 
-		// Update baseRef for the next iteration in case of another race
-		newBase, err := RevParse(ctx, dir, remoteRef)
-		if err == nil {
+		if newBase, err := RevParse(ctx, dir, remoteRef); err == nil {
 			baseRef = newBase
 		}
 
-		time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+		backoff(attempt)
 	}
 
-	return fmt.Errorf("push failed after %d retries", maxPushRetries)
+	return queuePush(ctx, cfg, dir, opts, "push failed after retries")
 }
 
-// findOverlap returns the first file present in both slices, or empty string.
-func findOverlap(a, b []string) string {
-	set := make(map[string]struct{}, len(a))
-	for _, f := range a {
-		set[f] = struct{}{}
-	}
-	for _, f := range b {
-		if _, ok := set[f]; ok {
-			return f
-		}
-	}
-	return ""
+// queuePush records the (already-committed) operation as queued for a later
+// online flush and reports success — the work is durable and not discarded
+// (SPEC-013 §Decision 009).
+func queuePush(ctx context.Context, cfg *config.SpecsRepoConfig, dir string, opts SyncOptions, detail string) error {
+	sha, _ := RevParse(ctx, dir, "HEAD")
+	opts.recorder().Enqueue(repoKey(cfg), cfg.Branch, sha, AuditEvent{
+		Op:      OpPush,
+		Actor:   opts.Actor,
+		Surface: opts.Surface,
+		Trigger: opts.Trigger,
+		SpecID:  opts.SpecID,
+		Outcome: OutcomeQueued,
+		Detail:  detail,
+	})
+	opts.record(OpPush, OutcomeQueued, detail)
+	return nil
 }
 
 // PushLocalEdits commits any uncommitted changes in the specs repo and pushes them.
@@ -234,71 +395,137 @@ func findOverlap(a, b []string) string {
 // On a push conflict it fetches and rebases rather than hard-resetting, preserving
 // the committed local work.
 func PushLocalEdits(ctx context.Context, cfg *config.SpecsRepoConfig, commitMsg string) (bool, error) {
+	return PushLocalEditsOpts(ctx, cfg, commitMsg, SyncOptions{})
+}
+
+// PushLocalEditsOpts is PushLocalEdits with surface/trigger attribution. Unlike
+// WithSpecsRepoOpts it preserves already-committed local work on a conflict
+// abort — it must never hard-reset away the user's pushed-intent commits
+// (SPEC-013 §7.1 / §7.2). It shares the identical section-aware conflict check
+// so `spec push` can no longer silently auto-merge concurrent same-section
+// edits (closing the previously-unguarded path).
+func PushLocalEditsOpts(ctx context.Context, cfg *config.SpecsRepoConfig, commitMsg string, opts SyncOptions) (bool, error) {
 	if err := validateToken(cfg); err != nil {
 		return false, err
 	}
-
+	opts = opts.normalized(ctx)
 	dir := SpecsRepoDir(cfg)
 
-	if err := ensureRemoteURL(ctx, dir, cfg); err != nil {
-		return false, fmt.Errorf("updating remote URL: %w", err)
-	}
+	var baseRef string
+	var ourFiles []string
 
-	hasChanges, err := HasChanges(ctx, dir)
+	// Exclusive critical section: commit local edits, capture base + files.
+	committed, err := func() (bool, error) {
+		release, err := acquireExclusive(ctx, dir)
+		if err != nil {
+			return false, err
+		}
+		defer release()
+
+		if err := ensureRemoteURL(ctx, dir, cfg); err != nil {
+			return false, fmt.Errorf("updating remote URL: %w", err)
+		}
+
+		hasChanges, err := HasChanges(ctx, dir)
+		if err != nil {
+			return false, fmt.Errorf("checking local changes: %w", err)
+		}
+		if !hasChanges {
+			return false, nil
+		}
+
+		// Record HEAD before committing as the base for the section check.
+		base, err := RevParse(ctx, dir, "HEAD")
+		if err != nil {
+			return false, fmt.Errorf("reading HEAD: %w", err)
+		}
+		baseRef = base
+
+		if err := Commit(ctx, dir, commitMsg); err != nil {
+			return false, fmt.Errorf("committing local edits: %w", err)
+		}
+		opts.record(OpCommit, OutcomeOK, commitMsg)
+
+		files, err := CommittedFiles(ctx, dir, "HEAD")
+		if err != nil {
+			return false, fmt.Errorf("listing committed files: %w", err)
+		}
+		ourFiles = files
+		return true, nil
+	}()
 	if err != nil {
-		return false, fmt.Errorf("checking local changes: %w", err)
+		return false, err
 	}
-	if !hasChanges {
+	if !committed {
 		return false, nil
 	}
 
-	if err := Commit(ctx, dir, commitMsg); err != nil {
-		return false, fmt.Errorf("committing local edits: %w", err)
+	// Push outside the exclusive lock, preserving local commits on conflict.
+	if err := pushWithRecovery(ctx, cfg, dir, opts, baseRef, ourFiles, false); err != nil {
+		return false, err
 	}
-
-	for attempt := 0; attempt <= maxPushRetries; attempt++ {
-		pushErr := Push(ctx, dir, cfg.Branch)
-		if pushErr == nil {
-			return true, nil
-		}
-		if attempt >= maxPushRetries {
-			return false, fmt.Errorf("push failed after %d retries — another user may have modified the specs repo: %w", maxPushRetries, redactToken(pushErr))
-		}
-		if err := Fetch(ctx, dir); err != nil {
-			return false, fmt.Errorf("fetching after push conflict: %w", redactToken(err))
-		}
-		ref := fmt.Sprintf("origin/%s", cfg.Branch)
-		if err := Rebase(ctx, dir, ref); err != nil {
-			RebaseAbort(ctx, dir)
-			return false, fmt.Errorf("rebasing after push conflict — resolve manually in %s: %w", dir, err)
-		}
-		time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
-	}
-
-	return false, fmt.Errorf("push failed after %d retries", maxPushRetries)
+	return true, nil
 }
 
-// ReadSpecFile reads a spec file from the specs repo.
+// ReadSpecFile reads a spec file from the specs repo. It resolves content
+// from the fetched remote ref (`git show origin/<branch>:specs/<file>`) so it
+// reflects upstream without touching the working tree (SPEC-013 axis 2). It
+// falls back to the on-disk working-tree copy when the ref read fails (e.g. a
+// brand-new local file not yet committed).
 func ReadSpecFile(cfg *config.SpecsRepoConfig, filename string) ([]byte, error) {
 	dir := SpecsRepoDir(cfg)
-	path := filepath.Join(dir, SpecsSubDir, filename)
-	return os.ReadFile(path)
+	rel := filepath.ToSlash(filepath.Join(SpecsSubDir, filename))
+	if body, err := showFile(context.Background(), dir, remoteBranchRef(cfg), rel); err == nil {
+		return []byte(body), nil
+	}
+	return os.ReadFile(filepath.Join(dir, SpecsSubDir, filename))
 }
 
-// ListSpecFiles returns all spec files in the specs/ directory of the specs repo.
+// ListSpecFiles returns all spec files in the specs/ directory of the specs
+// repo, resolved from the fetched remote ref so the listing reflects upstream
+// without a working-tree reset. Falls back to the working tree on error.
 func ListSpecFiles(cfg *config.SpecsRepoConfig) ([]string, error) {
 	dir := SpecsRepoDir(cfg)
+	if files, err := listMarkdownFilesAtRef(dir, remoteBranchRef(cfg), SpecsSubDir); err == nil {
+		return files, nil
+	}
 	return listMarkdownFiles(filepath.Join(dir, SpecsSubDir))
 }
 
 // ListTriageFiles returns all triage files in the specs/triage/ directory.
 func ListTriageFiles(cfg *config.SpecsRepoConfig) ([]string, error) {
 	dir := SpecsRepoDir(cfg)
+	if files, err := listMarkdownFilesAtRef(dir, remoteBranchRef(cfg), SpecsSubDir+"/triage"); err == nil {
+		return files, nil
+	}
 	triageDir := filepath.Join(dir, SpecsSubDir, "triage")
 	if _, err := os.Stat(triageDir); os.IsNotExist(err) {
 		return nil, nil
 	}
 	return listMarkdownFiles(triageDir)
+}
+
+// remoteBranchRef returns the origin tracking ref for the configured branch.
+func remoteBranchRef(cfg *config.SpecsRepoConfig) string {
+	return "origin/" + cfg.Branch
+}
+
+// listMarkdownFilesAtRef lists .md files directly under subDir at the given ref
+// using `git ls-tree`, without touching the working tree.
+func listMarkdownFilesAtRef(dir, ref, subDir string) ([]string, error) {
+	out, err := Run(context.Background(), dir, "ls-tree", "--name-only", ref, subDir+"/")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || filepath.Ext(line) != ".md" {
+			continue
+		}
+		files = append(files, filepath.Base(line))
+	}
+	return files, nil
 }
 
 // ArchiveSpec moves a spec from specs/ to archive/ and commits the change.
@@ -346,6 +573,9 @@ func RestoreSpec(ctx context.Context, cfg *config.SpecsRepoConfig, specID, archi
 // ListArchiveFiles returns all archived spec files.
 func ListArchiveFiles(cfg *config.SpecsRepoConfig, archiveDir string) ([]string, error) {
 	dir := SpecsRepoDir(cfg)
+	if files, err := listMarkdownFilesAtRef(dir, remoteBranchRef(cfg), SpecsSubDir+"/"+archiveDir); err == nil {
+		return files, nil
+	}
 	archivePath := filepath.Join(dir, SpecsSubDir, archiveDir)
 	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
 		return nil, nil
@@ -377,55 +607,191 @@ func TriageFilePath(cfg *config.SpecsRepoConfig, filename string) string {
 	return filepath.Join(SpecsRepoDir(cfg), SpecsSubDir, "triage", filename)
 }
 
-// guardUnpushedChanges checks for uncommitted changes AND committed-but-
-// unpushed commits in the specs repo. Returns an actionable error if any
-// are found. This prevents hard-reset operations from silently discarding
-// local work.
-func guardUnpushedChanges(ctx context.Context, dir, branch string) error {
+// autoRecover turns the old blocking unpushed-state guard into a recovery
+// step. It NEVER hard-fails on recoverable state and NEVER discards work
+// (SPEC-013 §Decision 005). It must be called while holding the exclusive lock.
+//
+//   - Uncommitted changes in the specs sub-tree are auto-committed with a
+//     clearly-labelled `recover:` message, then treated as unpushed commits.
+//   - Unpushed commits are pushed via the same section-aware rebase-retry the
+//     normal push uses (so recovery is as robust as a normal push, and a
+//     genuine same-section conflict surfaces the actionable error — AC-16).
+//   - A transient/offline failure leaves the work committed and marks it
+//     queued; the next operation drains it.
+//
+// SPEC_FORCE is retained ONLY as an explicit discard escape and is documented
+// as a last resort — it is no longer the normal path.
+func autoRecover(ctx context.Context, cfg *config.SpecsRepoConfig, dir string, opts SyncOptions) error {
+	// Explicit discard escape (last resort). Discards stranded work so a
+	// subsequent reset is clean. Never reached on the happy path.
 	if os.Getenv("SPEC_FORCE") != "" {
+		_, _ = Run(ctx, dir, "checkout", "--", ".")
+		_, _ = Run(ctx, dir, "clean", "-fd", SpecsSubDir)
 		return nil
 	}
 
-	// Check uncommitted changes
+	remoteRef := remoteBranchRef(cfg)
+
+	// 1. Auto-commit stranded uncommitted changes (scoped to specs/ — never
+	// sweep in unrelated junk).
 	hasUncommitted, err := HasChanges(ctx, dir)
 	if err != nil {
-		// If we can't check, don't block — the reset will proceed.
-		return nil
+		return nil // can't check — let the caller proceed
 	}
 	if hasUncommitted {
-		status, _ := Status(ctx, dir)
-		return fmt.Errorf(
-			"specs repo has uncommitted changes that would be overwritten:\n%s\n\n"+
-				"Run 'spec push' to save them, or discard with 'git -C %s checkout .'\n"+
-				"To force this operation, set SPEC_FORCE=1",
-			indentStatus(status), dir,
-		)
+		if _, err := Run(ctx, dir, "add", "-A", SpecsSubDir); err != nil {
+			return fmt.Errorf("staging stranded edits for recovery: %w", err)
+		}
+		// Only commit if staging actually produced something.
+		if staged, _ := Run(ctx, dir, "diff", "--cached", "--name-only"); staged != "" {
+			if _, err := Run(ctx, dir, "commit", "-m", "recover: stranded local edits"); err != nil {
+				return fmt.Errorf("committing stranded edits for recovery: %w", err)
+			}
+			opts.record(OpRecover, OutcomeOK, "auto-committed stranded local edits")
+		}
 	}
 
-	// Check committed-but-unpushed commits — if any exist (e.g. from a
-	// previous operation whose push failed), try to push them now rather
-	// than blocking the user. Only error if the recovery push also fails.
-	remoteRef := fmt.Sprintf("origin/%s", branch)
+	// 2. Push any unpushed commits with the section-aware recovery push.
 	hasUnpushed, err := HasUnpushedCommits(ctx, dir, remoteRef)
 	if err != nil {
 		// Remote tracking ref may not exist yet (fresh clone). Don't block.
 		return nil
 	}
-	if hasUnpushed {
-		// Best-effort: push the stranded commits before proceeding.
-		if pushErr := Push(ctx, dir, branch); pushErr == nil {
-			return nil
-		}
-		// Push failed — report the original situation.
-		log, _ := Log(ctx, dir, 5, "%h %s")
-		return fmt.Errorf(
-			"specs repo has unpushed commits that could not be pushed:\n%s\n\n"+
-				"Run 'spec push' to retry, or set SPEC_FORCE=1 to discard",
-			indentStatus(log),
-		)
+	if !hasUnpushed {
+		return nil
 	}
 
+	base, err := RevParse(ctx, dir, remoteRef)
+	if err != nil {
+		return nil
+	}
+	files, err := DiffNameOnly(ctx, dir, base, "HEAD")
+	if err != nil {
+		files = nil
+	}
+
+	recoverOpts := opts
+	recoverOpts.Trigger = "auto-recover"
+	if err := pushWithRecovery(ctx, cfg, dir, recoverOpts, base, files, false); err != nil {
+		// A genuine same-section conflict surfaces here (AC-16). Work stays
+		// committed locally — never discarded.
+		var sc *sectionConflictError
+		if asSectionConflict(err, &sc) {
+			opts.record(OpRecover, OutcomeConflict, sc.desc)
+			return fmt.Errorf(
+				"stranded local work conflicts with %s — resolve in %s (your work is preserved, not discarded; set SPEC_FORCE=1 only to discard it)",
+				sc.desc, dir,
+			)
+		}
+		return err
+	}
+	opts.record(OpRecover, OutcomeOK, "pushed stranded commits")
 	return nil
+}
+
+// FlushQueue drains queued (offline / contention-exhausted) pushes for the
+// specs repo. It is best-effort and non-fatal: it is invoked opportunistically
+// by read and mutate paths and by `spec status`. Each queued entry is
+// reconciled independently — a same-section conflict marks only that entry
+// needs-resolution and never strands the rest (SPEC-013 §Decision 010, AC-24).
+//
+// Because autoRecover already pushes any unpushed commits at the start of
+// every committing operation, the common case is that the branch is pushable;
+// FlushQueue resolves the queued markers once the branch lands.
+func FlushQueue(ctx context.Context, cfg *config.SpecsRepoConfig, opts SyncOptions) {
+	opts = opts.normalized(ctx)
+	rec := opts.recorder()
+	pending := rec.Pending(repoKey(cfg))
+	if len(pending) == 0 {
+		return
+	}
+	dir := SpecsRepoDir(cfg)
+
+	if err := validateToken(cfg); err != nil {
+		return
+	}
+	if err := ensureRemoteURL(ctx, dir, cfg); err != nil {
+		return
+	}
+
+	remoteRef := remoteBranchRef(cfg)
+
+	release, err := acquireExclusive(ctx, dir)
+	if err != nil {
+		return
+	}
+	defer release()
+
+	hasUnpushed, err := HasUnpushedCommits(ctx, dir, remoteRef)
+	if err != nil {
+		return
+	}
+	if !hasUnpushed {
+		// Nothing local to push — the commits already landed; clear markers.
+		for _, item := range pending {
+			rec.ResolveQueued(item.ID)
+		}
+		return
+	}
+
+	base, err := RevParse(ctx, dir, remoteRef)
+	if err != nil {
+		return
+	}
+	files, err := DiffNameOnly(ctx, dir, base, "HEAD")
+	if err != nil {
+		files = nil
+	}
+
+	flushOpts := opts
+	flushOpts.Trigger = "queue-flush"
+	err = pushWithRecovery(ctx, cfg, dir, flushOpts, base, files, false)
+
+	var sc *sectionConflictError
+	switch {
+	case err == nil:
+		opts.record(OpQueueFlush, OutcomeOK, fmt.Sprintf("flushed %d queued", len(pending)))
+		for _, item := range pending {
+			rec.ResolveQueued(item.ID)
+		}
+	case asSectionConflict(err, &sc):
+		// Mark every entry touching the conflicting spec as needs-resolution;
+		// the rest remain queued for the next flush.
+		opts.record(OpQueueFlush, OutcomeConflict, sc.desc)
+		for _, item := range pending {
+			if item.SpecID != "" && strings.Contains(sc.desc, item.SpecID) {
+				rec.MarkQueued(item.ID, "needs-resolution", sc.desc)
+			}
+		}
+	default:
+		// Still offline / transient — leave queued, try again next time.
+		opts.record(OpQueueFlush, OutcomeQueued, "flush deferred")
+	}
+}
+
+// IsSectionConflict reports whether err is (or wraps) a genuine same-section
+// collision — the only push failure that must block a human (vs. a queued
+// transient/contention failure, which is non-fatal).
+func IsSectionConflict(err error) bool {
+	var sc *sectionConflictError
+	return asSectionConflict(err, &sc)
+}
+
+// asSectionConflict reports whether err is a sectionConflictError.
+func asSectionConflict(err error, target **sectionConflictError) bool {
+	for err != nil {
+		if sc, ok := err.(*sectionConflictError); ok {
+			*target = sc
+			return true
+		}
+		type unwrapper interface{ Unwrap() error }
+		u, ok := err.(unwrapper)
+		if !ok {
+			return false
+		}
+		err = u.Unwrap()
+	}
+	return false
 }
 
 // indentStatus prefixes each line of git status output for readability.

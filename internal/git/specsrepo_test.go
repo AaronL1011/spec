@@ -7,152 +7,128 @@ import (
 	"testing"
 )
 
-func TestFindOverlap_NoConflict(t *testing.T) {
-	ours := []string{"specs/SPEC-042.md", "specs/triage/TRIAGE-001.md"}
-	theirs := []string{"specs/SPEC-077.md", "spec.config.yaml"}
-
-	if got := findOverlap(ours, theirs); got != "" {
-		t.Errorf("findOverlap() = %q, want empty", got)
-	}
-}
-
-func TestFindOverlap_Conflict(t *testing.T) {
-	ours := []string{"specs/SPEC-042.md"}
-	theirs := []string{"specs/SPEC-077.md", "specs/SPEC-042.md"}
-
-	got := findOverlap(ours, theirs)
-	if got != "specs/SPEC-042.md" {
-		t.Errorf("findOverlap() = %q, want specs/SPEC-042.md", got)
-	}
-}
-
-func TestFindOverlap_EmptyInputs(t *testing.T) {
-	if got := findOverlap(nil, nil); got != "" {
-		t.Errorf("findOverlap(nil, nil) = %q, want empty", got)
-	}
-	if got := findOverlap([]string{"a.md"}, nil); got != "" {
-		t.Errorf("findOverlap(a, nil) = %q, want empty", got)
-	}
-	if got := findOverlap(nil, []string{"b.md"}); got != "" {
-		t.Errorf("findOverlap(nil, b) = %q, want empty", got)
-	}
-}
-
-func TestGuardUnpushedChanges_UnpushedCommits(t *testing.T) {
+func TestSectionOverlap_DisjointSections(t *testing.T) {
 	ctx := context.Background()
+	dir := initSectionRepo(t)
 
-	// Set up a "remote" repo
-	remote := t.TempDir()
-	if _, err := Run(ctx, remote, "init", "--bare"); err != nil {
-		t.Fatal(err)
-	}
+	base, _ := RevParse(ctx, dir, "HEAD")
 
-	// Clone it
-	local := filepath.Join(t.TempDir(), "local")
-	if err := Clone(ctx, remote, local); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Run(ctx, local, "config", "user.email", "test@test.com"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Run(ctx, local, "config", "user.name", "Test"); err != nil {
+	// Upstream branch edits §7; our HEAD edits §1 — disjoint, no conflict.
+	remoteRef := makeUpstreamEdit(t, dir, base, "## 7. Technical Implementation", "upstream tech change")
+	writeSpec(t, dir, sectionDoc("## 1. Problem Statement", "our problem change", "## 7. Technical Implementation", "orig tech"))
+	if err := Commit(ctx, dir, "our edit §1"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create initial commit and push
-	if err := os.WriteFile(filepath.Join(local, "test.txt"), []byte("hello"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := Commit(ctx, local, "initial"); err != nil {
-		t.Fatal(err)
-	}
-	branch, _ := CurrentBranch(ctx, local)
-	if err := Push(ctx, local, branch); err != nil {
-		t.Fatal(err)
-	}
-
-	// Clean state should pass
-	if err := guardUnpushedChanges(ctx, local, branch); err != nil {
-		t.Fatalf("clean repo should pass: %v", err)
-	}
-
-	// Make a local commit without pushing
-	if err := os.WriteFile(filepath.Join(local, "test.txt"), []byte("modified"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := Commit(ctx, local, "local only"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Guard should auto-push the stranded commit and succeed.
-	if err := guardUnpushedChanges(ctx, local, branch); err != nil {
-		t.Fatalf("guard should auto-push stranded commits, got: %v", err)
-	}
-
-	// Verify the commit was actually pushed.
-	has, err := HasUnpushedCommits(ctx, local, "origin/"+branch)
+	ourFiles, _ := CommittedFiles(ctx, dir, "HEAD")
+	upstream, _ := DiffNameOnly(ctx, dir, base, remoteRef)
+	conflict, err := sectionOverlap(ctx, dir, ourFiles, upstream, base, remoteRef)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("sectionOverlap: %v", err)
 	}
-	if has {
-		t.Error("commit should have been pushed by guard")
+	if conflict != "" {
+		t.Errorf("disjoint section edits should not conflict, got %q", conflict)
 	}
 }
 
-func TestGuardUnpushedChanges_AutoPushFails(t *testing.T) {
+func TestSectionOverlap_SameSection(t *testing.T) {
 	ctx := context.Background()
+	dir := initSectionRepo(t)
 
-	// Set up a "remote" bare repo, then break it.
-	remote := t.TempDir()
-	if _, err := Run(ctx, remote, "init", "--bare"); err != nil {
-		t.Fatal(err)
-	}
+	base, _ := RevParse(ctx, dir, "HEAD")
 
-	local := filepath.Join(t.TempDir(), "local")
-	if err := Clone(ctx, remote, local); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Run(ctx, local, "config", "user.email", "test@test.com"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Run(ctx, local, "config", "user.name", "Test"); err != nil {
+	// Both sides edit §1 — genuine same-section collision.
+	remoteRef := makeUpstreamEdit(t, dir, base, "## 1. Problem Statement", "upstream problem change")
+	writeSpec(t, dir, sectionDoc("## 1. Problem Statement", "our problem change", "## 7. Technical Implementation", "orig tech"))
+	if err := Commit(ctx, dir, "our edit §1"); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(local, "test.txt"), []byte("hello"), 0o644); err != nil {
-		t.Fatal(err)
+	ourFiles, _ := CommittedFiles(ctx, dir, "HEAD")
+	upstream, _ := DiffNameOnly(ctx, dir, base, remoteRef)
+	conflict, err := sectionOverlap(ctx, dir, ourFiles, upstream, base, remoteRef)
+	if err != nil {
+		t.Fatalf("sectionOverlap: %v", err)
 	}
-	if err := Commit(ctx, local, "initial"); err != nil {
-		t.Fatal(err)
+	if conflict == "" {
+		t.Fatal("same-section edits should conflict")
 	}
-	branch, _ := CurrentBranch(ctx, local)
-	if err := Push(ctx, local, branch); err != nil {
-		t.Fatal(err)
+	if !containsSubstring(conflict, "problem_statement") {
+		t.Errorf("conflict should name the section, got %q", conflict)
 	}
+}
 
-	// Make a local commit, then break the remote so push fails.
-	if err := os.WriteFile(filepath.Join(local, "test.txt"), []byte("modified"), 0o644); err != nil {
-		t.Fatal(err)
+func TestSectionOverlap_NonSpecFileWholeFile(t *testing.T) {
+	ours := []string{"spec.config.yaml"}
+	upstream := []string{"spec.config.yaml"}
+	conflict, err := sectionOverlap(context.Background(), t.TempDir(), ours, upstream, "x", "y")
+	if err != nil {
+		t.Fatalf("sectionOverlap: %v", err)
 	}
-	if err := Commit(ctx, local, "stranded"); err != nil {
-		t.Fatal(err)
+	if conflict != "spec.config.yaml" {
+		t.Errorf("non-spec overlap should be whole-file, got %q", conflict)
 	}
+}
 
-	// Point remote to a nonexistent path so push fails.
-	if _, err := Run(ctx, local, "remote", "set-url", "origin", "/nonexistent/repo"); err != nil {
+// --- section-test helpers ---
+
+func sectionDoc(h1, c1, h7, c7 string) string {
+	return "# SPEC-001\n\n" + h1 + "\n\n" + c1 + "\n\n" + h7 + "\n\n" + c7 + "\n"
+}
+
+func writeSpec(t *testing.T, dir, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "specs", "SPEC-001.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
 
-	err := guardUnpushedChanges(ctx, local, branch)
-	if err == nil {
-		t.Fatal("should error when auto-push fails")
+// initSectionRepo creates a non-bare repo with a two-section spec committed.
+func initSectionRepo(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+	for _, args := range [][]string{{"init"}, {"config", "user.email", "t@t.com"}, {"config", "user.name", "T"}} {
+		if _, err := Run(ctx, dir, args...); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if !containsSubstring(err.Error(), "could not be pushed") {
-		t.Errorf("error should mention push failure, got: %v", err)
+	if err := os.MkdirAll(filepath.Join(dir, "specs"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if !containsSubstring(err.Error(), "spec push") {
-		t.Errorf("error should suggest 'spec push', got: %v", err)
+	writeSpec(t, dir, sectionDoc("## 1. Problem Statement", "orig problem", "## 7. Technical Implementation", "orig tech"))
+	if err := Commit(ctx, dir, "initial"); err != nil {
+		t.Fatal(err)
 	}
+	return dir
+}
+
+// makeUpstreamEdit creates a sibling commit off base that edits one section
+// and returns a ref pointing at it (simulating origin/<branch> advancing).
+func makeUpstreamEdit(t *testing.T, dir, base, heading, content string) string {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := Run(ctx, dir, "checkout", "-b", "upstream", base); err != nil {
+		t.Fatal(err)
+	}
+	var doc string
+	if heading == "## 1. Problem Statement" {
+		doc = sectionDoc(heading, content, "## 7. Technical Implementation", "orig tech")
+	} else {
+		doc = sectionDoc("## 1. Problem Statement", "orig problem", heading, content)
+	}
+	writeSpec(t, dir, doc)
+	if err := Commit(ctx, dir, "upstream edit"); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := RevParse(ctx, dir, "HEAD")
+	if _, err := Run(ctx, dir, "checkout", "-"); err != nil {
+		// fall back to detaching base
+		if _, err := Run(ctx, dir, "checkout", base); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return ref
 }
 
 // containsSubstring is a test helper (strings.Contains without importing strings).

@@ -56,7 +56,7 @@ func runIntake(cmd *cobra.Command, args []string) error {
 	content := markdown.ScaffoldTriage(triageID, title, priority, source, sourceRef, reportedBy)
 
 	// Write via WithSpecsRepo
-	err = gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	err = gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, triageID), func(repoPath string) (string, error) {
 		triageDir := filepath.Join(specsDir(repoPath), "triage")
 		if err := os.MkdirAll(triageDir, 0o755); err != nil {
 			return "", err

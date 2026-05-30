@@ -26,7 +26,7 @@ func createSpec(rc *config.ResolvedConfig, title string) tea.Cmd {
 		cycle := rc.CycleLabel()
 		content := markdown.ScaffoldSpec(specID, title, author, cycle, "tui")
 
-		err := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("new", specID), func(repoPath string) (string, error) {
 			sd := filepath.Join(repoPath, gitpkg.SpecsSubDir)
 			_ = os.MkdirAll(sd, 0o755)
 
@@ -37,9 +37,10 @@ func createSpec(rc *config.ResolvedConfig, title string) tea.Cmd {
 			return fmt.Sprintf("feat: scaffold %s — %s", specID, title), nil
 		})
 
-		if err != nil {
+		status, fatal := pushOutcome(err)
+		if fatal {
 			return actionResultMsg{Action: "new", Err: err}
 		}
-		return actionResultMsg{Action: "new", SpecID: specID, Detail: title}
+		return actionResultMsg{Action: "new", SpecID: specID, Detail: title + " (" + status + ")"}
 	}
 }

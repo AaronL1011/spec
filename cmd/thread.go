@@ -20,7 +20,7 @@ func withThreadStore(rc *config.ResolvedConfig, specID string, fn func(store *th
 	if err := requireTeamConfig(rc); err != nil {
 		return err
 	}
-	return gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	return gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(nil, specID), func(repoPath string) (string, error) {
 		// Confirm the spec exists in the freshly-synced repo before writing
 		// a sidecar next to it.
 		if _, err := specPathIn(repoPath, rc, specID); err != nil {

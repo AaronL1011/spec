@@ -58,7 +58,7 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 	deps := workflow.Deps{Config: rc, Registry: buildRegistry(rc), DB: db, Role: role}
 
 	var res *workflow.AdvanceResult
-	gitErr := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	gitErr := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
 			return "", err

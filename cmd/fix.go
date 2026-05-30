@@ -115,7 +115,7 @@ func runFix(cmd *cobra.Command, args []string) error {
 	content := buildFastTrackSpec(specID, title, userName, rc.Team.Team.CycleLabel, labels, repo, now)
 
 	// Write and commit using WithSpecsRepo for safe concurrent access
-	err = gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	err = gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
 		specPath := filepath.Join(specsDir(repoPath), specID+".md")
 		if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {
 			return "", fmt.Errorf("writing spec: %w", err)
