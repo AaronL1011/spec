@@ -86,7 +86,6 @@ func New(ctx context.Context, paths []string, debounce time.Duration) (*Watcher,
 	if err == nil {
 		if addErr := fsw.Add(w.dir); addErr != nil {
 			_ = fsw.Close()
-			fsw = nil
 			err = addErr
 		} else {
 			w.fsw = fsw

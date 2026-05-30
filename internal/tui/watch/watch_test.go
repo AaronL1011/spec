@@ -36,7 +36,7 @@ func TestWatcher_DetectsWrite(t *testing.T) {
 	if err != nil {
 		t.Logf("fsnotify unavailable, using polling fallback: %v", err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	time.Sleep(20 * time.Millisecond)
 	writeFile(t, spec, "changed")
@@ -58,7 +58,7 @@ func TestWatcher_DetectsSidecarWrite(t *testing.T) {
 	writeFile(t, sidecar, "threads: []")
 
 	w, _ := New(context.Background(), []string{spec, sidecar}, 50*time.Millisecond)
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	time.Sleep(20 * time.Millisecond)
 	writeFile(t, sidecar, "threads:\n  - id: T-1")
@@ -85,7 +85,7 @@ func TestWatcher_IgnoresUnwatchedFiles(t *testing.T) {
 	writeFile(t, spec, "spec")
 
 	w, _ := New(context.Background(), []string{spec}, 50*time.Millisecond)
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	time.Sleep(20 * time.Millisecond)
 	writeFile(t, other, "unrelated")
@@ -101,7 +101,7 @@ func TestWatcher_CoalescesBurst(t *testing.T) {
 	writeFile(t, spec, "v0")
 
 	w, _ := New(context.Background(), []string{spec}, 150*time.Millisecond)
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	time.Sleep(20 * time.Millisecond)
 	// A tight burst of writes within the debounce window should coalesce.
@@ -128,7 +128,7 @@ func TestWatcher_Retarget(t *testing.T) {
 	writeFile(t, specB, "b")
 
 	w, _ := New(context.Background(), []string{specA}, 50*time.Millisecond)
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	if err := w.Retarget([]string{specB}); err != nil {
 		t.Fatalf("retarget: %v", err)
@@ -154,7 +154,7 @@ func TestWatcher_DetectsDelete(t *testing.T) {
 	writeFile(t, spec, "spec")
 
 	w, _ := New(context.Background(), []string{spec}, 50*time.Millisecond)
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	time.Sleep(20 * time.Millisecond)
 	if err := os.Remove(spec); err != nil {
