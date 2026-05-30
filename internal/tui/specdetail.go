@@ -65,6 +65,7 @@ type specDetailModel struct {
 	decisions   []markdown.DecisionEntry
 	loading     bool
 	err         error
+	notice      string // calm inline notice (e.g. file removed); non-fatal
 	contentHash string
 	isArchived  bool // true if spec is in archive/
 
@@ -94,6 +95,11 @@ type specDetailModel struct {
 	activeCacheKey string
 	pendingRequest *pendingRenderRequest
 
+	// pendingScrollRestore holds a viewport YOffset to reapply once the next
+	// section render lands, so a position-preserving refresh (SPEC-007) does
+	// not snap the reader back to the top. -1 means no restore is pending.
+	pendingScrollRestore int
+
 	renderer Renderer
 	theme    Theme
 	width    int
@@ -119,16 +125,17 @@ func newSpecDetail(rc *config.ResolvedConfig, specID string, styles Styles, keys
 	vp := viewport.New(80, 20)
 	vp.KeyMap = viewport.KeyMap{} // viewport keys are managed by updateReader
 	return specDetailModel{
-		rc:             rc,
-		specID:         specID,
-		loading:        true,
-		styles:         styles,
-		keys:           keys,
-		theme:          theme,
-		readerCache:    make(map[string]string),
-		renderer:       NewGlamourRenderer(theme),
-		readerViewport: vp,
-		paneVisible:    true,
+		rc:                   rc,
+		specID:               specID,
+		loading:              true,
+		styles:               styles,
+		keys:                 keys,
+		theme:                theme,
+		readerCache:          make(map[string]string),
+		renderer:             NewGlamourRenderer(theme),
+		readerViewport:       vp,
+		paneVisible:          true,
+		pendingScrollRestore: -1,
 	}
 }
 
@@ -171,16 +178,28 @@ func (m specDetailModel) handleThreadsChanged(msg threadsChangedMsg) (specDetail
 func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, tea.Cmd) {
 	m.loading = false
 	if msg.Err != nil {
+		// A refresh failure on an already-loaded spec (e.g. the file was moved
+		// or deleted out from under the reader) must not blank the view. Keep
+		// the last-good content on screen and surface a calm inline notice.
+		if m.meta != nil {
+			m.notice = "spec moved or removed — press esc to go back"
+			return m, nil
+		}
 		m.err = msg.Err
 		return m, nil
 	}
-	// No change — skip re-render.
+	m.notice = ""
+	// No change — skip re-render. Hash-gating keeps an unchanged file (or an
+	// editor's identical re-save) from disturbing the view at all.
 	if msg.Hash != "" && msg.Hash == m.contentHash && m.meta != nil {
 		m.err = nil
 		return m, nil
 	}
-	wasReading := m.readerMode
-	secIdx := m.sectionIdx
+	// A refresh into an already-loaded spec (watcher-triggered or poll) must
+	// preserve the user's position; the initial load starts fresh.
+	if m.meta != nil {
+		return m.applyRefresh(msg)
+	}
 	m.meta = msg.Meta
 	m.sections = msg.Sections
 	m.decisions = msg.Decisions
@@ -190,9 +209,7 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	m.isArchived = msg.Archived
 	m.readerCache = make(map[string]string)
 	m.contentLines = m.estimateContentLines()
-	if wasReading {
-		m.readerMode = true
-		m.sectionIdx = secIdx
+	if m.readerMode {
 		if sections := m.readableSections(); m.sectionIdx >= len(sections) {
 			m.sectionIdx = max(0, len(sections)-1)
 		}
@@ -201,6 +218,89 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	}
 	m.scroll = 0
 	return m, nil
+}
+
+// applyRefresh merges freshly-read spec data into an already-loaded model,
+// preserving scroll offset, current section, thread selection, body scroll,
+// and any in-progress ask/reply input. It is the position-preserving path for
+// watcher- and poll-triggered refreshes (SPEC-007).
+func (m specDetailModel) applyRefresh(msg specDetailDataMsg) (specDetailModel, tea.Cmd) {
+	// Capture position before swapping data.
+	prevScroll := m.readerViewport.YOffset
+	prevSectionIdx := m.sectionIdx
+	prevThreadScroll := m.threadScroll
+	selectedID := ""
+	if t, ok := m.selectedThread(); ok {
+		selectedID = t.ID
+	}
+
+	m.meta = msg.Meta
+	m.sections = msg.Sections
+	m.decisions = msg.Decisions
+	m.threads = msg.Threads
+	m.err = nil
+	m.contentHash = msg.Hash
+	m.isArchived = msg.Archived
+	m.readerCache = make(map[string]string) // content changed — invalidate renders
+	m.contentLines = m.estimateContentLines()
+
+	if !m.readerMode {
+		// Overview: clamp the list scroll against the new content height.
+		if mx := m.maxScroll(); m.scroll > mx {
+			m.scroll = mx
+		}
+		return m, nil
+	}
+
+	// Reader: keep the same section (clamped), restore thread selection by ID,
+	// and preserve body scroll. The viewport offset is restored after the
+	// section re-renders, in handleRenderedMsg, via pendingScrollRestore.
+	sections := m.readableSections()
+	m.sectionIdx = clampInt(prevSectionIdx, 0, len(sections)-1)
+	m.restoreThreadSelection(selectedID)
+	if mx := m.maxThreadScroll(); prevThreadScroll > mx {
+		prevThreadScroll = mx
+	}
+	m.threadScroll = prevThreadScroll
+	m.pendingScrollRestore = prevScroll
+	m.cancelRender()
+	return m.requestCurrentSectionRender()
+}
+
+// restoreThreadSelection re-selects the thread with the given ID within the
+// current section after a refresh. When that thread no longer exists (resolved
+// out of the open set, removed), selection falls back to the nearest valid
+// index in the same section so the pane never points past its slice.
+func (m *specDetailModel) restoreThreadSelection(id string) {
+	ts := m.threadsForSection(m.currentSectionSlug())
+	if len(ts) == 0 {
+		m.threadIdx = 0
+		return
+	}
+	if id != "" {
+		for i, t := range ts {
+			if t.ID == id {
+				m.threadIdx = i
+				return
+			}
+		}
+	}
+	m.threadIdx = clampInt(m.threadIdx, 0, len(ts)-1)
+}
+
+// clampInt bounds v to [lo, hi]. When hi < lo (e.g. an empty slice yields
+// hi == -1), it returns lo.
+func clampInt(v, lo, hi int) int {
+	if hi < lo {
+		return lo
+	}
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 func (m specDetailModel) handleRenderedMsg(msg sectionRenderedMsg) (specDetailModel, tea.Cmd) {
@@ -229,6 +329,15 @@ func (m specDetailModel) handleRenderedMsg(msg sectionRenderedMsg) (specDetailMo
 	}
 
 	m.applyReaderContent(msg.Content)
+	// Reapply a preserved scroll offset from a position-preserving refresh.
+	if m.pendingScrollRestore >= 0 {
+		offset := m.pendingScrollRestore
+		m.pendingScrollRestore = -1
+		if mx := m.maxScroll(); offset > mx {
+			offset = mx
+		}
+		m.readerViewport.SetYOffset(offset)
+	}
 	m.readerErr = nil
 	return m, nil
 }
@@ -486,6 +595,9 @@ func (m specDetailModel) viewReader() string {
 	if m.readerErr != nil {
 		return m.styles.Error.Render(fmt.Sprintf("  Error: %v", m.readerErr))
 	}
+	if m.notice != "" {
+		return m.styles.Muted.Render("  "+m.notice) + "\n" + m.readerViewport.View()
+	}
 	// Blank while first render is in-flight — spinner in status bar is the indicator.
 	if m.readerContent == "" {
 		return ""
@@ -611,6 +723,12 @@ func composeContentColumn(viewportView string, pane []string, height int) []stri
 func (m specDetailModel) viewOverview() string {
 	var b strings.Builder
 	contentWidth := ContentWidth(m.width)
+
+	if m.notice != "" {
+		b.WriteString("\n")
+		b.WriteString(m.styles.Muted.Render(Indent(1) + m.notice))
+		b.WriteString("\n")
+	}
 
 	// ── Identity block ────────────────────────────────────────────────────────
 	b.WriteString("\n")
@@ -898,6 +1016,18 @@ func (m specDetailModel) specFilePath() string {
 		}
 	}
 	return ""
+}
+
+// watchPaths returns the files the reader should observe for live refresh:
+// the spec markdown and its thread sidecar. Returns nil when the spec's
+// on-disk location cannot be resolved (nothing to watch).
+func (m specDetailModel) watchPaths() []string {
+	path := m.specFilePath()
+	if path == "" {
+		return nil
+	}
+	sidecar := thread.NewSidecarStore(filepath.Dir(path)).SidecarPath(m.specID)
+	return []string{path, sidecar}
 }
 
 func (m specDetailModel) fetchData() tea.Cmd {
