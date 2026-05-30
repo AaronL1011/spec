@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -15,7 +16,12 @@ import (
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/store"
 	"github.com/aaronl1011/spec/internal/tui/components"
+	"github.com/aaronl1011/spec/internal/tui/watch"
 )
+
+// watchDebounce coalesces a burst of writes (e.g. an agent editing a spec in a
+// loop) into a single reader refresh.
+const watchDebounce = 250 * time.Millisecond
 
 const defaultRefreshInterval = 30 * time.Second
 const spinnerInterval = 100 * time.Millisecond
@@ -37,6 +43,10 @@ const (
 type tickMsg time.Time
 
 type spinnerTickMsg time.Time
+
+// fileChangedMsg signals that one of the watched files backing the open spec
+// changed on disk and the reader should re-read and re-render (SPEC-007).
+type fileChangedMsg struct{ Paths []string }
 
 // App is the top-level Bubble Tea model. It owns the tab strip, header,
 // status bar, and delegates to the active view.
@@ -73,7 +83,15 @@ type App struct {
 	// Detail drill-down
 	showDetail bool
 	detail     specDetailModel
-	detailFrom View // which view we drilled in from
+
+	// File watcher for the open spec's markdown + thread sidecar (SPEC-007).
+	// nil when no spec is open. Bound to the detail view lifecycle.
+	watcher *watch.Watcher
+	// watchRefreshPending marks that the next specDetailDataMsg was triggered
+	// by a file-change event, so a calm "updated" cue can be shown on a real
+	// content change.
+	watchRefreshPending bool
+	detailFrom          View // which view we drilled in from
 
 	// Overlays
 	modal   components.Modal
@@ -122,9 +140,12 @@ func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
 	return app
 }
 
-// Close releases resources held by the App, notably the local store.
-// It is safe to call when the store failed to open.
+// Close releases resources held by the App, notably the local store and any
+// active file watcher. It is safe to call when the store failed to open.
 func (a App) Close() error {
+	if a.watcher != nil {
+		_ = a.watcher.Close()
+	}
 	if a.db == nil {
 		return nil
 	}
@@ -311,16 +332,52 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.notifyStaleRefresh(msg.Err, a.reviews.loaded)
 		return a, cmd
 
+	case fileChangedMsg:
+		// A watched file changed. Re-read the open spec (hash-gated, position-
+		// preserving) and re-arm the watcher for the next change. If the reader
+		// closed between event and delivery, just stop.
+		if !a.showDetail || a.watcher == nil {
+			return a, nil
+		}
+		a.watchRefreshPending = true
+		return a, tea.Batch(
+			a.scheduleRefresh(a.detailRefreshKey(), a.detail.fetchData()),
+			waitForChange(a.watcher),
+		)
+
 	case specDetailDataMsg:
 		a.markDetailRefreshDone()
+		prevHash := a.detail.contentHash
 		var cmd tea.Cmd
 		a.detail, cmd = a.detail.update(msg)
+		// Surface a calm cue only when a watcher-triggered refresh actually
+		// changed content (hash moved). Silent on no-op and initial load.
+		if a.watchRefreshPending {
+			a.watchRefreshPending = false
+			if msg.Err == nil && a.detail.contentHash != prevHash && prevHash != "" {
+				a.toast.Show("✓ updated", components.ToastInfo, 2*time.Second)
+			}
+		}
 		return a, cmd
 
 	case sectionRenderedMsg:
 		var cmd tea.Cmd
 		a.detail, cmd = a.detail.update(msg)
 		a.syncBusyState()
+		return a, cmd
+
+	case threadsChangedMsg:
+		// A thread mutation (ask/reply/resolve) completed. Route the refreshed
+		// thread set to the detail model so the pane updates immediately, and
+		// surface the accompanying toast. This must be handled here rather than
+		// via delegateToActive, which only routes to the active tab view.
+		var cmd tea.Cmd
+		a.detail, cmd = a.detail.update(msg)
+		if msg.Err != nil {
+			a.toast.Show(msg.Err.Error(), components.ToastError, 5*time.Second)
+		} else if msg.Toast != "" {
+			a.toast.Show(msg.Toast, components.ToastSuccess, 2*time.Second)
+		}
 		return a, cmd
 
 	case settingsAppliedMsg:
@@ -767,6 +824,7 @@ func (a *App) switchView(v View) tea.Cmd {
 	a.markDetailRefreshDone()
 	if a.showDetail {
 		a.detail.cancelRender()
+		a.stopWatch()
 	}
 	a.showDetail = false
 	a.activeView = v
@@ -872,22 +930,77 @@ func (a *App) openDetail(specID string) tea.Cmd {
 	a.detail.setSize(a.width, a.contentHeight())
 	a.statusBar.SetView(a.activeView.Label() + " › " + specID)
 	a.syncBusyState()
-	return a.detail.init()
+	return tea.Batch(a.detail.init(), a.startWatch())
 }
 
 func (a *App) closeDetail() tea.Cmd {
 	a.markDetailRefreshDone()
 	a.detail.cancelRender()
+	a.stopWatch()
 	a.showDetail = false
 	a.statusBar.SetView(a.activeView.Label())
 	a.syncBusyState()
 	return nil
 }
 
+// startWatch begins watching the open spec's files and returns a command that
+// delivers the first change event. Watching the open spec keeps the reader
+// live without the user quitting and reopening (SPEC-007). A watcher that
+// cannot register native notifications degrades silently to polling.
+func (a *App) startWatch() tea.Cmd {
+	paths := a.detail.watchPaths()
+	if len(paths) == 0 {
+		return nil
+	}
+	if a.watcher != nil {
+		// Reuse the existing watcher across spec navigation.
+		_ = a.watcher.Retarget(paths)
+		return waitForChange(a.watcher)
+	}
+	w, _ := watch.New(context.Background(), paths, watchDebounce)
+	a.watcher = w
+	return waitForChange(w)
+}
+
+// stopWatch tears down the file watcher when the reader closes.
+func (a *App) stopWatch() {
+	if a.watcher != nil {
+		_ = a.watcher.Close()
+		a.watcher = nil
+	}
+}
+
+// waitForChange blocks on the watcher's channel and surfaces the next change
+// as a fileChangedMsg. It returns nil (ending the wait loop) when the channel
+// is closed, which happens when the watcher is stopped.
+func waitForChange(w *watch.Watcher) tea.Cmd {
+	if w == nil {
+		return nil
+	}
+	ch := w.C
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return fileChangedMsg{Paths: ev.Paths}
+	}
+}
+
 func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 	// Hard quit always works.
 	if msg.Type == tea.KeyCtrlC {
 		return a, tea.Quit
+	}
+
+	// While an inline ask/reply prompt is open, every printable key is text —
+	// including '?', which would otherwise toggle help. Route straight to the
+	// detail model so the thread input captures the keystroke.
+	if a.detail.readerMode && a.detail.input.active() {
+		var cmd tea.Cmd
+		a.detail, cmd = a.detail.update(msg)
+		a.syncBusyState()
+		return a, cmd
 	}
 
 	// Help.
