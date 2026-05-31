@@ -25,9 +25,9 @@ Sleep 4s
 
 # Navigate through the pipeline specs
 Type "2"
-Sleep 3s
+Sleep 2s
 Down
-Sleep 400ms
+Sleep 500ms
 Down
 Sleep 1.5s
 
@@ -49,20 +49,35 @@ Sleep 300ms
 Down
 Sleep 300ms
 Down
-Sleep 300ms
-Down
 Sleep 4s
 
 Type "n"
-Sleep 300ms
+Sleep 500ms
 Type "n"
 Sleep 3s
 
 Type "a"
 Sleep 1.5s
-Type "Have we considered how certain statuses might clobber others? What should take priority, etc."
+Type "Have we considered how certain statuses might clobber others? "
+Sleep 2s
+Type "What should take priority, "
+Sleep 1s
+Type "etc."
 Sleep 2s
 Enter
 
+Sleep 2s
+Escape
+Sleep 250ms
+Escape
+Sleep 1s
+Type "1"
+Sleep 2s
+
+Type "a"
 Sleep 4s
+Type "y"
+
+Sleep 4s
+
 Ctrl+C
