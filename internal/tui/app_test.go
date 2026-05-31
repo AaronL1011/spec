@@ -327,11 +327,73 @@ func TestApp_ActionResultShowsStatus(t *testing.T) {
 	// Error result.
 	model, _ = app.Update(actionResultMsg{
 		Action: "advance",
-		Err:    fmt.Errorf("gate not met"),
+		SpecID: "SPEC-001",
+		Err:    fmt.Errorf("gate not met: QA validation incomplete"),
 	})
 	a = model.(App)
 	if a.statusBar.StatusKind() != components.StatusError {
 		t.Errorf("status should be error after failed action, got %v", a.statusBar.StatusKind())
+	}
+	// The slot shows a short summary; the full error is kept for expansion.
+	if !strings.Contains(a.statusBar.StatusLabel(), "failed") {
+		t.Errorf("error summary should be short, got %q", a.statusBar.StatusLabel())
+	}
+	if !strings.Contains(a.statusBar.ErrorDetail(), "gate not met") {
+		t.Errorf("full error detail should be preserved, got %q", a.statusBar.ErrorDetail())
+	}
+}
+
+// TestApp_ExpandErrorOpensModal verifies the E key opens the full error text in
+// a read-only modal, and is a no-op when there is no error.
+func TestApp_ExpandErrorOpensModal(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// No error yet: E must not open a modal.
+	model, _ := app.Update(keyMsg("E"))
+	a := model.(App)
+	if a.modal.Visible {
+		t.Fatal("E should be a no-op when there is no error")
+	}
+
+	// Produce a sticky error, then expand it.
+	model, _ = a.Update(actionResultMsg{Action: "advance", SpecID: "SPEC-001",
+		Err: fmt.Errorf("gate not met: QA validation incomplete for SPEC-001")})
+	a = model.(App)
+	model, _ = a.Update(keyMsg("E"))
+	a = model.(App)
+	if !a.modal.Visible || a.modal.Kind != components.ModalInfo {
+		t.Fatalf("E should open a read-only info modal, visible=%v kind=%v", a.modal.Visible, a.modal.Kind)
+	}
+	if !strings.Contains(a.modal.Message, "gate not met") {
+		t.Errorf("modal should show the full error, got %q", a.modal.Message)
+	}
+}
+
+// TestApp_BackgroundRefreshKeepsStickyError verifies that a background refresh
+// starting does NOT clear an unseen sticky error (only user-initiated work
+// supersedes it).
+func TestApp_BackgroundRefreshKeepsStickyError(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	model, _ := app.Update(actionResultMsg{Action: "push", SpecID: "SPEC-001",
+		Err: fmt.Errorf("network unreachable")})
+	a := model.(App)
+	if !a.statusBar.HasError() {
+		t.Fatal("precondition: sticky error should be showing")
+	}
+
+	// Kick off a background refresh and reconcile busy state.
+	a.scheduleRefresh(refreshKeyDashboard, func() tea.Msg { return dashboardDataMsg{} })
+	a.syncBusyState()
+
+	if !a.statusBar.HasError() {
+		t.Error("background refresh must not clear an unseen sticky error")
 	}
 }
 

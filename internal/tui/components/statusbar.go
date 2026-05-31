@@ -81,11 +81,20 @@ func (s *StatusBar) SetStatusSuccess(label string, duration time.Duration) {
 	s.status.SetSuccess(label, duration)
 }
 
-// SetStatusError shows an error outcome in the status element; it decays back
-// to idle after duration. Replaces the error toast/banner path.
-func (s *StatusBar) SetStatusError(label string, duration time.Duration) {
-	s.status.SetError(label, duration)
+// SetStatusError shows a sticky error in the status element. It stays until the
+// next operation supersedes it or the user dismisses it; the full message is
+// reachable via ErrorDetail (shown in a modal on demand). Replaces the error
+// toast/banner path. summary is the short slot-sized headline; detail is the
+// full untruncated message.
+func (s *StatusBar) SetStatusError(summary, detail string) {
+	s.status.SetError(summary, detail)
 }
+
+// HasError reports whether a sticky error is currently shown.
+func (s StatusBar) HasError() bool { return s.status.HasError() }
+
+// ErrorDetail returns the full untruncated text of the current error, or empty.
+func (s StatusBar) ErrorDetail() string { return s.status.Detail() }
 
 // SetStatusIdle returns the canonical status element to its resting state.
 func (s *StatusBar) SetStatusIdle() { s.status.SetIdle() }

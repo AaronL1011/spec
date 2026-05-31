@@ -43,7 +43,8 @@ const idleClearLabel = "No pending work"
 type Status struct {
 	kind      StatusKind
 	label     string
-	expiresAt time.Time // zero for non-expiring kinds (idle, pending)
+	detail    string    // full, untruncated text for the current kind (errors)
+	expiresAt time.Time // zero for non-expiring kinds (idle, pending, error)
 	frame     int       // pending-spinner animation frame
 	// restingCount is the number of pending specs surfaced in the idle state.
 	// The idle state is not empty boilerplate: it reports the standing "how
@@ -81,23 +82,32 @@ func (s *Status) SetRestingCount(n int) {
 
 // SetPending puts the element into the animated pending state with a
 // present-tense label (e.g. "Syncing…"). Pending does not expire; it is
-// cleared by a later SetSuccess/SetError or Idle.
+// cleared by a later SetSuccess/SetError or Idle. Starting new work also
+// supersedes any sticky error, since the user has clearly moved on.
 func (s *Status) SetPending(label string) {
 	s.kind = StatusPending
 	s.label = label
+	s.detail = ""
 	s.expiresAt = time.Time{}
 }
 
 // SetSuccess shows a positive outcome that decays back to idle after duration.
+// A success supersedes any sticky error (the later operation succeeded).
 func (s *Status) SetSuccess(label string, duration time.Duration) {
-	s.set(StatusSuccess, label, duration)
+	s.set(StatusSuccess, label, "", duration)
 }
 
-// SetError shows a failure that decays back to idle after duration. Errors
-// must remain as legible as the old banner, so callers should pass a longer
-// duration than for success (§7.2 behavioural-regression guard).
-func (s *Status) SetError(label string, duration time.Duration) {
-	s.set(StatusError, label, duration)
+// SetError shows a failure as a sticky state: it does NOT auto-decay, so a
+// failed advance/push/sync stays legible until the user starts the next
+// operation or dismisses it (§7.2 — errors must remain as legible as the old
+// banner). summary is the short, slot-sized headline that is rendered inline;
+// detail is the full, untruncated message reachable via Detail() (shown in a
+// modal on demand) so truncation never hides the actionable part.
+func (s *Status) SetError(summary, detail string) {
+	s.kind = StatusError
+	s.label = summary
+	s.detail = detail
+	s.expiresAt = time.Time{} // sticky: cleared by transition, not by clock
 }
 
 // SetIdle returns the element to its resting state immediately. The resting
@@ -106,12 +116,14 @@ func (s *Status) SetError(label string, duration time.Duration) {
 func (s *Status) SetIdle() {
 	s.kind = StatusIdle
 	s.label = ""
+	s.detail = ""
 	s.expiresAt = time.Time{}
 }
 
-func (s *Status) set(kind StatusKind, label string, duration time.Duration) {
+func (s *Status) set(kind StatusKind, label, detail string, duration time.Duration) {
 	s.kind = kind
 	s.label = label
+	s.detail = detail
 	s.expiresAt = time.Now().Add(duration)
 }
 
@@ -142,10 +154,24 @@ func (s Status) ShowingOutcome() bool {
 	return k == StatusSuccess || k == StatusError
 }
 
+// HasError reports whether a sticky error is currently shown, so the app can
+// gate the "expand error" affordance.
+func (s Status) HasError() bool { return s.current() == StatusError }
+
+// Detail returns the full, untruncated text for the current state (the error
+// message). Empty when there is nothing to expand.
+func (s Status) Detail() string {
+	if s.current() == StatusError {
+		return s.detail
+	}
+	return ""
+}
+
 // current resolves the effective kind, decaying expired transient states back
-// to idle without mutating (View and Animating are value receivers).
+// to idle without mutating (View and Animating are value receivers). Errors
+// are sticky (zero expiry) and never decay here.
 func (s Status) current() StatusKind {
-	if (s.kind == StatusSuccess || s.kind == StatusError) &&
+	if s.kind == StatusSuccess &&
 		!s.expiresAt.IsZero() && !time.Now().Before(s.expiresAt) {
 		return StatusIdle
 	}

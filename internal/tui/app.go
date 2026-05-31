@@ -132,8 +132,8 @@ func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
 		// Degrade gracefully: focus and standup persistence are unavailable,
 		// but the rest of the TUI still works. Tell the user why.
 		app.statusBar.SetStatusError(
-			"Local store unavailable — focus & standup disabled: "+err.Error(),
-			6*time.Second,
+			"Local store unavailable",
+			"Focus & standup persistence are disabled because the local store could not be opened:\n\n"+err.Error(),
 		)
 	}
 	return app
@@ -372,7 +372,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.detail, cmd = a.detail.update(msg)
 		if msg.Err != nil {
-			a.statusBar.SetStatusError(msg.Err.Error(), 5*time.Second)
+			a.statusBar.SetStatusError("Thread update failed", msg.Err.Error())
 		} else if msg.Toast != "" {
 			a.statusBar.SetStatusSuccess(msg.Toast, 2*time.Second)
 		}
@@ -391,7 +391,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.settings, cmd = a.settings.update(msg)
 		if msg.Err != nil {
-			a.statusBar.SetStatusError(msg.Err.Error(), 5*time.Second)
+			a.statusBar.SetStatusError("Settings save failed", msg.Err.Error())
 			return a, cmd
 		}
 		switch msg.Field {
@@ -409,7 +409,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Standup data arrived.
 	case standupDataMsg:
 		if msg.Err != nil {
-			a.statusBar.SetStatusError(msg.Err.Error(), 5*time.Second)
+			a.statusBar.SetStatusError("Standup failed", msg.Err.Error())
 		} else {
 			a.standup.show(msg.Text)
 		}
@@ -429,7 +429,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.syncBusyState()
 
 		if msg.Err != nil {
-			a.statusBar.SetStatusError(msg.Err.Error(), 5*time.Second)
+			summary := msg.Action + " failed"
+			if msg.SpecID != "" {
+				summary = msg.SpecID + " " + summary
+			}
+			a.statusBar.SetStatusError(summary, msg.Err.Error())
 		} else {
 			label := msg.Action
 			if msg.Detail != "" {
@@ -557,6 +561,9 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.Help):
 		a.help.setContext(a.activeView.Label())
 		a.help.toggle()
+		return a, nil
+	case key.Matches(msg, a.keys.ExpandError):
+		a.expandError()
 		return a, nil
 	case key.Matches(msg, a.keys.Refresh):
 		return a, a.refreshActiveView()
@@ -879,6 +886,24 @@ func (a *App) scheduleRefresh(key string, cmd tea.Cmd) tea.Cmd {
 	return cmd
 }
 
+// expandError opens the full, untruncated text of the current sticky error in
+// a read-only modal. It returns true if an error was present (and the modal was
+// opened), false otherwise so callers can fall through. This is the escape
+// valve for the slot's fixed-width truncation: the headline stays sized to the
+// bar while the actionable detail is always one keypress (E) away.
+func (a *App) expandError() bool {
+	if !a.statusBar.HasError() {
+		return false
+	}
+	detail := a.statusBar.ErrorDetail()
+	if detail == "" {
+		return false
+	}
+	a.modal.ShowInfo("Error", detail)
+	a.modal.SetSize(a.width, a.contentHeight())
+	return true
+}
+
 // notifyStaleRefresh shows a non-destructive toast when a background refresh
 // fails while a view already holds cached data. The cached data stays on
 // screen (the view suppresses its error screen once loaded), so the toast is
@@ -887,7 +912,7 @@ func (a *App) notifyStaleRefresh(err error, loaded bool) {
 	if err == nil || !loaded {
 		return
 	}
-	a.statusBar.SetStatusError("Refresh failed — showing cached data: "+err.Error(), 5*time.Second)
+	a.statusBar.SetStatusError("Refresh failed — showing cached data", err.Error())
 }
 
 func (a *App) markRefreshDone(key string) {
@@ -1013,6 +1038,14 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 		return a, nil
 	}
 
+	// Expand the current error to full text (no-op when there is none, and only
+	// when the reader is not capturing typed input).
+	if key.Matches(msg, a.keys.ExpandError) && !a.detail.input.active() {
+		if a.expandError() {
+			return a, nil
+		}
+	}
+
 	// In reader mode, reserve digit keys for section jumps.
 	// Keep tab/shift+tab view switching available, except when the reader
 	// is using tab to move focus between prose and the thread pane, or while
@@ -1121,7 +1154,7 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 	case key.Matches(msg, a.keys.Revert) && isSpecID(specID):
 		stage := a.selectedSpecStage()
 		if err := a.revert.openRevert(specID, stage, a.rc.Pipeline()); err != nil {
-			a.statusBar.SetStatusError(err.Error(), 3*time.Second)
+			a.statusBar.SetStatusError("Revert unavailable", err.Error())
 			return nil, true
 		}
 		return nil, true
@@ -1182,6 +1215,15 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 
 func (a App) updateModal(msg tea.KeyMsg) (App, tea.Cmd) {
 	switch a.modal.Kind {
+	case components.ModalInfo:
+		// Read-only dialog (e.g. full error detail): any of esc/enter/q closes it.
+		switch {
+		case msg.Type == tea.KeyEscape, msg.Type == tea.KeyEnter,
+			msg.Type == tea.KeyRunes && string(msg.Runes) == "q":
+			a.modal.Hide()
+		}
+		return a, nil
+
 	case components.ModalConfirm:
 		switch msg.Type {
 		case tea.KeyRunes:

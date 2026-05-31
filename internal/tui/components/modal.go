@@ -15,6 +15,9 @@ type ModalKind int
 const (
 	ModalConfirm ModalKind = iota
 	ModalInput
+	// ModalInfo is a read-only message dialog (e.g. a full error detail). It
+	// takes no input and is dismissed with esc.
+	ModalInfo
 )
 
 // Modal renders a centered overlay dialog for confirmations or short text input.
@@ -57,6 +60,15 @@ func (m *Modal) ShowInput(title, message string) {
 	m.Title = title
 	m.Message = message
 	m.Kind = ModalInput
+	m.Input = ""
+	m.Visible = true
+}
+
+// ShowInfo opens a read-only message modal (full-text display, esc to close).
+func (m *Modal) ShowInfo(title, message string) {
+	m.Title = title
+	m.Message = message
+	m.Kind = ModalInfo
 	m.Input = ""
 	m.Visible = true
 }
@@ -115,6 +127,8 @@ func (m Modal) View() string {
 	switch m.Kind {
 	case ModalConfirm:
 		content.WriteString(m.styles.Hint.Render("[y] confirm  [n/esc] cancel"))
+	case ModalInfo:
+		content.WriteString(m.styles.Hint.Render("[esc] close"))
 	case ModalInput:
 		inputLine := m.styles.Input.Width(innerWidth).Render(m.Input + glyph.Caret)
 		content.WriteString(inputLine)

@@ -30,10 +30,11 @@ type KeyMap struct {
 	PrevTab key.Binding
 
 	// Global actions
-	Help    key.Binding
-	Search  key.Binding
-	Refresh key.Binding
-	Quit    key.Binding
+	Help        key.Binding
+	Search      key.Binding
+	Refresh     key.Binding
+	Quit        key.Binding
+	ExpandError key.Binding // E — open the full text of the current error in a modal
 
 	// Spec actions
 	Advance       key.Binding
@@ -164,6 +165,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("e"),
 			key.WithHelp("e", "edit"),
 		),
+		ExpandError: key.NewBinding(
+			key.WithKeys("E"),
+			key.WithHelp("E", "expand error"),
+		),
 		Build: key.NewBinding(
 			key.WithKeys("b"),
 			key.WithHelp("b", "build"),
@@ -266,7 +271,7 @@ func (k KeyMap) CreationBindings() []key.Binding {
 
 // GlobalBindings returns bindings shown in every context.
 func (k KeyMap) GlobalBindings() []key.Binding {
-	return []key.Binding{k.Help, k.Search, k.Refresh, k.Quit}
+	return []key.Binding{k.Help, k.Search, k.Refresh, k.ExpandError, k.Quit}
 }
 
 // SettingsBindings returns keybindings for the Settings tab edit flow.

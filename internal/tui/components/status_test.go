@@ -85,7 +85,7 @@ func TestStatus_NonPendingDoesNotAnimate(t *testing.T) {
 	}{
 		{"idle", func(s *Status) { s.SetIdle() }},
 		{"success", func(s *Status) { s.SetSuccess("Saved", time.Minute) }},
-		{"error", func(s *Status) { s.SetError("Failed", time.Minute) }},
+		{"error", func(s *Status) { s.SetError("Failed", "the full failure detail") }},
 	} {
 		s := NewStatus(testStatusStyles())
 		tc.set(&s)
@@ -109,14 +109,62 @@ func TestStatus_SuccessAndErrorGlyphs(t *testing.T) {
 		t.Errorf("success should use the done glyph, got %q", got)
 	}
 
-	s.SetError("Push failed", time.Minute)
+	s.SetError("Push failed", "git push rejected: non-fast-forward")
 	if got := s.View(); !strings.Contains(got, glyph.Rejected) {
 		t.Errorf("error should use the rejected glyph, got %q", got)
 	}
 }
 
-// Transient outcomes decay back to idle once expired, with no extra timer.
-func TestStatus_TransientDecaysToIdle(t *testing.T) {
+// Errors are sticky: they do NOT auto-decay on the clock, so a failure stays
+// legible until the user moves on (§7.2). The slot shows the short summary
+// while the full detail is reachable via Detail() for the expand affordance.
+func TestStatus_ErrorIsStickyAndKeepsDetail(t *testing.T) {
+	s := NewStatus(testStatusStyles())
+	s.SetError("Advance failed", "gate not met: QA validation incomplete for SPEC-042")
+
+	if !s.HasError() {
+		t.Fatal("HasError should be true right after SetError")
+	}
+	// Even well past any old timer, the error must persist.
+	time.Sleep(5 * time.Millisecond)
+	if s.Kind() != StatusError {
+		t.Errorf("error must be sticky, got kind %v", s.Kind())
+	}
+	if got := s.View(); !strings.Contains(got, "Advance failed") {
+		t.Errorf("slot should show the short summary, got %q", got)
+	}
+	if d := s.Detail(); !strings.Contains(d, "gate not met") {
+		t.Errorf("Detail() should return the full message, got %q", d)
+	}
+}
+
+// A sticky error is cleared by the next operation (pending or success), not by
+// a timer — the user has moved on. A successful background refresh is modelled
+// at the app layer; here we assert the component-level transitions.
+func TestStatus_ErrorClearedByNextOperation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		next func(s *Status)
+	}{
+		{"pending supersedes", func(s *Status) { s.SetPending("Advancing…") }},
+		{"success supersedes", func(s *Status) { s.SetSuccess("Saved", time.Minute) }},
+		{"idle clears", func(s *Status) { s.SetIdle() }},
+	} {
+		s := NewStatus(testStatusStyles())
+		s.SetError("Advance failed", "detail")
+		tc.next(&s)
+		if s.HasError() {
+			t.Errorf("%s: error should be cleared", tc.name)
+		}
+		if s.Detail() != "" {
+			t.Errorf("%s: detail should be gone once error cleared", tc.name)
+		}
+	}
+}
+
+// Success decays back to idle once expired, with no extra timer. (Errors are
+// sticky and covered separately.)
+func TestStatus_SuccessDecaysToIdle(t *testing.T) {
 	s := NewStatus(testStatusStyles())
 	s.SetSuccess("Saved", time.Millisecond)
 	if s.Kind() != StatusSuccess {
@@ -163,8 +211,8 @@ func TestStatusBar_FixedFootprintAcrossKinds(t *testing.T) {
 		t.Errorf("success slot width = %d, want %d (idle)", w, idleW)
 	}
 
-	// A very long label must truncate to the fixed footprint, not widen it.
-	sb.SetStatusError(strings.Repeat("x", 200), time.Minute)
+	// A very long summary must truncate to the fixed footprint, not widen it.
+	sb.SetStatusError(strings.Repeat("x", 200), "full detail")
 	if w := widthOf(); w != idleW {
 		t.Errorf("over-long error slot width = %d, want %d (idle)", w, idleW)
 	}
