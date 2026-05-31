@@ -95,7 +95,6 @@ type App struct {
 
 	// Overlays
 	modal   components.Modal
-	toast   components.Toast
 	standup standupOverlay
 	intake  intakeFormState
 	revert  revertOverlay
@@ -132,9 +131,9 @@ func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
 	if err != nil {
 		// Degrade gracefully: focus and standup persistence are unavailable,
 		// but the rest of the TUI still works. Tell the user why.
-		app.toast.Show(
+		app.statusBar.SetStatusError(
 			"Local store unavailable — focus & standup disabled: "+err.Error(),
-			components.ToastError, 6*time.Second,
+			6*time.Second,
 		)
 	}
 	return app
@@ -197,6 +196,7 @@ func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string,
 		Hint:    styles.Muted,
 		Clock:   styles.Subtitle,
 		Stale:   styles.Muted,
+		Status:  statusStyles(theme),
 	}
 	sb := components.NewStatusBar(sbStyles)
 	sb.SetView(ViewDashboard.Label())
@@ -226,11 +226,6 @@ func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string,
 			Message: styles.Subtitle,
 			Input:   lipgloss.NewStyle().Foreground(theme.Text).Background(theme.Surface).Padding(0, 1),
 			Hint:    styles.Muted,
-		}),
-		toast: components.NewToast(components.ToastStyles{
-			Success: lipgloss.NewStyle().Foreground(theme.Base).Background(theme.Success).Padding(0, 1),
-			Error:   lipgloss.NewStyle().Foreground(theme.Base).Background(theme.Error).Padding(0, 1),
-			Info:    lipgloss.NewStyle().Foreground(theme.Base).Background(theme.Accent).Padding(0, 1),
 		}),
 		refreshInterval: parseRefreshInterval(rc),
 		refreshInFlight: make(map[string]bool),
@@ -358,7 +353,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.watchRefreshPending {
 			a.watchRefreshPending = false
 			if msg.Err == nil && a.detail.contentHash != prevHash && prevHash != "" {
-				a.toast.Show("✓ updated", components.ToastInfo, 2*time.Second)
+				a.statusBar.SetStatusSuccess("Updated", 2*time.Second)
 			}
 		}
 		return a, cmd
@@ -377,9 +372,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.detail, cmd = a.detail.update(msg)
 		if msg.Err != nil {
-			a.toast.Show(msg.Err.Error(), components.ToastError, 5*time.Second)
+			a.statusBar.SetStatusError(msg.Err.Error(), 5*time.Second)
 		} else if msg.Toast != "" {
-			a.toast.Show(msg.Toast, components.ToastSuccess, 2*time.Second)
+			a.statusBar.SetStatusSuccess(msg.Toast, 2*time.Second)
 		}
 		return a, cmd
 
@@ -396,7 +391,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.settings, cmd = a.settings.update(msg)
 		if msg.Err != nil {
-			a.toast.Show(msg.Err.Error(), components.ToastError, 5*time.Second)
+			a.statusBar.SetStatusError(msg.Err.Error(), 5*time.Second)
 			return a, cmd
 		}
 		switch msg.Field {
@@ -405,16 +400,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.rc.User != nil && a.rc.User.Preferences.Theme != "" {
 				name = a.rc.User.Preferences.Theme
 			}
-			a.toast.Show("Theme: "+name, components.ToastInfo, 2*time.Second)
+			a.statusBar.SetStatusSuccess("Theme: "+name, 2*time.Second)
 		default:
-			a.toast.Show("Settings saved", components.ToastInfo, 2*time.Second)
+			a.statusBar.SetStatusSuccess("Settings saved", 2*time.Second)
 		}
 		return a, cmd
 
 	// Standup data arrived.
 	case standupDataMsg:
 		if msg.Err != nil {
-			a.toast.Show(msg.Err.Error(), components.ToastError, 5*time.Second)
+			a.statusBar.SetStatusError(msg.Err.Error(), 5*time.Second)
 		} else {
 			a.standup.show(msg.Text)
 		}
@@ -434,7 +429,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.syncBusyState()
 
 		if msg.Err != nil {
-			a.toast.Show(msg.Err.Error(), components.ToastError, 5*time.Second)
+			a.statusBar.SetStatusError(msg.Err.Error(), 5*time.Second)
 		} else {
 			label := msg.Action
 			if msg.Detail != "" {
@@ -443,7 +438,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.SpecID != "" {
 				label = msg.SpecID + " " + label
 			}
-			a.toast.Show(label, components.ToastSuccess, 3*time.Second)
+			a.statusBar.SetStatusSuccess(label, 3*time.Second)
 		}
 		// Refresh focused spec after focus/unfocus actions.
 		if msg.Action == "focus" || msg.Action == "unfocus" {
@@ -564,9 +559,6 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.help.toggle()
 		return a, nil
 	case key.Matches(msg, a.keys.Refresh):
-		if !a.toast.Visible() {
-			a.toast.Show("⟳ refreshing…", components.ToastInfo, 2*time.Second)
-		}
 		return a, a.refreshActiveView()
 
 	// View switching.
@@ -690,18 +682,10 @@ func (a App) View() string {
 		out += l + "\n"
 	}
 
-	// Toast is shown within the status bar area.
-	if a.toast.Visible() {
-		toastStr := a.toast.View()
-		// Render toast left-aligned, then fill remainder with status bar bg.
-		gap := a.width - lipgloss.Width(toastStr)
-		if gap < 0 {
-			gap = 0
-		}
-		out += toastStr + a.styles.StatusBar.Render(strings.Repeat(" ", gap))
-	} else {
-		out += statusBar
-	}
+	// The canonical status element lives inside the status bar (SPEC-016), so
+	// the bar is the single, always-present status surface — no separate toast
+	// row is composited over it.
+	out += statusBar
 
 	return out
 }
@@ -903,7 +887,7 @@ func (a *App) notifyStaleRefresh(err error, loaded bool) {
 	if err == nil || !loaded {
 		return
 	}
-	a.toast.Show("Refresh failed — showing cached data: "+err.Error(), components.ToastError, 5*time.Second)
+	a.statusBar.SetStatusError("Refresh failed — showing cached data: "+err.Error(), 5*time.Second)
 }
 
 func (a *App) markRefreshDone(key string) {
@@ -1137,7 +1121,7 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 	case key.Matches(msg, a.keys.Revert) && isSpecID(specID):
 		stage := a.selectedSpecStage()
 		if err := a.revert.openRevert(specID, stage, a.rc.Pipeline()); err != nil {
-			a.toast.Show(err.Error(), components.ToastError, 3*time.Second)
+			a.statusBar.SetStatusError(err.Error(), 3*time.Second)
 			return nil, true
 		}
 		return nil, true
@@ -1525,6 +1509,7 @@ func (a *App) applyTheme(name string) {
 		Hint:    a.styles.Muted,
 		Clock:   a.styles.Subtitle,
 		Stale:   a.styles.Muted,
+		Status:  statusStyles(a.theme),
 	})
 	a.statusBar.SetView(a.activeView.Label())
 	a.statusBar.SetPending(a.dashboard.pendingCount())
@@ -1535,12 +1520,6 @@ func (a *App) applyTheme(name string) {
 		Message: a.styles.Subtitle,
 		Input:   lipgloss.NewStyle().Foreground(a.theme.Text).Background(a.theme.Surface).Padding(0, 1),
 		Hint:    a.styles.Muted,
-	})
-
-	a.toast = components.NewToast(components.ToastStyles{
-		Success: lipgloss.NewStyle().Foreground(a.theme.Base).Background(a.theme.Success).Padding(0, 1),
-		Error:   lipgloss.NewStyle().Foreground(a.theme.Base).Background(a.theme.Error).Padding(0, 1),
-		Info:    lipgloss.NewStyle().Foreground(a.theme.Base).Background(a.theme.Accent).Padding(0, 1),
 	})
 
 	// Propagate styles to all views.
@@ -1582,37 +1561,54 @@ func (a *App) startAction(label string, cmd tea.Cmd) tea.Cmd {
 	return cmd
 }
 
+// syncBusyState reconciles the canonical status element with the app's
+// in-flight work. It only ever sets the *pending* kind (or clears it); the
+// transient success/error outcomes are set at the call sites that produce them
+// (actionResultMsg, settings persist, etc.) and decay on their own. Clearing
+// pending here must not clobber a still-live success/error cue, so it returns
+// to idle only when nothing is in flight AND the element is currently pending.
 func (a *App) syncBusyState() {
-	// Action mutations take priority for the spinner label.
+	// Action mutations take priority for the pending label.
 	if a.actionInFlight {
 		a.spinnerOn = true
 		label := a.actionLabel
 		if label == "" {
-			label = "working"
+			label = "Working…"
 		}
-		a.statusBar.SetBusy(true, label)
+		a.statusBar.SetStatusPending(label)
 		return
 	}
 
-	// Refresh in-flight — show spinner while fetching data.
+	// Refresh in-flight — pending while fetching data. A background refresh is
+	// frequent and low-salience, so it must not stomp a fresh success/error
+	// outcome the user just triggered (e.g. an action that auto-refreshes on
+	// completion). Only claim the slot when it isn't already showing a live
+	// transient outcome.
 	if a.anyRefreshInFlight() {
+		if a.statusBar.ShowingOutcome() {
+			return
+		}
 		a.spinnerOn = true
-		a.statusBar.SetBusy(true, "refreshing...")
+		a.statusBar.SetStatusPending("Refreshing…")
 		return
 	}
 
 	busy := a.showDetail && a.detail.readerMode && a.detail.renderInFlight
 	a.spinnerOn = busy
 	if !busy {
-		a.statusBar.SetBusy(false, "")
+		// Nothing in flight. Drop a lingering pending cue back to idle, but
+		// leave a live success/error outcome to decay on its own timer.
+		if a.statusBar.Animating() {
+			a.statusBar.SetStatusIdle()
+		}
 		return
 	}
-	label := "rendering section"
+	label := "Rendering section…"
 	sections := a.detail.readableSections()
 	if a.detail.sectionIdx >= 0 && a.detail.sectionIdx < len(sections) {
-		label = "rendering § " + sections[a.detail.sectionIdx].Slug
+		label = "Rendering § " + sections[a.detail.sectionIdx].Slug
 	}
-	a.statusBar.SetBusy(true, label)
+	a.statusBar.SetStatusPending(label)
 }
 
 func (a App) tick() tea.Cmd {

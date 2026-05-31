@@ -167,12 +167,14 @@ func TestStatusBar_PendingShown(t *testing.T) {
 	sb.SetView("Dashboard")
 	sb.SetWidth(80)
 
+	// Count 0: the canonical status element rests on the clear-state label.
 	sb.SetPending(0)
 	got := sb.View()
-	if strings.Contains(got, "pending") {
-		t.Error("status bar should not show 'pending' when count is 0")
+	if !strings.Contains(got, "No pending work") {
+		t.Errorf("status bar should show clear-state label when count is 0, got: %q", got)
 	}
 
+	// Non-zero: the resting state surfaces the count (the folded-in badge).
 	sb.SetPending(5)
 	got = sb.View()
 	if !strings.Contains(got, "5 pending") {
@@ -206,7 +208,7 @@ func TestStatusBar_AlwaysSingleLine(t *testing.T) {
 	}
 }
 
-func TestStatusBar_BusySpinnerShown(t *testing.T) {
+func TestStatusBar_PendingStatusShown(t *testing.T) {
 	styles := StatusBarStyles{
 		Bar:     lipgloss.NewStyle(),
 		Label:   lipgloss.NewStyle(),
@@ -218,22 +220,27 @@ func TestStatusBar_BusySpinnerShown(t *testing.T) {
 	sb := NewStatusBar(styles)
 	sb.SetView("Specs")
 	sb.SetWidth(100)
-	sb.SetBusy(true, "rendering § problem_statement")
+	sb.SetStatusPending("Rendering")
 
 	got := sb.View()
-	if !strings.Contains(got, "rendering § problem_statement") {
-		t.Fatalf("busy label should be visible, got: %q", got)
+	if !strings.Contains(got, "Rendering") {
+		t.Fatalf("pending label should be visible, got: %q", got)
 	}
 
+	// The pending icon animates: advancing a frame must change the render.
 	sb.NextSpinner()
 	got2 := sb.View()
 	if got == got2 {
 		t.Fatal("spinner frame advance should change rendered status bar")
 	}
 
-	sb.SetBusy(false, "")
+	// Returning to idle clears the pending label but keeps the slot present.
+	sb.SetStatusIdle()
 	got3 := sb.View()
-	if strings.Contains(got3, "rendering §") {
-		t.Fatalf("busy label should clear when not busy, got: %q", got3)
+	if strings.Contains(got3, "Rendering") {
+		t.Fatalf("pending label should clear when idle, got: %q", got3)
+	}
+	if !strings.Contains(got3, "No pending work") {
+		t.Fatalf("idle slot must stay present (resting label), got: %q", got3)
 	}
 }

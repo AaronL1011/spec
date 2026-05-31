@@ -13,6 +13,7 @@ import (
 	"github.com/aaronl1011/spec/internal/dashboard"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/store"
+	"github.com/aaronl1011/spec/internal/tui/components"
 )
 
 func testApp() App {
@@ -306,7 +307,7 @@ func TestApp_ModalInputFlow(t *testing.T) {
 	}
 }
 
-func TestApp_ActionResultShowsToast(t *testing.T) {
+func TestApp_ActionResultShowsStatus(t *testing.T) {
 	app := testApp()
 	app.width = 80
 	app.height = 24
@@ -319,8 +320,8 @@ func TestApp_ActionResultShowsToast(t *testing.T) {
 		Detail: "focused",
 	})
 	a := model.(App)
-	if !a.toast.Visible() {
-		t.Error("toast should be visible after successful action")
+	if a.statusBar.StatusKind() != components.StatusSuccess {
+		t.Errorf("status should be success after successful action, got %v", a.statusBar.StatusKind())
 	}
 
 	// Error result.
@@ -329,8 +330,8 @@ func TestApp_ActionResultShowsToast(t *testing.T) {
 		Err:    fmt.Errorf("gate not met"),
 	})
 	a = model.(App)
-	if !a.toast.Visible() {
-		t.Error("toast should be visible after failed action")
+	if a.statusBar.StatusKind() != components.StatusError {
+		t.Errorf("status should be error after failed action, got %v", a.statusBar.StatusKind())
 	}
 }
 
@@ -652,12 +653,12 @@ func TestApp_SettingsThemePreview_AppliesWithoutPersisting(t *testing.T) {
 	}
 }
 
-func TestApp_SettingsPersistedMsg_SuccessToast(t *testing.T) {
+func TestApp_SettingsPersistedMsg_SuccessStatus(t *testing.T) {
 	app := testApp()
 	model, _ := app.Update(settingsPersistedMsg{Field: fieldName, Err: nil})
 	a := model.(App)
-	if !a.toast.Visible() {
-		t.Error("toast should show after successful settings persist")
+	if a.statusBar.StatusKind() != components.StatusSuccess {
+		t.Errorf("status should be success after settings persist, got %v", a.statusBar.StatusKind())
 	}
 }
 
@@ -665,8 +666,9 @@ func TestApp_SettingsPersistedMsg_SuccessToast(t *testing.T) {
 // rendering more rows than the layout budgets for them. When that happened,
 // View() exceeded the terminal height and the alt-screen renderer left a stale
 // full-width bar at the top of the screen — visible as a flash when saving a
-// setting toggled the toast (and thus the line count). The view must always be
-// exactly a.height lines, with and without the toast showing.
+// setting toggled a separate status surface (and thus the line count). The
+// canonical status element now lives inside the single status-bar row, so the
+// view must always be exactly a.height lines, idle or with a status showing.
 func TestApp_ViewFitsTerminalHeight(t *testing.T) {
 	for _, sz := range []struct{ w, h int }{{120, 40}, {100, 30}, {80, 24}, {60, 12}} {
 		app := testApp()
@@ -675,16 +677,16 @@ func TestApp_ViewFitsTerminalHeight(t *testing.T) {
 		app.activeView = ViewSettings
 
 		if lines := strings.Count(app.View(), "\n") + 1; lines != sz.h {
-			t.Errorf("%dx%d: View() = %d lines, want %d (no toast)", sz.w, sz.h, lines, sz.h)
+			t.Errorf("%dx%d: View() = %d lines, want %d (idle status)", sz.w, sz.h, lines, sz.h)
 		}
 
 		m, _ = app.Update(settingsPersistedMsg{Field: fieldTheme, Err: nil})
 		app = m.(App)
-		if !app.toast.Visible() {
-			t.Fatal("toast should be visible after persist")
+		if app.statusBar.StatusKind() != components.StatusSuccess {
+			t.Fatal("status should be success after persist")
 		}
 		if lines := strings.Count(app.View(), "\n") + 1; lines != sz.h {
-			t.Errorf("%dx%d: View() = %d lines, want %d (toast showing)", sz.w, sz.h, lines, sz.h)
+			t.Errorf("%dx%d: View() = %d lines, want %d (status showing)", sz.w, sz.h, lines, sz.h)
 		}
 	}
 }
@@ -799,7 +801,7 @@ func TestApp_ReaderPendingKeepsPreviousContent(t *testing.T) {
 	if !strings.Contains(during, "Problem") {
 		t.Fatalf("pending render should keep previous content visible, got: %s", during)
 	}
-	if strings.Contains(during, "Rendering section") {
+	if strings.Contains(during, "Rendering §") {
 		t.Fatalf("pending view should not show transient rendering label, got: %s", during)
 	}
 }
@@ -824,8 +826,8 @@ func TestApp_FirstReaderOpenShowsSpinnerNotNoContent(t *testing.T) {
 	if strings.Contains(view, "(no content)") {
 		t.Fatal("first open should not show no-content placeholder")
 	}
-	if !strings.Contains(view, "rendering §") {
-		t.Fatal("status bar should show rendering spinner label")
+	if !strings.Contains(view, "Rendering §") {
+		t.Fatal("status bar should show rendering pending label")
 	}
 }
 
@@ -964,7 +966,7 @@ func TestApp_RevertRendersInView(t *testing.T) {
 	}
 }
 
-func TestApp_RevertFirstStageShowsToast(t *testing.T) {
+func TestApp_RevertFirstStageShowsStatusError(t *testing.T) {
 	app := testApp()
 	app.width = 80
 	app.height = 24
@@ -978,14 +980,14 @@ func TestApp_RevertFirstStageShowsToast(t *testing.T) {
 	app.specs.applyFilter()
 	app.switchView(ViewSpecs)
 
-	// Press 'v' — should show error toast, not open overlay.
+	// Press 'v' — should show error status, not open overlay.
 	model, _ := app.Update(keyMsg("v"))
 	a := model.(App)
 	if a.revert.active {
 		t.Error("revert overlay should not open for first stage")
 	}
-	if !a.toast.Visible() {
-		t.Error("toast should show error for first stage revert")
+	if a.statusBar.StatusKind() != components.StatusError {
+		t.Errorf("status should show error for first stage revert, got %v", a.statusBar.StatusKind())
 	}
 }
 
