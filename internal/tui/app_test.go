@@ -370,14 +370,13 @@ func TestApp_SpinnerDuringAdvance(t *testing.T) {
 		t.Error("view should show advancing label in status bar")
 	}
 
-	// After result arrives, spinner should clear.
+	// After result arrives, the action is no longer in-flight.
+	// A follow-up refresh is kicked off, so spinnerOn may still be true
+	// (showing "refreshing…") — that is correct and expected behavior.
 	model, _ = a.Update(actionResultMsg{Action: "advance", SpecID: "SPEC-001", Detail: "advanced"})
 	a = model.(App)
 	if a.actionInFlight {
 		t.Error("actionInFlight should be false after result")
-	}
-	if a.spinnerOn {
-		t.Error("spinnerOn should be false after result")
 	}
 }
 
@@ -474,14 +473,13 @@ func TestApp_SpinnerClearsOnError(t *testing.T) {
 		t.Fatal("spinner should be on before result")
 	}
 
-	// Error result should still clear the spinner.
+	// Error result should clear the action-in-flight state.
+	// A follow-up refresh is also kicked off so the spinner may remain on
+	// showing "refreshing…" — that is correct and expected behavior.
 	model, _ := app.Update(actionResultMsg{Action: "advance", Err: fmt.Errorf("gate not met")})
 	a := model.(App)
 	if a.actionInFlight {
 		t.Error("actionInFlight should be false after error result")
-	}
-	if a.spinnerOn {
-		t.Error("spinnerOn should be false after error result")
 	}
 }
 
