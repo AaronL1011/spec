@@ -299,7 +299,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.dashboard, cmd = a.dashboard.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.dashboard.loaded)
 		a.statusBar.SetPending(a.dashboard.pendingCount())
-		a.statusBar.SetRefresh(time.Now())
+		a.markDataFresh(msg.Err)
 		return a, cmd
 
 	case pipelineDataMsg:
@@ -307,6 +307,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.pipeline, cmd = a.pipeline.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.pipeline.loaded)
+		a.markDataFresh(msg.Err)
 		return a, cmd
 
 	case specListDataMsg:
@@ -314,6 +315,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.specs, cmd = a.specs.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.specs.loaded)
+		a.markDataFresh(msg.Err)
 		return a, cmd
 
 	case triageDataMsg:
@@ -321,6 +323,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.triage, cmd = a.triage.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.triage.loaded)
+		a.markDataFresh(msg.Err)
 		return a, cmd
 
 	case reviewDataMsg:
@@ -328,6 +331,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.reviews, cmd = a.reviews.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.reviews.loaded)
+		a.markDataFresh(msg.Err)
 		return a, cmd
 
 	case fileChangedMsg:
@@ -884,6 +888,18 @@ func (a *App) scheduleRefresh(key string, cmd tea.Cmd) tea.Cmd {
 	a.refreshInFlight[key] = true
 	a.syncBusyState()
 	return cmd
+}
+
+// markDataFresh resets the status bar's staleness clock when a view's data load
+// succeeds. A failed poll deliberately does not reset it: the data on screen is
+// no fresher than before, so the "Ns ago" indicator should keep climbing as the
+// honest signal that the latest refresh did not land. Every view's data message
+// calls this so the indicator is accurate on every tab, not just the dashboard.
+func (a *App) markDataFresh(err error) {
+	if err != nil {
+		return
+	}
+	a.statusBar.SetRefresh(time.Now())
 }
 
 // expandError opens the full, untruncated text of the current sticky error in

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/aaronl1011/spec/internal/tui/glyph"
 )
@@ -179,44 +178,22 @@ func TestStatus_SuccessDecaysToIdle(t *testing.T) {
 	}
 }
 
-// AC-3: the slot is fixed-footprint — switching kind never changes its width.
-func TestStatusBar_FixedFootprintAcrossKinds(t *testing.T) {
-	styles := StatusBarStyles{
-		Bar:     lipgloss.NewStyle(),
-		Label:   lipgloss.NewStyle(),
-		Pending: lipgloss.NewStyle(),
-		Hint:    lipgloss.NewStyle(),
-		Clock:   lipgloss.NewStyle(),
-		Stale:   lipgloss.NewStyle(),
-		Status:  testStatusStyles(),
-	}
-	sb := NewStatusBar(styles)
-	sb.SetWidth(120)
+// The status element now sizes to its content (no fixed footprint), so a
+// longer label produces a wider element and the full text is shown verbatim.
+func TestStatus_SizesToContent(t *testing.T) {
+	s := NewStatus(testStatusStyles())
 
-	widthOf := func() int {
-		// Width of just the status slot, computed the same way the bar does.
-		return lipgloss.Width(sb.renderStatusSlot())
-	}
+	s.SetPending("Sync")
+	shortW := lipgloss.Width(s.View())
 
-	sb.SetStatusIdle()
-	idleW := widthOf()
+	s.SetPending("Synchronising a great many specs now")
+	longW := lipgloss.Width(s.View())
 
-	sb.SetStatusPending("Syncing…")
-	if w := widthOf(); w != idleW {
-		t.Errorf("pending slot width = %d, want %d (idle)", w, idleW)
+	if longW <= shortW {
+		t.Errorf("longer status should widen the element: short=%d long=%d", shortW, longW)
 	}
-
-	sb.SetStatusSuccess("Saved", time.Minute)
-	if w := widthOf(); w != idleW {
-		t.Errorf("success slot width = %d, want %d (idle)", w, idleW)
-	}
-
-	// A very long summary must truncate to the fixed footprint, not widen it.
-	sb.SetStatusError(strings.Repeat("x", 200), "full detail")
-	if w := widthOf(); w != idleW {
-		t.Errorf("over-long error slot width = %d, want %d (idle)", w, idleW)
-	}
-	if !strings.Contains(ansi.Strip(sb.renderStatusSlot()), "…") {
-		t.Error("over-long label should be truncated with an ellipsis")
+	// Content is shown verbatim (no ellipsis truncation of the inline label).
+	if !strings.Contains(s.View(), "Synchronising a great many specs now") {
+		t.Error("status label should render in full, not truncated")
 	}
 }

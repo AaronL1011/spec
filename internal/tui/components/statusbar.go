@@ -6,16 +6,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/aaronl1011/spec/internal/tui/glyph"
 )
-
-// statusSlotWidth is the constant footprint reserved for the canonical status
-// element (SPEC-016 §5.1). It is sized to the longest expected label so that
-// switching kind swaps glyph + label in place without resizing the slot or
-// shifting adjacent content. Labels wider than this are truncated (§7.2).
-const statusSlotWidth = 28
 
 // StatusBar renders the bottom bar: view name, the canonical status element,
 // help hint, and time. The status element is the single authoritative place
@@ -122,27 +115,26 @@ func (s StatusBar) StatusLabel() string { return s.status.Label() }
 // pending cues such as a background refresh.
 func (s StatusBar) ShowingOutcome() bool { return s.status.ShowingOutcome() }
 
-// View renders the status bar. The canonical status element occupies a fixed
-// slot immediately after the view label; switching its kind swaps glyph +
-// label in place within statusSlotWidth so neighbouring parts never reflow.
+// View renders the status bar. The canonical status element sits immediately
+// after the view label and sizes to its content; the freshness ("Ns ago")
+// indicator lives in the right-hand cluster, only appearing once data is stale.
 func (s StatusBar) View() string {
 	viewPart := s.styles.Label.Render(" " + s.viewLabel + " ")
 
-	// The single canonical status element — always present, fixed footprint.
+	// The single canonical status element — always present, content-width.
 	// In its resting state it reports pending-spec count; in-flight operations
 	// override it and decay back.
-	statusPart := s.renderStatusSlot()
+	statusPart := s.status.View()
 
-	var parts []string
-
-	// Stale indicator — show age if last refresh was >60s ago.
-	age := time.Since(s.lastRefresh)
-	if age > 60*time.Second {
+	// Freshness indicator — show age if last refresh was >60s ago. Lives on the
+	// right so it reads as ambient metadata, not part of the live status.
+	var stalePart string
+	if age := time.Since(s.lastRefresh); age > 60*time.Second {
 		staleLabel := fmt.Sprintf("%ds ago", int(age.Seconds()))
 		if age > 120*time.Second {
 			staleLabel = fmt.Sprintf("%dm ago", int(age.Minutes()))
 		}
-		parts = append(parts, s.styles.Stale.Render(" "+glyph.Clock+" "+staleLabel+" "))
+		stalePart = s.styles.Stale.Render(" " + glyph.Clock + " " + staleLabel + " ")
 	}
 
 	var scrollPart string
@@ -158,10 +150,7 @@ func (s StatusBar) View() string {
 	clock := s.styles.Clock.Render(time.Now().Format(" 15:04 "))
 
 	left := viewPart + " " + statusPart
-	if len(parts) > 0 {
-		left += " " + strings.Join(parts, " ")
-	}
-	right := scrollPart + hint + clock
+	right := stalePart + scrollPart + hint + clock
 
 	// Lay the bar out inside the style's content box. The Bar style adds
 	// horizontal padding, so the usable width is narrower than s.width;
@@ -181,21 +170,4 @@ func (s StatusBar) View() string {
 	// wider than the box; the app reserves exactly one row for it.
 	bar := left + strings.Repeat(" ", gap) + right
 	return s.styles.Bar.Width(s.width).MaxHeight(1).Render(bar)
-}
-
-// renderStatusSlot renders the canonical status element padded to a constant
-// width. The fixed footprint is what guarantees AC-3/AC-4: switching kind
-// never resizes the slot, and the idle state keeps the slot from collapsing.
-// Over-long labels are truncated so they can never push the slot wider (§7.2).
-func (s StatusBar) renderStatusSlot() string {
-	content := s.status.View()
-	w := lipgloss.Width(content)
-	if w > statusSlotWidth {
-		content = ansi.Truncate(content, statusSlotWidth, "…")
-		w = lipgloss.Width(content)
-	}
-	if pad := statusSlotWidth - w; pad > 0 {
-		content += strings.Repeat(" ", pad)
-	}
-	return content
 }
