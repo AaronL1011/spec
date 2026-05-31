@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aaronl1011/spec/internal/config"
@@ -170,4 +171,111 @@ func TestPushWithRecovery_OfflineQueues(t *testing.T) {
 // dir not derived from SpecsRepoDir(cfg), using a no-op recorder.
 func pushWithRecoveryAt(ctx context.Context, dir string, cfg *config.SpecsRepoConfig, base string, files []string, resetHard bool) error {
 	return pushWithRecovery(ctx, cfg, dir, SyncOptions{}.normalized(ctx), base, files, resetHard)
+}
+
+// readSpec returns the working-tree content of SPEC-001 for a clone, so tests
+// can assert what a TUI reader (os.ReadDir + ReadMeta) would actually see.
+func readSpec(t *testing.T, dir string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "specs", "SPEC-001.md"))
+	if err != nil {
+		t.Fatalf("reading SPEC-001: %v", err)
+	}
+	return string(b)
+}
+
+// TestFastForwardClean_AdvancesCleanCloneToRemote is the cross-machine
+// consistency case: machine A pushes a change, machine B (clean, behind)
+// fetches and must see the new content on disk. fetch alone leaves the working
+// tree stale; fastForwardClean advances it.
+func TestFastForwardClean_AdvancesCleanCloneToRemote(t *testing.T) {
+	ctx := context.Background()
+	cloneA, cloneB, branch := setupSharedRemote(t)
+	cfg := cfgForBranch{branch}.cfg()
+
+	// A edits §1 and pushes.
+	editSection(t, cloneA, "## 1. Problem Statement", "A problem change")
+	if err := Commit(ctx, cloneA, "A §1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Push(ctx, cloneA, branch); err != nil {
+		t.Fatal(err)
+	}
+
+	// B fetches (working tree still stale at this point) then fast-forwards.
+	if err := Fetch(ctx, cloneB); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(readSpec(t, cloneB), "A problem change") {
+		t.Fatal("precondition: fetch alone should NOT update the working tree")
+	}
+	if err := fastForwardClean(ctx, cloneB, cfg); err != nil {
+		t.Fatalf("fastForwardClean: %v", err)
+	}
+	if !strings.Contains(readSpec(t, cloneB), "A problem change") {
+		t.Error("clean behind clone should be fast-forwarded so reads see the push")
+	}
+}
+
+// TestFastForwardClean_PreservesDirtyTree guards SPEC-013: a working tree with
+// uncommitted local edits must never be clobbered by a read-path fast-forward.
+func TestFastForwardClean_PreservesDirtyTree(t *testing.T) {
+	ctx := context.Background()
+	cloneA, cloneB, branch := setupSharedRemote(t)
+	cfg := cfgForBranch{branch}.cfg()
+
+	editSection(t, cloneA, "## 1. Problem Statement", "A problem change")
+	if err := Commit(ctx, cloneA, "A §1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Push(ctx, cloneA, branch); err != nil {
+		t.Fatal(err)
+	}
+
+	// B has an uncommitted local edit and is behind.
+	editSection(t, cloneB, "## 7. Technical Implementation", "B uncommitted work")
+	if err := Fetch(ctx, cloneB); err != nil {
+		t.Fatal(err)
+	}
+	if err := fastForwardClean(ctx, cloneB, cfg); err != nil {
+		t.Fatalf("fastForwardClean: %v", err)
+	}
+	if !strings.Contains(readSpec(t, cloneB), "B uncommitted work") {
+		t.Error("dirty tree must be preserved — local uncommitted edit was lost")
+	}
+}
+
+// TestFastForwardClean_PreservesUnpushedCommits guards against discarding local
+// commits that have not yet reached the remote (divergence is reconciled by the
+// mutate path, not silently reset by a read).
+func TestFastForwardClean_PreservesUnpushedCommits(t *testing.T) {
+	ctx := context.Background()
+	cloneA, cloneB, branch := setupSharedRemote(t)
+	cfg := cfgForBranch{branch}.cfg()
+
+	editSection(t, cloneA, "## 1. Problem Statement", "A problem change")
+	if err := Commit(ctx, cloneA, "A §1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Push(ctx, cloneA, branch); err != nil {
+		t.Fatal(err)
+	}
+
+	// B commits locally (unpushed) and is also behind → diverged.
+	editSection(t, cloneB, "## 7. Technical Implementation", "B local commit")
+	if err := Commit(ctx, cloneB, "B §7"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Fetch(ctx, cloneB); err != nil {
+		t.Fatal(err)
+	}
+	if err := fastForwardClean(ctx, cloneB, cfg); err != nil {
+		t.Fatalf("fastForwardClean: %v", err)
+	}
+	if has, _ := HasUnpushedCommits(ctx, cloneB, "origin/"+branch); !has {
+		t.Error("diverged clone must keep its unpushed commit, not be reset")
+	}
+	if !strings.Contains(readSpec(t, cloneB), "B local commit") {
+		t.Error("unpushed local commit content must survive the read path")
+	}
 }
