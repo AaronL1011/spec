@@ -207,5 +207,5 @@ func (s Status) effectiveLabel(kind StatusKind) string {
 // returns the styled inner content.
 func (s Status) View() string {
 	kind := s.current()
-	return s.style(kind).Render(" " + s.icon(kind) + " " + s.effectiveLabel(kind) + " ")
+	return s.style(kind).Render(s.icon(kind) + " " + s.effectiveLabel(kind))
 }

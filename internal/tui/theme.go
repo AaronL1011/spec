@@ -138,16 +138,18 @@ func NewStyles(t Theme) Styles {
 // that the prior pending/toast surfaces used, so the slot inherits the theme's
 // established contrast rather than introducing new entries.
 func statusStyles(t Theme) components.StatusStyles {
-	filled := func(bg lipgloss.Color) lipgloss.Style {
-		return lipgloss.NewStyle().Foreground(t.Base).Background(bg).Padding(0, 1)
+	// Sleek, minimal treatment: status is conveyed by glyph shape and text
+	// colour alone — no background fill or padding. The element inherits the
+	// status bar's surface so it reads as plain coloured text, not a chip.
+	text := func(fg lipgloss.Color) lipgloss.Style {
+		return lipgloss.NewStyle().Foreground(fg)
 	}
 	return components.StatusStyles{
-		// Idle is intentionally muted (dim glyph, muted label) so the resting
-		// slot recedes without collapsing.
-		Idle:    lipgloss.NewStyle().Foreground(t.Muted).Background(t.Surface).Padding(0, 1),
-		Pending: filled(t.Warning),
-		Success: filled(t.Success),
-		Error:   filled(t.Error),
+		// Idle recedes in the muted tone so the resting slot stays quiet.
+		Idle:    text(t.Muted),
+		Pending: text(t.Warning),
+		Success: text(t.Success),
+		Error:   text(t.Error),
 	}
 }
 
