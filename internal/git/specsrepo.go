@@ -156,13 +156,56 @@ func EnsureSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig) (string, 
 		readRecorder.Record(AuditEvent{Op: OpFetch, Surface: readSurface, Trigger: "read", Outcome: OutcomeOK})
 	}
 
-	// Ensure specs sub-directory exists (no reset — reads never touch the tree).
+	// Advance the working tree to the freshly fetched ref so reads reflect
+	// teammates' pushes. `git fetch` alone only moves the remote-tracking ref;
+	// the working-tree files the readers see stay frozen at the old HEAD until
+	// the branch is fast-forwarded. This is the safe counterpart to the
+	// destructive mutate path: it only advances when there is nothing local to
+	// lose (clean tree, no unpushed commits), preserving SPEC-013's guarantee
+	// that in-flight local edits are never clobbered by a read.
+	if err := fastForwardClean(ctx, dir, cfg); err != nil {
+		return dir, err
+	}
+
+	// Ensure specs sub-directory exists.
 	specsDir := filepath.Join(dir, SpecsSubDir)
 	if err := os.MkdirAll(specsDir, 0o755); err != nil {
 		return dir, fmt.Errorf("creating specs directory: %w", err)
 	}
 
 	return dir, nil
+}
+
+// fastForwardClean advances the working tree to origin/<branch> only when it is
+// safe to do so — i.e. the tree has no uncommitted changes and no local commits
+// that haven't been pushed. When either is true the local clone holds work that
+// a reset would destroy, so it is left untouched (the mutate path reconciles
+// it) and the reader simply sees the last consistent local state. A clean,
+// purely-behind clone is fast-forwarded so cross-machine reads converge.
+func fastForwardClean(ctx context.Context, dir string, cfg *config.SpecsRepoConfig) error {
+	remoteRef := remoteBranchRef(cfg)
+
+	// Behind count of 0 (or unknown remote) means nothing to advance to.
+	behind, err := CommitsBehind(ctx, dir, remoteRef)
+	if err != nil || behind == 0 {
+		return nil //nolint:nilerr // unknown/equal ref: leave the tree as-is.
+	}
+
+	// Never discard uncommitted local edits.
+	if dirty, err := HasChanges(ctx, dir); err != nil || dirty {
+		return nil //nolint:nilerr // dirty tree: preserve local work, skip FF.
+	}
+
+	// Never discard local commits that haven't reached the remote.
+	if unpushed, err := HasUnpushedCommits(ctx, dir, remoteRef); err != nil || unpushed {
+		return nil //nolint:nilerr // diverged: leave for the mutate path to reconcile.
+	}
+
+	// Safe: clean tree, strictly behind. Fast-forward to the fetched ref.
+	if err := ResetHard(ctx, dir, remoteRef); err != nil {
+		return fmt.Errorf("fast-forwarding specs repo to %s: %w", remoteRef, redactToken(err))
+	}
+	return nil
 }
 
 // Freshness summarizes how current the local view of the specs repo is.

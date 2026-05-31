@@ -12,6 +12,8 @@ import (
 	"github.com/muesli/termenv"
 
 	catppuccin "github.com/catppuccin/go"
+
+	"github.com/aaronl1011/spec/internal/tui/components"
 )
 
 // Theme holds the semantic colour palette for the entire TUI.
@@ -125,6 +127,29 @@ func NewStyles(t Theme) Styles {
 
 		Separator: lipgloss.NewStyle().
 			Foreground(t.Overlay),
+	}
+}
+
+// statusStyles builds the canonical status element's per-kind styles from the
+// existing "pending" element palette tokens (SPEC-016 AC-6). The pending kind
+// reuses the Warning token (the colour the retired pending notice and spinner
+// used); success/error/idle reuse the established semantic tokens. All kinds
+// adopt the high-contrast filled treatment (theme Base on a coloured ground)
+// that the prior pending/toast surfaces used, so the slot inherits the theme's
+// established contrast rather than introducing new entries.
+func statusStyles(t Theme) components.StatusStyles {
+	// Sleek, minimal treatment: status is conveyed by glyph shape and text
+	// colour alone — no background fill or padding. The element inherits the
+	// status bar's surface so it reads as plain coloured text, not a chip.
+	text := func(fg lipgloss.Color) lipgloss.Style {
+		return lipgloss.NewStyle().Foreground(fg)
+	}
+	return components.StatusStyles{
+		// Idle recedes in the muted tone so the resting slot stays quiet.
+		Idle:    text(t.Muted),
+		Pending: text(t.Warning),
+		Success: text(t.Success),
+		Error:   text(t.Error),
 	}
 }
 

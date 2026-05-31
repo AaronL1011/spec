@@ -301,10 +301,15 @@ func (m specListModel) fetchData() tea.Cmd {
 	}
 }
 
-func loadAllSpecs(_ context.Context, rc *config.ResolvedConfig, archiveMode bool) ([]specListItem, error) {
+func loadAllSpecs(ctx context.Context, rc *config.ResolvedConfig, archiveMode bool) ([]specListItem, error) {
 	if rc.SpecsRepoDir == "" {
 		return nil, nil
 	}
+
+	// Fetch remote changes (TTL-gated) before reading local files, so a refresh
+	// surfaces teammates' pushes. Non-fatal: read cached files regardless and
+	// report the error as a stale-data signal.
+	syncErr := syncSpecsRepo(ctx, rc)
 
 	specsDir := rc.SpecsRepoDir
 	if archiveMode {
@@ -338,7 +343,7 @@ func loadAllSpecs(_ context.Context, rc *config.ResolvedConfig, archiveMode bool
 			Updated: meta.Updated,
 		})
 	}
-	return specs, nil
+	return specs, syncErr
 }
 
 // scrollWindow computes the visible slice for a scrollable list.

@@ -194,10 +194,14 @@ func (m triageModel) fetchData() tea.Cmd {
 	}
 }
 
-func loadTriageData(_ context.Context, rc *config.ResolvedConfig) ([]triageItem, error) {
+func loadTriageData(ctx context.Context, rc *config.ResolvedConfig) ([]triageItem, error) {
 	if rc.SpecsRepoDir == "" {
 		return nil, nil
 	}
+
+	// Fetch remote changes (TTL-gated) before reading, so a teammate's pushed
+	// triage item appears on refresh. Non-fatal; cached files render regardless.
+	syncErr := syncSpecsRepo(ctx, rc)
 
 	triageDir := filepath.Join(rc.SpecsRepoDir, "triage")
 	entries, err := os.ReadDir(triageDir)
@@ -228,5 +232,5 @@ func loadTriageData(_ context.Context, rc *config.ResolvedConfig) ([]triageItem,
 			Created:    meta.Created,
 		})
 	}
-	return items, nil
+	return items, syncErr
 }

@@ -7,23 +7,7 @@ It unifies spec management, pipeline orchestration, build context, and team
 coordination into a single, fast, local-first CLI. Run `spec` with no arguments
 and you get an interactive terminal dashboard of everything awaiting your attention.
 
-```
- Dashboard   Pipeline   Specs   Triage   Reviews   Settings
-
- Good morning, Aaron.                              engineer · Cycle 7
-
- ─── DO ───────────────────────────────────────────────────────────
- ★ SPEC-042  Auth refactor            build          PR 2/4 in progress
- ⚡ SPEC-039  Rate limiting            pr-review      2 unresolved threads
-
- ─── REVIEW ───────────────────────────────────────────────────────
- 📋 PR #418   Search indexing          api-gateway    requested 3h ago
-
- ─── INCOMING ─────────────────────────────────────────────────────
- 📨 TRIAGE-088  Billing alerts         triage         high priority
-
- 12 specs in pipeline · 1 pending          ↑↓ move · enter open · ? help
-```
+![Demonstration of a spec review](docs/demos/demo.gif)
 
 > **New here?** Jump straight to the **[QUICKSTART guide →](QUICKSTART.md)** to go from
 > zero to productive in about 15 minutes.

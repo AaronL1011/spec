@@ -13,6 +13,7 @@ import (
 	"github.com/aaronl1011/spec/internal/dashboard"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/store"
+	"github.com/aaronl1011/spec/internal/tui/components"
 )
 
 func testApp() App {
@@ -211,6 +212,34 @@ func TestApp_ViewSwitchClosesDetail(t *testing.T) {
 	}
 }
 
+// TestApp_DashboardDoesNotRefreshOnSwitchWhenLoaded verifies the dashboard
+// fetches only on first load; switching back to an already-loaded dashboard
+// schedules no refresh (updates come from the auto-timer or manual refresh).
+func TestApp_DashboardDoesNotRefreshOnSwitchWhenLoaded(t *testing.T) {
+	app := testApp()
+
+	// Unloaded dashboard: a switch should schedule the initial fetch.
+	app.activeView = ViewPipeline
+	if cmd := app.switchView(ViewDashboard); cmd == nil {
+		t.Error("unloaded dashboard should fetch on first open")
+	}
+
+	// Mark loaded and clear in-flight, then switch away and back.
+	app.dashboard.loaded = true
+	app.markRefreshDone(refreshKeyDashboard)
+	app.switchView(ViewPipeline)
+	if cmd := app.switchView(ViewDashboard); cmd != nil {
+		t.Error("loaded dashboard should not refresh on switch — rely on timer/manual")
+	}
+
+	// The auto-timer / manual refresh path must STILL refresh the loaded
+	// dashboard — only the tab-switch is suppressed.
+	app.markRefreshDone(refreshKeyDashboard)
+	if cmd := app.refreshActiveView(); cmd == nil {
+		t.Error("timer/manual refresh should still refresh a loaded dashboard")
+	}
+}
+
 func TestApp_SelectedSpecID(t *testing.T) {
 	app := testApp()
 	app.width = 80
@@ -306,7 +335,7 @@ func TestApp_ModalInputFlow(t *testing.T) {
 	}
 }
 
-func TestApp_ActionResultShowsToast(t *testing.T) {
+func TestApp_ActionResultShowsStatus(t *testing.T) {
 	app := testApp()
 	app.width = 80
 	app.height = 24
@@ -319,18 +348,80 @@ func TestApp_ActionResultShowsToast(t *testing.T) {
 		Detail: "focused",
 	})
 	a := model.(App)
-	if !a.toast.Visible() {
-		t.Error("toast should be visible after successful action")
+	if a.statusBar.StatusKind() != components.StatusSuccess {
+		t.Errorf("status should be success after successful action, got %v", a.statusBar.StatusKind())
 	}
 
 	// Error result.
 	model, _ = app.Update(actionResultMsg{
 		Action: "advance",
-		Err:    fmt.Errorf("gate not met"),
+		SpecID: "SPEC-001",
+		Err:    fmt.Errorf("gate not met: QA validation incomplete"),
 	})
 	a = model.(App)
-	if !a.toast.Visible() {
-		t.Error("toast should be visible after failed action")
+	if a.statusBar.StatusKind() != components.StatusError {
+		t.Errorf("status should be error after failed action, got %v", a.statusBar.StatusKind())
+	}
+	// The slot shows a short summary; the full error is kept for expansion.
+	if !strings.Contains(a.statusBar.StatusLabel(), "failed") {
+		t.Errorf("error summary should be short, got %q", a.statusBar.StatusLabel())
+	}
+	if !strings.Contains(a.statusBar.ErrorDetail(), "gate not met") {
+		t.Errorf("full error detail should be preserved, got %q", a.statusBar.ErrorDetail())
+	}
+}
+
+// TestApp_ExpandErrorOpensModal verifies the E key opens the full error text in
+// a read-only modal, and is a no-op when there is no error.
+func TestApp_ExpandErrorOpensModal(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	// No error yet: E must not open a modal.
+	model, _ := app.Update(keyMsg("E"))
+	a := model.(App)
+	if a.modal.Visible {
+		t.Fatal("E should be a no-op when there is no error")
+	}
+
+	// Produce a sticky error, then expand it.
+	model, _ = a.Update(actionResultMsg{Action: "advance", SpecID: "SPEC-001",
+		Err: fmt.Errorf("gate not met: QA validation incomplete for SPEC-001")})
+	a = model.(App)
+	model, _ = a.Update(keyMsg("E"))
+	a = model.(App)
+	if !a.modal.Visible || a.modal.Kind != components.ModalInfo {
+		t.Fatalf("E should open a read-only info modal, visible=%v kind=%v", a.modal.Visible, a.modal.Kind)
+	}
+	if !strings.Contains(a.modal.Message, "gate not met") {
+		t.Errorf("modal should show the full error, got %q", a.modal.Message)
+	}
+}
+
+// TestApp_BackgroundRefreshKeepsStickyError verifies that a background refresh
+// starting does NOT clear an unseen sticky error (only user-initiated work
+// supersedes it).
+func TestApp_BackgroundRefreshKeepsStickyError(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	model, _ := app.Update(actionResultMsg{Action: "push", SpecID: "SPEC-001",
+		Err: fmt.Errorf("network unreachable")})
+	a := model.(App)
+	if !a.statusBar.HasError() {
+		t.Fatal("precondition: sticky error should be showing")
+	}
+
+	// Kick off a background refresh and reconcile busy state.
+	a.scheduleRefresh(refreshKeyDashboard, func() tea.Msg { return dashboardDataMsg{} })
+	a.syncBusyState()
+
+	if !a.statusBar.HasError() {
+		t.Error("background refresh must not clear an unseen sticky error")
 	}
 }
 
@@ -652,12 +743,12 @@ func TestApp_SettingsThemePreview_AppliesWithoutPersisting(t *testing.T) {
 	}
 }
 
-func TestApp_SettingsPersistedMsg_SuccessToast(t *testing.T) {
+func TestApp_SettingsPersistedMsg_SuccessStatus(t *testing.T) {
 	app := testApp()
 	model, _ := app.Update(settingsPersistedMsg{Field: fieldName, Err: nil})
 	a := model.(App)
-	if !a.toast.Visible() {
-		t.Error("toast should show after successful settings persist")
+	if a.statusBar.StatusKind() != components.StatusSuccess {
+		t.Errorf("status should be success after settings persist, got %v", a.statusBar.StatusKind())
 	}
 }
 
@@ -665,8 +756,9 @@ func TestApp_SettingsPersistedMsg_SuccessToast(t *testing.T) {
 // rendering more rows than the layout budgets for them. When that happened,
 // View() exceeded the terminal height and the alt-screen renderer left a stale
 // full-width bar at the top of the screen — visible as a flash when saving a
-// setting toggled the toast (and thus the line count). The view must always be
-// exactly a.height lines, with and without the toast showing.
+// setting toggled a separate status surface (and thus the line count). The
+// canonical status element now lives inside the single status-bar row, so the
+// view must always be exactly a.height lines, idle or with a status showing.
 func TestApp_ViewFitsTerminalHeight(t *testing.T) {
 	for _, sz := range []struct{ w, h int }{{120, 40}, {100, 30}, {80, 24}, {60, 12}} {
 		app := testApp()
@@ -675,16 +767,16 @@ func TestApp_ViewFitsTerminalHeight(t *testing.T) {
 		app.activeView = ViewSettings
 
 		if lines := strings.Count(app.View(), "\n") + 1; lines != sz.h {
-			t.Errorf("%dx%d: View() = %d lines, want %d (no toast)", sz.w, sz.h, lines, sz.h)
+			t.Errorf("%dx%d: View() = %d lines, want %d (idle status)", sz.w, sz.h, lines, sz.h)
 		}
 
 		m, _ = app.Update(settingsPersistedMsg{Field: fieldTheme, Err: nil})
 		app = m.(App)
-		if !app.toast.Visible() {
-			t.Fatal("toast should be visible after persist")
+		if app.statusBar.StatusKind() != components.StatusSuccess {
+			t.Fatal("status should be success after persist")
 		}
 		if lines := strings.Count(app.View(), "\n") + 1; lines != sz.h {
-			t.Errorf("%dx%d: View() = %d lines, want %d (toast showing)", sz.w, sz.h, lines, sz.h)
+			t.Errorf("%dx%d: View() = %d lines, want %d (status showing)", sz.w, sz.h, lines, sz.h)
 		}
 	}
 }
@@ -799,7 +891,7 @@ func TestApp_ReaderPendingKeepsPreviousContent(t *testing.T) {
 	if !strings.Contains(during, "Problem") {
 		t.Fatalf("pending render should keep previous content visible, got: %s", during)
 	}
-	if strings.Contains(during, "Rendering section") {
+	if strings.Contains(during, "Rendering §") {
 		t.Fatalf("pending view should not show transient rendering label, got: %s", during)
 	}
 }
@@ -824,8 +916,8 @@ func TestApp_FirstReaderOpenShowsSpinnerNotNoContent(t *testing.T) {
 	if strings.Contains(view, "(no content)") {
 		t.Fatal("first open should not show no-content placeholder")
 	}
-	if !strings.Contains(view, "rendering §") {
-		t.Fatal("status bar should show rendering spinner label")
+	if !strings.Contains(view, "Rendering §") {
+		t.Fatal("status bar should show rendering pending label")
 	}
 }
 
@@ -964,7 +1056,7 @@ func TestApp_RevertRendersInView(t *testing.T) {
 	}
 }
 
-func TestApp_RevertFirstStageShowsToast(t *testing.T) {
+func TestApp_RevertFirstStageShowsStatusError(t *testing.T) {
 	app := testApp()
 	app.width = 80
 	app.height = 24
@@ -978,14 +1070,14 @@ func TestApp_RevertFirstStageShowsToast(t *testing.T) {
 	app.specs.applyFilter()
 	app.switchView(ViewSpecs)
 
-	// Press 'v' — should show error toast, not open overlay.
+	// Press 'v' — should show error status, not open overlay.
 	model, _ := app.Update(keyMsg("v"))
 	a := model.(App)
 	if a.revert.active {
 		t.Error("revert overlay should not open for first stage")
 	}
-	if !a.toast.Visible() {
-		t.Error("toast should show error for first stage revert")
+	if a.statusBar.StatusKind() != components.StatusError {
+		t.Errorf("status should show error for first stage revert, got %v", a.statusBar.StatusKind())
 	}
 }
 
