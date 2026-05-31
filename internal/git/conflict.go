@@ -20,11 +20,13 @@ import (
 // files it falls back to whole-file overlap to stay conservative.
 //
 // It returns a human-readable description of the first collision (e.g.
-// "SPEC-013 §technical_implementation"), or "" when the rebase is safe.
+// "SPEC-013 §technical_implementation"), or "" when the rebase is safe. It is
+// conservative by construction: any error resolving sections degrades to a
+// file-granular conflict rather than surfacing, so it has no error return.
 //
 // This single helper is shared by WithSpecsRepo and PushLocalEdits so the two
 // mutate paths cannot drift (SPEC-013 §Decision 003 / §7.1).
-func sectionOverlap(ctx context.Context, dir string, ourFiles, upstreamFiles []string, baseRef, remoteRef string) (string, error) {
+func sectionOverlap(ctx context.Context, dir string, ourFiles, upstreamFiles []string, baseRef, remoteRef string) string {
 	upstream := make(map[string]struct{}, len(upstreamFiles))
 	for _, f := range upstreamFiles {
 		upstream[f] = struct{}{}
@@ -38,20 +40,20 @@ func sectionOverlap(ctx context.Context, dir string, ourFiles, upstreamFiles []s
 		// Non-spec / non-markdown file changed on both sides: conservative
 		// whole-file conflict.
 		if !isSpecMarkdown(file) {
-			return file, nil
+			return file
 		}
 
 		section, err := collidingSection(ctx, dir, file, baseRef, remoteRef)
 		if err != nil {
 			// If we can't resolve sections, fall back to file-granular
 			// conflict rather than silently auto-merging.
-			return file, nil
+			return file
 		}
 		if section != "" {
-			return fmt.Sprintf("%s §%s", specIDFromPath(file), section), nil
+			return fmt.Sprintf("%s §%s", specIDFromPath(file), section)
 		}
 	}
-	return "", nil
+	return ""
 }
 
 // collidingSection returns the slug of the first section that changed both
@@ -70,7 +72,8 @@ func collidingSection(ctx context.Context, dir, file, baseRef, remoteRef string)
 	}
 	if remoteErr != nil {
 		// Upstream deleted the file but we changed it — conservative conflict.
-		return "(file removed upstream)", nil
+		// The non-nil remoteErr is the signal, not an error to propagate.
+		return "(file removed upstream)", nil //nolint:nilerr // deletion is the conflict, not a failure
 	}
 
 	baseHashes := sectionHashes(baseBody)

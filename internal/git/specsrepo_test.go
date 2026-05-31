@@ -22,10 +22,7 @@ func TestSectionOverlap_DisjointSections(t *testing.T) {
 
 	ourFiles, _ := CommittedFiles(ctx, dir, "HEAD")
 	upstream, _ := DiffNameOnly(ctx, dir, base, remoteRef)
-	conflict, err := sectionOverlap(ctx, dir, ourFiles, upstream, base, remoteRef)
-	if err != nil {
-		t.Fatalf("sectionOverlap: %v", err)
-	}
+	conflict := sectionOverlap(ctx, dir, ourFiles, upstream, base, remoteRef)
 	if conflict != "" {
 		t.Errorf("disjoint section edits should not conflict, got %q", conflict)
 	}
@@ -46,10 +43,7 @@ func TestSectionOverlap_SameSection(t *testing.T) {
 
 	ourFiles, _ := CommittedFiles(ctx, dir, "HEAD")
 	upstream, _ := DiffNameOnly(ctx, dir, base, remoteRef)
-	conflict, err := sectionOverlap(ctx, dir, ourFiles, upstream, base, remoteRef)
-	if err != nil {
-		t.Fatalf("sectionOverlap: %v", err)
-	}
+	conflict := sectionOverlap(ctx, dir, ourFiles, upstream, base, remoteRef)
 	if conflict == "" {
 		t.Fatal("same-section edits should conflict")
 	}
@@ -61,10 +55,7 @@ func TestSectionOverlap_SameSection(t *testing.T) {
 func TestSectionOverlap_NonSpecFileWholeFile(t *testing.T) {
 	ours := []string{"spec.config.yaml"}
 	upstream := []string{"spec.config.yaml"}
-	conflict, err := sectionOverlap(context.Background(), t.TempDir(), ours, upstream, "x", "y")
-	if err != nil {
-		t.Fatalf("sectionOverlap: %v", err)
-	}
+	conflict := sectionOverlap(context.Background(), t.TempDir(), ours, upstream, "x", "y")
 	if conflict != "spec.config.yaml" {
 		t.Errorf("non-spec overlap should be whole-file, got %q", conflict)
 	}

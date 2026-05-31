@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -328,13 +329,15 @@ func pushWithRecovery(ctx context.Context, cfg *config.SpecsRepoConfig, dir stri
 
 		if attempt >= maxPushRetries {
 			// Retry exhaustion from contention is NOT a hard error — queue it.
-			return queuePush(ctx, cfg, dir, opts, "push exhausted retries under contention")
+			queuePush(ctx, cfg, dir, opts, "push exhausted retries under contention")
+			return nil
 		}
 
 		// Fetch the new remote state.
 		if err := Fetch(ctx, dir); err != nil {
 			// Offline / transient: queue and drain later.
-			return queuePush(ctx, cfg, dir, opts, "offline: "+redactToken(err).Error())
+			queuePush(ctx, cfg, dir, opts, "offline: "+redactToken(err).Error())
+			return nil
 		}
 
 		upstreamFiles, err := DiffNameOnly(ctx, dir, baseRef, remoteRef)
@@ -343,10 +346,7 @@ func pushWithRecovery(ctx context.Context, cfg *config.SpecsRepoConfig, dir stri
 		}
 
 		// Section-aware collision check, shared with PushLocalEdits.
-		conflict, err := sectionOverlap(ctx, dir, ourFiles, upstreamFiles, baseRef, remoteRef)
-		if err != nil {
-			return fmt.Errorf("checking section overlap: %w", err)
-		}
+		conflict := sectionOverlap(ctx, dir, ourFiles, upstreamFiles, baseRef, remoteRef)
 		if conflict != "" {
 			if resetHardOnConflict {
 				_ = ResetHard(ctx, dir, remoteRef)
@@ -367,13 +367,14 @@ func pushWithRecovery(ctx context.Context, cfg *config.SpecsRepoConfig, dir stri
 		backoff(attempt)
 	}
 
-	return queuePush(ctx, cfg, dir, opts, "push failed after retries")
+	queuePush(ctx, cfg, dir, opts, "push failed after retries")
+	return nil
 }
 
 // queuePush records the (already-committed) operation as queued for a later
-// online flush and reports success — the work is durable and not discarded
-// (SPEC-013 §Decision 009).
-func queuePush(ctx context.Context, cfg *config.SpecsRepoConfig, dir string, opts SyncOptions, detail string) error {
+// online flush. The work is durable and not discarded, so queuing is always a
+// success and there is nothing to report (SPEC-013 §Decision 009).
+func queuePush(ctx context.Context, cfg *config.SpecsRepoConfig, dir string, opts SyncOptions, detail string) {
 	sha, _ := RevParse(ctx, dir, "HEAD")
 	opts.recorder().Enqueue(repoKey(cfg), cfg.Branch, sha, AuditEvent{
 		Op:      OpPush,
@@ -385,7 +386,6 @@ func queuePush(ctx context.Context, cfg *config.SpecsRepoConfig, dir string, opt
 		Detail:  detail,
 	})
 	opts.record(OpPush, OutcomeQueued, detail)
-	return nil
 }
 
 // PushLocalEdits commits any uncommitted changes in the specs repo and pushes them.
@@ -777,35 +777,10 @@ func IsSectionConflict(err error) bool {
 	return asSectionConflict(err, &sc)
 }
 
-// asSectionConflict reports whether err is a sectionConflictError.
+// asSectionConflict reports whether err is (or wraps) a sectionConflictError,
+// storing the matched value in target.
 func asSectionConflict(err error, target **sectionConflictError) bool {
-	for err != nil {
-		if sc, ok := err.(*sectionConflictError); ok {
-			*target = sc
-			return true
-		}
-		type unwrapper interface{ Unwrap() error }
-		u, ok := err.(unwrapper)
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
-}
-
-// indentStatus prefixes each line of git status output for readability.
-func indentStatus(status string) string {
-	if status == "" {
-		return ""
-	}
-	var sb strings.Builder
-	for _, line := range strings.Split(strings.TrimRight(status, "\n"), "\n") {
-		sb.WriteString("  ")
-		sb.WriteString(line)
-		sb.WriteByte('\n')
-	}
-	return strings.TrimRight(sb.String(), "\n")
+	return errors.As(err, target)
 }
 
 // validateToken checks that the specs repo token is usable.
