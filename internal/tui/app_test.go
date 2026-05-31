@@ -212,6 +212,34 @@ func TestApp_ViewSwitchClosesDetail(t *testing.T) {
 	}
 }
 
+// TestApp_DashboardDoesNotRefreshOnSwitchWhenLoaded verifies the dashboard
+// fetches only on first load; switching back to an already-loaded dashboard
+// schedules no refresh (updates come from the auto-timer or manual refresh).
+func TestApp_DashboardDoesNotRefreshOnSwitchWhenLoaded(t *testing.T) {
+	app := testApp()
+
+	// Unloaded dashboard: a switch should schedule the initial fetch.
+	app.activeView = ViewPipeline
+	if cmd := app.switchView(ViewDashboard); cmd == nil {
+		t.Error("unloaded dashboard should fetch on first open")
+	}
+
+	// Mark loaded and clear in-flight, then switch away and back.
+	app.dashboard.loaded = true
+	app.markRefreshDone(refreshKeyDashboard)
+	app.switchView(ViewPipeline)
+	if cmd := app.switchView(ViewDashboard); cmd != nil {
+		t.Error("loaded dashboard should not refresh on switch — rely on timer/manual")
+	}
+
+	// The auto-timer / manual refresh path must STILL refresh the loaded
+	// dashboard — only the tab-switch is suppressed.
+	app.markRefreshDone(refreshKeyDashboard)
+	if cmd := app.refreshActiveView(); cmd == nil {
+		t.Error("timer/manual refresh should still refresh a loaded dashboard")
+	}
+}
+
 func TestApp_SelectedSpecID(t *testing.T) {
 	app := testApp()
 	app.width = 80

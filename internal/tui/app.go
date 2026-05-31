@@ -832,6 +832,14 @@ func (a *App) switchView(v View) tea.Cmd {
 	a.tabs.SetActive(int(v))
 	a.statusBar.SetView(v.Label())
 	a.syncBusyState()
+	// The dashboard makes a network call (PR reviews), so re-fetching every time
+	// the user switches back to it is spammy. On switch, fetch only if it has
+	// never loaded (e.g. the startup fetch failed); otherwise leave updates to
+	// the auto-timer tick and manual refresh, both of which still refresh it
+	// unconditionally via refreshActiveView.
+	if v == ViewDashboard && a.dashboard.loaded {
+		return nil
+	}
 	return a.initAndRefreshView(v)
 }
 
