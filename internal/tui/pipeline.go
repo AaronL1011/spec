@@ -316,10 +316,15 @@ func (m pipelineModel) fetchData() tea.Cmd {
 	}
 }
 
-func loadPipelineData(_ context.Context, rc *config.ResolvedConfig) ([]pipelineStage, error) {
+func loadPipelineData(ctx context.Context, rc *config.ResolvedConfig) ([]pipelineStage, error) {
 	if rc.SpecsRepoDir == "" {
 		return nil, nil
 	}
+
+	// Fetch remote changes (TTL-gated) so a refresh reflects teammates' pushes,
+	// not just stale local files. A fetch failure is non-fatal: fall through to
+	// read the cached local tree and report the error as a stale-data signal.
+	syncErr := syncSpecsRepo(ctx, rc)
 
 	pl := rc.Pipeline()
 
@@ -362,5 +367,5 @@ func loadPipelineData(_ context.Context, rc *config.ResolvedConfig) ([]pipelineS
 		})
 	}
 
-	return stages, nil
+	return stages, syncErr
 }

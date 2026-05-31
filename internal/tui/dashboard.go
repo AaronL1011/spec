@@ -204,7 +204,15 @@ func (m dashboardModel) fetchData() tea.Cmd {
 	reg := m.reg
 	role := m.role
 	return func() tea.Msg {
-		data, err := dashboard.Aggregate(context.Background(), rc, reg, role)
+		ctx := context.Background()
+		// Fetch remote spec changes (TTL-gated) before aggregating, so the DO/
+		// Blocked/Incoming sections reflect teammates' pushes — not only the
+		// PR-review section that already crossed the network. Non-fatal.
+		syncErr := syncSpecsRepo(ctx, rc)
+		data, err := dashboard.Aggregate(ctx, rc, reg, role)
+		if err == nil {
+			err = syncErr
+		}
 		return dashboardDataMsg{Data: data, Err: err}
 	}
 }
