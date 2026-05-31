@@ -18,12 +18,50 @@ var syncCmd = &cobra.Command{
 	RunE:  runSync,
 }
 
+var syncLogCmd = &cobra.Command{
+	Use:   "log",
+	Short: "Show the structured sync audit log (fetches, commits, pushes, recoveries)",
+	Args:  cobra.NoArgs,
+	RunE:  runSyncLog,
+}
+
 func init() {
 	syncCmd.Flags().String("direction", "both", "sync direction: in | out | both")
 	syncCmd.Flags().Bool("dry-run", false, "preview changes without applying")
 	syncCmd.Flags().Bool("force", false, "force inbound changes on conflict")
 	syncCmd.Flags().Bool("skip", false, "skip conflicting sections")
+	syncLogCmd.Flags().Int("limit", 20, "number of audit entries to show")
+	syncCmd.AddCommand(syncLogCmd)
 	rootCmd.AddCommand(syncCmd)
+}
+
+func runSyncLog(cmd *cobra.Command, args []string) error {
+	limit, _ := cmd.Flags().GetInt("limit")
+	db, err := openDB()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	entries, err := db.SyncAuditRecent(limit)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		fmt.Println("No sync activity recorded yet.")
+		return nil
+	}
+	fmt.Printf("%-20s %-8s %-14s %-10s %-10s %s\n", "WHEN", "SURFACE", "TRIGGER", "OP", "OUTCOME", "DETAIL")
+	for _, e := range entries {
+		spec := e.SpecID
+		if spec != "" {
+			spec = " " + spec
+		}
+		fmt.Printf("%-20s %-8s %-14s %-10s %-10s %s%s\n",
+			e.CreatedAt.Format("2006-01-02 15:04:05"),
+			e.Surface, e.Trigger, e.Op, e.Outcome, e.Detail, spec)
+	}
+	return nil
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
@@ -73,7 +111,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	engine := syncengine.NewEngine(reg.Docs(), db)
 	var prepared *syncengine.PreparedRun
 
-	err = gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	err = gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
 			return "", err

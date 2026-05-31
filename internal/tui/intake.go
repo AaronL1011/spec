@@ -96,7 +96,7 @@ func createTriageItem(rc *config.ResolvedConfig, title, priority, source string)
 
 		content := markdown.ScaffoldTriage(triageID, title, priority, source, "", reportedBy)
 
-		err := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("intake", triageID), func(repoPath string) (string, error) {
 			triageDir := filepath.Join(repoPath, gitpkg.SpecsSubDir, "triage")
 			if err := os.MkdirAll(triageDir, 0o755); err != nil {
 				return "", err
@@ -108,9 +108,10 @@ func createTriageItem(rc *config.ResolvedConfig, title, priority, source string)
 			return fmt.Sprintf("feat: intake %s — %s", triageID, title), nil
 		})
 
-		if err != nil {
+		status, fatal := pushOutcome(err)
+		if fatal {
 			return actionResultMsg{Action: "intake", Err: err}
 		}
-		return actionResultMsg{Action: "intake", SpecID: triageID, Detail: title}
+		return actionResultMsg{Action: "intake", SpecID: triageID, Detail: title + " (" + status + ")"}
 	}
 }

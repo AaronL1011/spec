@@ -74,7 +74,7 @@ func runPromote(cmd *cobra.Command, args []string) error {
 
 	var newSpecID string
 
-	err = gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	err = gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
 		sd := specsDir(repoPath)
 
 		// Write the new spec

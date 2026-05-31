@@ -45,3 +45,35 @@ func (db *DB) FocusedSpecClear() error {
 	}
 	return nil
 }
+
+const lastFetchSettingPrefix = "last_fetch:"
+
+// LastFetchGet returns the timestamp of the last successful fetch for a specs
+// repo (keyed by "owner/repo"), or the zero time if none is recorded.
+func (db *DB) LastFetchGet(repoKey string) (time.Time, error) {
+	var unix int64
+	err := db.conn.QueryRow(
+		"SELECT value FROM settings WHERE key = ?", lastFetchSettingPrefix+repoKey,
+	).Scan(&unix)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("last fetch get %q: %w", repoKey, err)
+	}
+	return time.Unix(unix, 0), nil
+}
+
+// LastFetchSet records the timestamp of a successful fetch for a specs repo.
+func (db *DB) LastFetchSet(repoKey string, at time.Time) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO settings (key, value, updated_at)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+		lastFetchSettingPrefix+repoKey, at.Unix(), time.Now().Unix(),
+	)
+	if err != nil {
+		return fmt.Errorf("last fetch set %q: %w", repoKey, err)
+	}
+	return nil
+}

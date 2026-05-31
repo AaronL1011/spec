@@ -97,6 +97,11 @@ func init() {
 				return err
 			}
 		}
+		// Inject the store-backed sync audit/freshness recorder once per
+		// invocation so the git read path records fetches and skips within
+		// the freshness TTL. Best-effort: a DB open failure leaves git's
+		// no-op recorder in place.
+		installSyncRecorder()
 		// Only print for subcommands, not the root dashboard or completion.
 		// Awareness is best-effort — config resolution failure is not fatal.
 		// Suppressed under --quiet/--json and when stderr is not a terminal so

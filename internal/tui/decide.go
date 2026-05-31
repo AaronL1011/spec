@@ -16,7 +16,7 @@ func recordDecision(rc *config.ResolvedConfig, specID, question string) tea.Cmd 
 	return func() tea.Msg {
 		user := rc.UserName()
 
-		err := gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("decide", specID), func(repoPath string) (string, error) {
 			path, err := resolveSpecIn(repoPath, rc, specID)
 			if err != nil {
 				return "", err
@@ -28,9 +28,10 @@ func recordDecision(rc *config.ResolvedConfig, specID, question string) tea.Cmd 
 			return fmt.Sprintf("chore: decision #%d on %s", num, specID), nil
 		})
 
-		if err != nil {
+		status, fatal := pushOutcome(err)
+		if fatal {
 			return actionResultMsg{Action: "decide", SpecID: specID, Err: err}
 		}
-		return actionResultMsg{Action: "decide", SpecID: specID, Detail: "question recorded"}
+		return actionResultMsg{Action: "decide", SpecID: specID, Detail: "question recorded (" + status + ")"}
 	}
 }

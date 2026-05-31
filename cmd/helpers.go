@@ -14,6 +14,7 @@ import (
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/store"
+	"github.com/aaronl1011/spec/internal/syncaudit"
 	"github.com/spf13/cobra"
 )
 
@@ -81,6 +82,40 @@ func requireTeamConfig(rc *config.ResolvedConfig) error {
 // openDB opens the default SQLite database.
 func openDB() (*store.DB, error) {
 	return store.Open(store.DefaultDBPath())
+}
+
+// recorderDB holds the long-lived DB backing the injected sync recorder for
+// the lifetime of the process. A single CLI invocation runs one command, so
+// keeping it open is safe and avoids re-opening for every git operation.
+var recorderDB *store.DB
+
+// installSyncRecorder injects the store-backed git.Recorder once per process.
+// Best-effort: a DB open failure leaves git's no-op recorder in place.
+func installSyncRecorder() {
+	if recorderDB != nil {
+		return
+	}
+	db, err := openDB()
+	if err != nil {
+		return
+	}
+	recorderDB = db
+	gitpkg.SetRecorder(syncaudit.New(db))
+}
+
+// syncOpts builds git.SyncOptions for a CLI command, attributing the audit log
+// to the CLI surface with the command name as the trigger.
+func syncOpts(cmd *cobra.Command, specID string) gitpkg.SyncOptions {
+	trigger := "cli"
+	if cmd != nil {
+		trigger = cmd.Name()
+	}
+	return gitpkg.SyncOptions{
+		Surface:  store.SurfaceCLI,
+		Trigger:  trigger,
+		SpecID:   specID,
+		Recorder: syncaudit.New(recorderDB),
+	}
 }
 
 func normalizeSpecID(specID string) string {
@@ -240,7 +275,7 @@ func persistEpicKey(rc *config.ResolvedConfig, specID, epicKey string) error {
 	if epicKey == "" {
 		return nil
 	}
-	return gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	return gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(nil, specID), func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
 			return "", err

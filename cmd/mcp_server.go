@@ -10,7 +10,9 @@ import (
 
 	"github.com/aaronl1011/spec/internal/build"
 	"github.com/aaronl1011/spec/internal/config"
+	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/mcp"
+	"github.com/aaronl1011/spec/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -92,6 +94,9 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "spec mcp: active session detected for %s, use --spec %s for build mode\n", recent, recent)
 		}
 	}
+
+	// Attribute sync activity from this process to the MCP surface.
+	gitpkg.SetReadSurface(store.SurfaceMCP)
 
 	// Generic mode - serve all specs
 	handler := mcp.NewGenericHandler(rc, specsDir)

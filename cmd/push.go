@@ -34,10 +34,11 @@ func runPush(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	pushed, err := gitpkg.PushLocalEdits(
+	pushed, err := gitpkg.PushLocalEditsOpts(
 		context.Background(),
 		&rc.Team.SpecsRepo,
 		fmt.Sprintf("feat: update %s", specID),
+		syncOpts(cmd, specID),
 	)
 	if err != nil {
 		return fmt.Errorf("pushing %s: %w", specID, err)

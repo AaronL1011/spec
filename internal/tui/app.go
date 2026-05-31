@@ -153,6 +153,9 @@ func (a App) Close() error {
 }
 
 func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string, db *store.DB) App {
+	// Inject the store-backed sync audit/freshness recorder so TUI actions
+	// auto-push with tracked audit and the read path honours the freshness TTL.
+	setTUIRecorder(db)
 	// Warm the terminal background detection now, while stdin is still ours.
 	// Once Bubble Tea's event loop owns stdin the OSC query reply is swallowed
 	// and the call blocks until timeout, so doing it here keeps the "auto"
@@ -561,6 +564,9 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.help.toggle()
 		return a, nil
 	case key.Matches(msg, a.keys.Refresh):
+		if !a.toast.Visible() {
+			a.toast.Show("⟳ refreshing…", components.ToastInfo, 2*time.Second)
+		}
 		return a, a.refreshActiveView()
 
 	// View switching.
@@ -885,6 +891,7 @@ func (a *App) scheduleRefresh(key string, cmd tea.Cmd) tea.Cmd {
 		return nil
 	}
 	a.refreshInFlight[key] = true
+	a.syncBusyState()
 	return cmd
 }
 
@@ -903,6 +910,7 @@ func (a *App) markRefreshDone(key string) {
 	if a.refreshInFlight != nil {
 		a.refreshInFlight[key] = false
 	}
+	a.syncBusyState()
 }
 
 func (a *App) markDetailRefreshDone() {
@@ -914,6 +922,17 @@ func (a *App) markDetailRefreshDone() {
 			a.refreshInFlight[key] = false
 		}
 	}
+	a.syncBusyState()
+}
+
+// anyRefreshInFlight returns true if any view currently has an active refresh.
+func (a *App) anyRefreshInFlight() bool {
+	for _, inFlight := range a.refreshInFlight {
+		if inFlight {
+			return true
+		}
+	}
+	return false
 }
 
 func (a App) detailRefreshKey() string {
@@ -1447,6 +1466,8 @@ func (a *App) applySettingsField(field settingsField) {
 	case fieldName, fieldRole:
 		if field == fieldRole {
 			a.role = strings.ToLower(a.rc.OwnerRole(""))
+			// Propagate to the dashboard model so its next refresh uses the new role.
+			a.dashboard.role = a.role
 		}
 		a.header = components.NewHeader(
 			a.rc.UserName(), a.role, a.rc.CycleLabel(),
@@ -1570,6 +1591,13 @@ func (a *App) syncBusyState() {
 			label = "working"
 		}
 		a.statusBar.SetBusy(true, label)
+		return
+	}
+
+	// Refresh in-flight — show spinner while fetching data.
+	if a.anyRefreshInFlight() {
+		a.spinnerOn = true
+		a.statusBar.SetBusy(true, "refreshing...")
 		return
 	}
 

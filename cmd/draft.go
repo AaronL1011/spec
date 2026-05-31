@@ -116,7 +116,7 @@ func draftSection(rc *config.ResolvedConfig, aiService *ai.Service, specID, sect
 	}
 
 	// Write the accepted/edited content to the spec
-	return gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	return gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(nil, specID), func(repoPath string) (string, error) {
 		specPath, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
 			return "", err
@@ -236,7 +236,7 @@ func draftPRStack(rc *config.ResolvedConfig, aiService *ai.Service, specID strin
 	}
 
 	// Write to spec
-	return gitpkg.WithSpecsRepo(context.Background(), &rc.Team.SpecsRepo, func(repoPath string) (string, error) {
+	return gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(nil, specID), func(repoPath string) (string, error) {
 		specPath, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
 			return "", err
