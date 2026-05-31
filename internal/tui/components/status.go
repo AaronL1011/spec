@@ -176,6 +176,11 @@ func (s Status) style(kind StatusKind) lipgloss.Style {
 	case StatusError:
 		return s.styles.Error
 	default:
+		// At rest, standing pending work draws the eye in the pending (amber)
+		// tone; a clear queue recedes in the muted tone.
+		if s.restingCount > 0 {
+			return s.styles.Pending
+		}
 		return s.styles.Idle
 	}
 }
