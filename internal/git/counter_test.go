@@ -17,7 +17,7 @@ import (
 // a cfg whose SpecsRepoDir resolves to that clone. Because SpecsRepoDir derives
 // from HOME, the test overrides HOME so cfg-driven entry points (ClaimNextID)
 // operate on the temp clone.
-func setupCounterRemote(t *testing.T) (cfg *config.SpecsRepoConfig, clone string) {
+func setupCounterRemote(t *testing.T) (clone string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -29,7 +29,7 @@ func setupCounterRemote(t *testing.T) (cfg *config.SpecsRepoConfig, clone string
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	cfg = &config.SpecsRepoConfig{
+	cfg := &config.SpecsRepoConfig{
 		Provider: "github",
 		Owner:    "test",
 		Repo:     "specs",
@@ -65,7 +65,7 @@ func setupCounterRemote(t *testing.T) (cfg *config.SpecsRepoConfig, clone string
 	if _, err := Run(ctx, clone, "remote", "set-url", "origin", remote); err != nil {
 		t.Fatal(err)
 	}
-	return cfg, clone
+	return clone
 }
 
 // claimWithoutRemoteRewrite calls the claim loop but skips ensureRemoteURL,
@@ -98,7 +98,7 @@ func claimDirect(t *testing.T, ctx context.Context, clone string, kind CounterKi
 }
 
 func TestClaimNextID_Bootstrap(t *testing.T) {
-	cfg, clone := setupCounterRemote(t)
+	clone := setupCounterRemote(t)
 	ctx := context.Background()
 
 	// Bootstrap from a legacy max of 5: first claim must yield 006.
@@ -109,7 +109,6 @@ func TestClaimNextID_Bootstrap(t *testing.T) {
 	if got != "SPEC-006" {
 		t.Fatalf("first claim = %q, want SPEC-006", got)
 	}
-	_ = cfg
 
 	// Second claim advances to 007 from the established ref (bootstrap ignored).
 	got2, err := claimDirect(t, ctx, clone, CounterSpec, 5)
@@ -122,7 +121,7 @@ func TestClaimNextID_Bootstrap(t *testing.T) {
 }
 
 func TestClaimNextID_SequentialUnique(t *testing.T) {
-	_, clone := setupCounterRemote(t)
+	clone := setupCounterRemote(t)
 	ctx := context.Background()
 
 	seen := map[string]bool{}
@@ -144,7 +143,7 @@ func TestClaimNextID_SequentialUnique(t *testing.T) {
 // TestClaimNextID_ConcurrentDistinct verifies AC-1/AC-3: concurrent claimants
 // against the same counter receive distinct, contiguous IDs with no duplicates.
 func TestClaimNextID_ConcurrentDistinct(t *testing.T) {
-	_, clone := setupCounterRemote(t)
+	clone := setupCounterRemote(t)
 	ctx := context.Background()
 
 	const n = 5
@@ -188,7 +187,7 @@ func TestClaimNextID_ConcurrentDistinct(t *testing.T) {
 // behind-tip is rejected, never silently overwriting. Here clientB advances the
 // counter, then clientA attempts a CAS against the now-stale SHA it read first.
 func TestClaimNextID_StaleLeaseRejected(t *testing.T) {
-	_, clone := setupCounterRemote(t)
+	clone := setupCounterRemote(t)
 	ctx := context.Background()
 	ref := CounterSpec.counterRef()
 
@@ -228,7 +227,7 @@ func TestClaimNextID_StaleLeaseRejected(t *testing.T) {
 // loses (a perpetually-moving tip), the claim loop gives up with a hard
 // exhaustion error rather than queueing or carrying a number forward.
 func TestClaimNextID_ExhaustionIsHardError(t *testing.T) {
-	_, clone := setupCounterRemote(t)
+	clone := setupCounterRemote(t)
 	ctx := context.Background()
 	ref := CounterSpec.counterRef()
 
@@ -268,7 +267,7 @@ func TestClaimNextID_ExhaustionIsHardError(t *testing.T) {
 // TestClaimNextID_OfflineHardFails verifies AC-5: an unreachable remote yields a
 // hard offline error and claims nothing.
 func TestClaimNextID_OfflineHardFails(t *testing.T) {
-	cfg, clone := setupCounterRemote(t)
+	clone := setupCounterRemote(t)
 	ctx := context.Background()
 
 	// Point origin at a nonexistent path to simulate offline.
@@ -283,7 +282,6 @@ func TestClaimNextID_OfflineHardFails(t *testing.T) {
 	if !IsClaimOffline(err) {
 		t.Fatalf("expected claimOfflineError, got %T: %v", err, err)
 	}
-	_ = cfg
 }
 
 // TestClaimBudget_ExceedsPushBudget verifies AC-7: the claim retry budget is
@@ -297,7 +295,7 @@ func TestClaimBudget_ExceedsPushBudget(t *testing.T) {
 
 	// A claimant that loses exactly maxPushRetries+1 rounds (more than the push
 	// budget) must still win within the dedicated claim budget.
-	_, clone := setupCounterRemote(t)
+	clone := setupCounterRemote(t)
 	ctx := context.Background()
 	ref := CounterSpec.counterRef()
 
@@ -353,7 +351,7 @@ func TestBackoff_GrowsWithAttempt(t *testing.T) {
 // TestClaimNextID_IndependentCounters verifies AC-9: spec and triage counters
 // advance independently and never collide.
 func TestClaimNextID_IndependentCounters(t *testing.T) {
-	_, clone := setupCounterRemote(t)
+	clone := setupCounterRemote(t)
 	ctx := context.Background()
 
 	specID, err := claimDirect(t, ctx, clone, CounterSpec, 0)
