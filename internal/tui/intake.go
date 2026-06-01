@@ -90,8 +90,14 @@ func (f intakeFormState) valid() bool {
 // createTriageItem commits a new triage item to the specs repo.
 func createTriageItem(rc *config.ResolvedConfig, title, priority, source string) tea.Cmd {
 	return func() tea.Msg {
+		// Claim an authoritative triage ID before writing (SPEC-018). Offline is
+		// a hard fail surfaced as an action error.
 		triageFiles, _ := gitpkg.ListTriageFiles(&rc.Team.SpecsRepo)
-		triageID := markdown.NextTriageID(triageFiles)
+		bootstrapMax := markdown.MaxTriageNum(triageFiles)
+		triageID, claimErr := gitpkg.ClaimNextID(context.Background(), &rc.Team.SpecsRepo, gitpkg.CounterTriage, bootstrapMax)
+		if claimErr != nil {
+			return actionResultMsg{Action: "intake", Err: claimErr}
+		}
 		reportedBy := rc.UserName()
 
 		content := markdown.ScaffoldTriage(triageID, title, priority, source, "", reportedBy)

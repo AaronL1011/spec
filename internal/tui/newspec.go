@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -17,10 +16,15 @@ import (
 // createSpec scaffolds a new SPEC-NNN.md and commits it.
 func createSpec(rc *config.ResolvedConfig, title string) tea.Cmd {
 	return func() tea.Msg {
+		// Claim an authoritative ID before writing (SPEC-018). Offline is a hard
+		// fail surfaced as an action error — the TUI must not scaffold a guessed ID.
 		specFiles, _ := gitpkg.ListSpecFiles(&rc.Team.SpecsRepo)
 		archiveFiles, _ := gitpkg.ListArchiveFiles(&rc.Team.SpecsRepo, config.ArchiveDir(rc.Team))
-		allFiles := slices.Concat(specFiles, archiveFiles)
-		specID := markdown.NextSpecID(allFiles)
+		bootstrapMax := markdown.MaxSpecNum(append(append([]string{}, specFiles...), archiveFiles...))
+		specID, claimErr := gitpkg.ClaimNextID(context.Background(), &rc.Team.SpecsRepo, gitpkg.CounterSpec, bootstrapMax)
+		if claimErr != nil {
+			return actionResultMsg{Action: "new", Err: claimErr}
+		}
 
 		author := gitpkg.UserName(context.Background())
 		cycle := rc.CycleLabel()

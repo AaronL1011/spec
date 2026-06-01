@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
@@ -52,11 +51,12 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("syncing specs repo: %w", err)
 	}
 
-	// Compute next ID
-	specFiles, _ := gitpkg.ListSpecFiles(&rc.Team.SpecsRepo)
-	archiveFiles, _ := gitpkg.ListArchiveFiles(&rc.Team.SpecsRepo, config.ArchiveDir(rc.Team))
-	allFiles := slices.Concat(specFiles, archiveFiles)
-	specID := markdown.NextSpecID(allFiles)
+	// Claim an authoritative ID before writing (SPEC-018 two-phase
+	// claim→write). This hard-fails when offline rather than guessing a number.
+	specID, err := claimSpecID(ctx(), rc)
+	if err != nil {
+		return err
+	}
 
 	author := gitpkg.UserName(ctx())
 	cycle := rc.CycleLabel()

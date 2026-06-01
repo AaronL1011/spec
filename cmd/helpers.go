@@ -24,6 +24,26 @@ func specsDir(repoPath string) string {
 	return filepath.Join(repoPath, gitpkg.SpecsSubDir)
 }
 
+// claimSpecID claims an authoritative SPEC-NNN via the remote counter ref
+// (SPEC-018). The bootstrap seed is the current max over spec + archive
+// filenames, used only when the repo has no counter ref yet. This is the only
+// allocation path for `spec new`/`promote`/`fix`; the claim is made before the
+// scaffold-and-write step and hard-fails offline rather than guessing.
+func claimSpecID(ctx context.Context, rc *config.ResolvedConfig) (string, error) {
+	specFiles, _ := gitpkg.ListSpecFiles(&rc.Team.SpecsRepo)
+	archiveFiles, _ := gitpkg.ListArchiveFiles(&rc.Team.SpecsRepo, config.ArchiveDir(rc.Team))
+	bootstrapMax := markdown.MaxSpecNum(append(append([]string{}, specFiles...), archiveFiles...))
+	return gitpkg.ClaimNextID(ctx, &rc.Team.SpecsRepo, gitpkg.CounterSpec, bootstrapMax)
+}
+
+// claimTriageID claims an authoritative TRIAGE-NNN via the remote counter ref.
+// The bootstrap seed is the current max over triage filenames.
+func claimTriageID(ctx context.Context, rc *config.ResolvedConfig) (string, error) {
+	triageFiles, _ := gitpkg.ListTriageFiles(&rc.Team.SpecsRepo)
+	bootstrapMax := markdown.MaxTriageNum(triageFiles)
+	return gitpkg.ClaimNextID(ctx, &rc.Team.SpecsRepo, gitpkg.CounterTriage, bootstrapMax)
+}
+
 // cachedConfig memoizes the resolved configuration for the lifetime of a
 // single CLI invocation. A process runs exactly one command, so resolving the
 // chain once (rather than separately for the pre-run awareness line and the
