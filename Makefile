@@ -5,7 +5,7 @@ LDFLAGS := -ldflags "-s -w -X github.com/aaronl1011/spec-cli/cmd.Version=$(VERSI
 GOFLAGS := -trimpath
 DETECTED_SHELL := $(notdir $(shell echo $$SHELL))
 
-.PHONY: build test lint clean install install-completions fmt vet docs install-man
+.PHONY: build test lint lint-strict lint-install clean install install-completions fmt vet docs install-man
 
 build:
 	go build $(GOFLAGS) $(LDFLAGS) -o bin/$(BINARY) .
@@ -53,9 +53,22 @@ test-cover:
 	go test ./... -race -count=1 -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 
+# Version must match .github/workflows/ci.yaml (golangci-lint-action `version`).
+GOLANGCI_LINT_VERSION := v2.12.2
+
 lint:
 	go vet ./...
 	@command -v golangci-lint >/dev/null 2>&1 && golangci-lint run || echo "golangci-lint not installed, skipping"
+
+# lint-strict reproduces the CI lint job exactly and fails hard if the linter is
+# missing. Run this before opening a PR. CI runs the same command + version.
+lint-strict:
+	go vet ./...
+	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed — run 'make lint-install'"; exit 1; }
+	golangci-lint run --timeout=5m
+
+lint-install:
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 fmt:
 	gofmt -s -w .

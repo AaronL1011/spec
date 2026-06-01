@@ -1,4 +1,4 @@
-# spec — The End-Game Developer Control Plane
+# spec — A Unified Developer Control Plane
 
 `spec` was built for flow. Born from a desire for liberation from tangled webs of
 project-management software — free to solve problems in peace and serenity.
@@ -17,15 +17,15 @@ and you get an interactive terminal dashboard of everything awaiting your attent
 ## Why spec?
 
 - **One place for the work.** Specs, pipeline state, decisions, reviews, and build
-  context live together — not scattered across five SaaS tabs.
+  context live together.
 - **A pipeline that fits your team.** Stages, gates, and automated effects are
   config-driven. Start from a preset, customise as you grow.
 - **Markdown in git is the source of truth.** No proprietary database, no lock-in.
   A spec is a structured `SPEC-NNN.md` you can read, diff, and review.
 - **Local-first and resilient.** Every integration is optional. Unconfigured tools
-  use noop adapters — nothing panics, nothing blocks. `spec` works fully offline.
+  use noop adapters. `spec` works fully offline.
 - **Agent-ready.** `spec build` assembles structured context for coding agents
-  (Claude Code, Cursor, Copilot) over an MCP server or a context file.
+  (Pi, Claude Code, Cursor, Copilot) over an MCP server or a context file.
 - **AI is a bonus, never a requirement.** Drafting features enhance the flow when
   configured and quietly step aside when they aren't.
 
@@ -128,45 +128,6 @@ static render; force it with `--static`.
 For the complete command reference, configuration schema, and keybindings, see the
 **[QUICKSTART guide →](QUICKSTART.md)**.
 
----
-
-## Architecture
-
-`spec` uses a config-driven adapter pattern. Engines depend on interfaces, never on
-concrete implementations. Every integration category has a noop adapter used when
-unconfigured.
-
-| Category | Interface | Providers |
-|---|---|---|
-| Comms | `CommsAdapter` | Slack, Teams, Discord |
-| PM | `PMAdapter` | Jira, Linear, GitHub Issues |
-| Docs | `DocsAdapter` | Confluence, Notion |
-| Repo | `RepoAdapter` | GitHub, GitLab, Bitbucket |
-| Agent | `AgentAdapter` | Claude Code, Cursor, Copilot |
-| AI | `AIAdapter` | Anthropic, OpenAI, Ollama |
-| Deploy | `DeployAdapter` | GitHub Actions, GitLab CI, ArgoCD |
-
-```
-cmd/                  Cobra command definitions (thin — flags + call internal/)
-internal/
-  config/             Config loading, env var interpolation, resolution chain
-  markdown/           Frontmatter R/W, section extraction, decision log, templates
-  pipeline/           Stage machine, gates, transitions, role-based access
-  git/                All git operations (only package that shells out to git)
-  store/              All SQLite operations (only package that touches the DB)
-  adapter/            Interface definitions + noop implementations + registry
-  build/              PR stack parser, session state, context assembly, MCP server
-  dashboard/          Signal aggregation, cache-first rendering, awareness line
-  tui/                Bubble Tea TUI — views, components, keymap, themes
-  ai/                 AI service (null-safe), accept/edit/skip flow, prompts
-```
-
-The single source of truth is the **specs repo** (canonical markdown). Local state
-lives under `~/.spec/` (user config, a SQLite cache of dashboard/sessions/activity,
-and the specs-repo clone).
-
----
-
 ## Development
 
 ### Prerequisites
@@ -185,29 +146,6 @@ make lint         # go vet + golangci-lint
 make fmt          # gofmt -s -w .
 make docs         # regenerate man pages into docs/man/
 ```
-
-### Architectural rules
-
-These are enforced by convention and reviewed in every PR (see
-[`AGENTS.md`](AGENTS.md) for the full standard):
-
-- **`cmd/` is thin.** Parse flags, resolve config, call `internal/`. No business logic.
-- **Engines depend on interfaces.** Import `internal/adapter`, never `internal/adapter/github`.
-- **Only `internal/git/` shells out to git.** No other package calls `exec.Command("git", …)`.
-- **Only `internal/store/` touches SQLite.** No other package opens the DB.
-- **No CGo.** The binary is statically linked and cross-compilable (`modernc.org/sqlite`).
-- **AI is never required.** Every feature works without an `ai` integration; the AI
-  service returns `("", nil)` when unconfigured and callers always handle that.
-
-### Testing guidelines
-
-- Table-driven tests for functions with multiple interesting inputs.
-- Golden file tests for the markdown engine.
-- Test against interfaces, not implementations.
-- Each test creates its own state — `store.OpenMemory()`, `t.TempDir()`. No shared fixtures.
-- Test names describe the scenario: `TestAdvance_GateNotMet_ReturnsError`.
-
----
 
 ## Contributing
 

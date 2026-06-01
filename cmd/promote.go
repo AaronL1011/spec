@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/adapter"
-	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/spf13/cobra"
@@ -60,11 +58,11 @@ func runPromote(cmd *cobra.Command, args []string) error {
 		title = titleOverride
 	}
 
-	// Compute next spec ID
-	specFiles, _ := gitpkg.ListSpecFiles(&rc.Team.SpecsRepo)
-	archiveFiles, _ := gitpkg.ListArchiveFiles(&rc.Team.SpecsRepo, config.ArchiveDir(rc.Team))
-	allFiles := slices.Concat(specFiles, archiveFiles)
-	specID := markdown.NextSpecID(allFiles)
+	// Claim an authoritative spec ID before writing (SPEC-018).
+	specID, err := claimSpecID(ctx(), rc)
+	if err != nil {
+		return err
+	}
 
 	author := gitpkg.UserName(ctx())
 	cycle := rc.CycleLabel()

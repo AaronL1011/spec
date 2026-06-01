@@ -54,6 +54,28 @@
 - Test names describe the scenario: `TestAdvance_GateNotMet_ReturnsError`, `TestSyncInbound_RoleGuard_IgnoresMismatch`.
 - Run `go vet` and `golangci-lint` clean. No lint exceptions without a comment explaining why.
 
+### Mandatory pre-completion checks (CI parity)
+
+The CI lint job runs `golangci-lint run --timeout=5m` at a pinned version (see
+`.github/workflows/ci.yaml` and `GOLANGCI_LINT_VERSION` in the `Makefile`). It
+fails the PR on **any** issue. A change is not "done" until lint passes locally
+with the same linter — never assume `go vet` alone is sufficient.
+
+Before considering any task complete, run **`make lint-strict`** (not `make lint`,
+which silently skips when the linter is absent). If the linter is missing, install
+the pinned version first with `make lint-install`. Treat a non-zero exit as a
+blocker, not a warning.
+
+Linters enabled beyond the standard set include `unparam`, `wastedassign`,
+`nilerr`, `errorlint`, `gocritic`, and `unconvert` (full list in `.golangci.yml`).
+Common failures to avoid proactively:
+- `unparam`: do not declare function results (or parameters) that every caller
+  ignores. If a returned value is only ever discarded with `_`, drop it from the
+  signature. This applies to test helpers too.
+- `wastedassign` / `ineffassign`: do not assign a value that is overwritten or
+  never read.
+- `errorlint`: compare wrapped errors with `errors.Is`/`errors.As`, not `==`.
+
 ## Design Principles
 
 ### KISS

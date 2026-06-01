@@ -48,9 +48,11 @@ func runIntake(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("syncing specs repo: %w", err)
 	}
 
-	// Compute next triage ID
-	triageFiles, _ := gitpkg.ListTriageFiles(&rc.Team.SpecsRepo)
-	triageID := markdown.NextTriageID(triageFiles)
+	// Claim an authoritative triage ID before writing (SPEC-018).
+	triageID, err := claimTriageID(ctx(), rc)
+	if err != nil {
+		return err
+	}
 
 	reportedBy := rc.UserName()
 	content := markdown.ScaffoldTriage(triageID, title, priority, source, sourceRef, reportedBy)
