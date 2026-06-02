@@ -23,6 +23,7 @@ type DashboardItem struct {
 	Stage   string `json:"stage"`
 	Detail  string `json:"detail"`
 	Urgency string `json:"urgency"` // "normal", "stale", "critical"
+	URL     string `json:"url,omitempty"`
 }
 
 // DashboardData holds all dashboard sections.
@@ -159,6 +160,7 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 					SpecID: fmt.Sprintf("PR #%d", pr.Number),
 					Title:  pr.Title,
 					Detail: fmt.Sprintf("%s  %s", pr.Repo, timeAgo(pr.CreatedAt)),
+					URL:    pr.URL,
 				})
 			}
 		}

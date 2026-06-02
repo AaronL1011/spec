@@ -600,18 +600,20 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.modal.SetSize(a.width, a.contentHeight())
 		return a, nil
 
-	// Enter drills into spec detail.
+	// Enter: open PR in browser for review rows; drill into spec detail otherwise.
 	case key.Matches(msg, a.keys.Enter):
-		if specID := a.selectedSpecID(); isSpecID(specID) {
-			return a, a.openDetail(specID)
+		if a.activeView == ViewDashboard {
+			if url := a.dashboard.selectedURL(); url != "" {
+				return a, openInBrowser(url)
+			}
 		}
-
-	// Open in browser (Reviews tab only).
-	case key.Matches(msg, a.keys.Open):
 		if a.activeView == ViewReviews {
 			if url := a.reviews.selectedURL(); url != "" {
 				return a, openInBrowser(url)
 			}
+		}
+		if specID := a.selectedSpecID(); isSpecID(specID) {
+			return a, a.openDetail(specID)
 		}
 	}
 

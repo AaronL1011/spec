@@ -49,7 +49,8 @@ type dashboardRow struct {
 	title    string
 	detail   string
 	urgency  string
-	sortRank int // lower = higher priority within section
+	url      string // non-empty for REVIEW rows (PR URL)
+	sortRank int    // lower = higher priority within section
 }
 
 // newDashboard creates a new dashboard view.
@@ -192,6 +193,15 @@ func (m dashboardModel) selectedSpecID() string {
 	return ""
 }
 
+// selectedURL returns the URL for the currently selected row, if any.
+// Only REVIEW rows carry a URL.
+func (m dashboardModel) selectedURL() string {
+	if m.cursor >= 0 && m.cursor < len(m.items) {
+		return m.items[m.cursor].url
+	}
+	return ""
+}
+
 func (m dashboardModel) pendingCount() int {
 	if m.data == nil {
 		return 0
@@ -281,6 +291,7 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			title:    item.Title,
 			detail:   item.Detail,
 			urgency:  item.Urgency,
+			url:      item.URL,
 			sortRank: urgencyRank(item.Urgency),
 		})
 	}
