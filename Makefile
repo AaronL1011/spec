@@ -1,7 +1,7 @@
 BINARY := spec
 BINDIR ?= $(HOME)/.local/bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS := -ldflags "-s -w -X github.com/aaronl1011/spec-cli/cmd.Version=$(VERSION)"
+LDFLAGS := -ldflags "-s -w -X github.com/aaronl1011/spec/cmd.Version=$(VERSION)"
 GOFLAGS := -trimpath
 DETECTED_SHELL := $(notdir $(shell echo $$SHELL))
 
