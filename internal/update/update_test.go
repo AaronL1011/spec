@@ -111,10 +111,22 @@ func TestApply_NoopWhenUpToDate(t *testing.T) {
 
 func TestModuleRef(t *testing.T) {
 	u := newTestUpdater(fakeSource{})
+
+	// With no resolved tag at all, fall back to @latest.
 	if got := u.moduleRef(&Plan{}); got != defaultModulePath+"@latest" {
 		t.Errorf("moduleRef = %q, want @latest", got)
 	}
-	pinned := &Plan{opts: Options{TargetVersion: "v1.2.0"}}
+
+	// The resolved latest tag must be pinned exactly so go install fetches the
+	// same version the GitHub release API reported, not whatever the module
+	// proxy considers @latest.
+	resolved := &Plan{LatestVersion: "v0.15.0"}
+	if got := u.moduleRef(resolved); got != defaultModulePath+"@v0.15.0" {
+		t.Errorf("moduleRef = %q, want @v0.15.0", got)
+	}
+
+	// An explicitly requested target version wins over the resolved latest.
+	pinned := &Plan{LatestVersion: "v0.15.0", opts: Options{TargetVersion: "v1.2.0"}}
 	if got := u.moduleRef(pinned); got != defaultModulePath+"@v1.2.0" {
 		t.Errorf("moduleRef = %q, want @v1.2.0", got)
 	}
