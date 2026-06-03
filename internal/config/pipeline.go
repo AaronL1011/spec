@@ -17,15 +17,6 @@ type PipelineConfig struct {
 	// or extend the preset's stages. When Preset is empty, these are the
 	// complete stage definitions.
 	Stages []StageConfig `yaml:"stages,omitempty"`
-
-	// Variants defines alternative pipelines for different work types.
-	Variants map[string]VariantConfig `yaml:"variants,omitempty"`
-
-	// Default is the default variant name when multiple variants exist.
-	Default string `yaml:"default,omitempty"`
-
-	// VariantFromLabels maps spec labels to variant names for auto-selection.
-	VariantFromLabels []LabelVariantMapping `yaml:"variant_from_labels,omitempty"`
 }
 
 // Owners represents one or more owner roles for a pipeline stage.
@@ -459,30 +450,6 @@ type WebhookEffect struct {
 	Timeout string            `yaml:"timeout,omitempty"` // default: 10s
 }
 
-// VariantConfig defines a pipeline variant for different work types.
-type VariantConfig struct {
-	// Preset is the base preset for this variant.
-	Preset string `yaml:"preset,omitempty"`
-
-	// Skip lists stages to remove from the preset.
-	Skip []string `yaml:"skip,omitempty"`
-
-	// Stages defines or overrides stages for this variant.
-	Stages []StageConfig `yaml:"stages,omitempty"`
-}
-
-// LabelVariantMapping maps a spec label to a pipeline variant.
-type LabelVariantMapping struct {
-	// Label is the spec label to match.
-	Label string `yaml:"label,omitempty"`
-
-	// Variant is the variant name to use when the label matches.
-	Variant string `yaml:"variant"`
-
-	// Default marks this as the default variant when no labels match.
-	Default bool `yaml:"default,omitempty"`
-}
-
 // StageByName returns the stage config with the given name, or nil.
 func (p PipelineConfig) StageByName(name string) *StageConfig {
 	for i := range p.Stages {
@@ -526,30 +493,4 @@ func (p PipelineConfig) IsValidReversion(from, to string) bool {
 	fromIdx := p.StageIndex(from)
 	toIdx := p.StageIndex(to)
 	return fromIdx >= 0 && toIdx >= 0 && toIdx < fromIdx
-}
-
-// NewSimpleGate creates a simple gate config for common gate types.
-func NewSimpleGate(gateType, value string) GateConfig {
-	t := true
-	switch gateType {
-	case "section_not_empty":
-		return GateConfig{SectionNotEmpty: value}
-	case "steps_exists", "pr_stack_exists":
-		return GateConfig{StepsExists: &t}
-	case "prs_approved":
-		return GateConfig{PRsApproved: &t}
-	case "review_approved":
-		return GateConfig{ReviewApproved: &t}
-	case "duration":
-		return GateConfig{Duration: value}
-	case "expr":
-		return GateConfig{Expr: value}
-	default:
-		return GateConfig{}
-	}
-}
-
-// NewExprGate creates an expression gate with a custom message.
-func NewExprGate(expr, message string) GateConfig {
-	return GateConfig{Expr: expr, Message: message}
 }

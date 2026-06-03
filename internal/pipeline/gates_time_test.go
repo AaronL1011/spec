@@ -6,7 +6,6 @@ import (
 
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
-	"github.com/aaronl1011/spec/internal/pipeline/expr"
 )
 
 func TestEvaluateGatesDurationGate(t *testing.T) {
@@ -86,87 +85,4 @@ func TestEvaluateGatesDurationGate(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestEvaluateGatesAndEvaluateGatesWithContextConsistency verifies that both
-// gate evaluation paths (EvaluateGates and EvaluateGatesWithContext) produce
-// identical results. This ensures the consolidated evaluation logic is correct.
-func TestEvaluateGatesAndEvaluateGatesWithContextConsistency(t *testing.T) {
-	now := time.Now()
-	pipeline := config.PipelineConfig{
-		Stages: []config.StageConfig{
-			{
-				Name: "review",
-				Gates: []config.GateConfig{
-					{Duration: "1h"},
-					{SectionNotEmpty: "design_doc"},
-				},
-			},
-		},
-	}
-
-	meta := &markdown.SpecMeta{
-		Updated: now.Add(-2 * time.Hour).Format("2006-01-02"),
-	}
-
-	sections := []markdown.Section{
-		{Slug: "design_doc", Content: "Some content here"},
-	}
-
-	// Evaluate using EvaluateGates (raw parameters)
-	resultsA := EvaluateGates(pipeline, "review", sections, false, false, meta)
-
-	// Evaluate using EvaluateGatesWithContext (pre-built context)
-	// We need to construct the same context
-	ctx := buildContextFromRaw(pipeline, "review", sections, false, false, meta)
-	resultsB := EvaluateGatesWithContext(pipeline, "review", ctx)
-
-	if len(resultsA) != len(resultsB) {
-		t.Fatalf("result count mismatch: EvaluateGates=%d, EvaluateGatesWithContext=%d",
-			len(resultsA), len(resultsB))
-	}
-
-	for i := range resultsA {
-		if resultsA[i].Passed != resultsB[i].Passed {
-			t.Errorf("gate %d mismatch: EvaluateGates.Passed=%v, EvaluateGatesWithContext.Passed=%v",
-				i, resultsA[i].Passed, resultsB[i].Passed)
-		}
-		if resultsA[i].Gate != resultsB[i].Gate {
-			t.Errorf("gate %d name mismatch: %q vs %q", i, resultsA[i].Gate, resultsB[i].Gate)
-		}
-	}
-}
-
-// buildContextFromRaw replicates the context building logic from EvaluateGates
-// for testing purposes.
-func buildContextFromRaw(pipeline config.PipelineConfig, currentStage string, sections []markdown.Section, hasPRStack bool, prsApproved bool, meta *markdown.SpecMeta) expr.Context {
-	var timeInStage time.Duration
-	var revertCount int
-	var specID, specTitle, specStatus string
-	if meta != nil {
-		if meta.Updated != "" {
-			if updated, err := time.Parse("2006-01-02", meta.Updated); err == nil {
-				timeInStage = time.Since(updated)
-			}
-		}
-		revertCount = meta.RevertCount
-		specID = meta.ID
-		specTitle = meta.Title
-		specStatus = meta.Status
-	}
-
-	ctx := expr.NewContextBuilder().
-		WithSpec(specID, specTitle, specStatus, nil, 0, timeInStage, revertCount).
-		WithPRStack(hasPRStack, 0, 0, false, false).
-		WithPRs(0, 0, prsApproved).
-		Build()
-
-	for _, sec := range sections {
-		ctx.Sections[sec.Slug] = expr.SectionContext{
-			Empty:     len(sec.Content) == 0,
-			WordCount: len(sec.Content),
-		}
-	}
-
-	return ctx
 }

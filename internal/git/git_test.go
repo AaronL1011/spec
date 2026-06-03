@@ -100,13 +100,6 @@ func TestGitOperations(t *testing.T) {
 	if branch != "master" && branch != "main" {
 		t.Errorf("branch = %q, want master or main", branch)
 	}
-
-	if !IsGitRepo(dir) {
-		t.Error("expected IsGitRepo to be true")
-	}
-	if IsGitRepo(t.TempDir()) {
-		t.Error("expected IsGitRepo to be false for non-repo")
-	}
 }
 
 // newTestClone sets up a bare remote + working clone with identity configured,

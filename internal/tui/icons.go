@@ -78,20 +78,6 @@ func StageIconAt(pos int) string {
 	return StageIcons[pos]
 }
 
-// StepIconFor returns the glyph for a build-step status.
-func StepIconFor(status string) string {
-	switch status {
-	case "done":
-		return IconDone
-	case "in_progress", "active":
-		return IconActive
-	case "blocked":
-		return IconBlocked
-	default:
-		return IconOpen
-	}
-}
-
 // CIIconFor returns the glyph for a CI status.
 func CIIconFor(status string) string {
 	switch status {

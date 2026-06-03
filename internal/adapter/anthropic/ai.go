@@ -90,16 +90,6 @@ func (c *Client) Complete(ctx context.Context, prompt string, system string) (st
 	return result.Text(), nil
 }
 
-// Embed returns a vector embedding for the given text.
-// Anthropic does not currently offer a public embeddings API.
-// Returns nil, ErrEmbeddingsNotSupported.
-func (c *Client) Embed(ctx context.Context, text string) ([]float32, error) {
-	return nil, ErrEmbeddingsNotSupported
-}
-
-// ErrEmbeddingsNotSupported indicates the provider does not support embeddings.
-var ErrEmbeddingsNotSupported = fmt.Errorf("anthropic does not support embeddings — use a separate embedding provider or Ollama")
-
 // --- API types ---
 
 type messagesRequest struct {

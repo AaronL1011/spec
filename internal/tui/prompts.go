@@ -455,36 +455,6 @@ func PromptSelectStage(stages []string, title, description string) (string, erro
 	return selected, nil
 }
 
-// PromptMultiSelectStages prompts to select multiple stages.
-func PromptMultiSelectStages(stages []string, title, description string) ([]string, error) {
-	if !IsInteractive() {
-		return nil, fmt.Errorf("not a terminal — use flags")
-	}
-
-	options := make([]huh.Option[string], len(stages))
-	for i, s := range stages {
-		options[i] = huh.NewOption(s, s)
-	}
-
-	var selected []string
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewMultiSelect[string]().
-				Title(title).
-				Description(description).
-				Options(options...).
-				Value(&selected),
-		),
-	)
-
-	err := form.Run()
-	if err != nil {
-		return nil, err
-	}
-
-	return selected, nil
-}
-
 // PrintSuccess prints a success message.
 func PrintSuccess(message string) {
 	fmt.Println(successStyle.Render(IconToastOK + " " + message))

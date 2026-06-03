@@ -205,8 +205,8 @@ Expressions can read `spec.id`, `spec.status`, `spec.labels`, `spec.word_count`,
 Messages expand `$spec_id`, `$spec_title`, `$from_stage`, `$to_stage`, `$user`,
 `$author`.
 
-**Variants** let one config branch by label (e.g. `bug` → a shorter `bugfix`
-pipeline). Always run `spec pipeline validate` after editing.
+**Conditional stages**: attach `skip_when: "<expression>"` to a stage to skip it
+for specs the expression matches. Always run `spec pipeline validate` after editing.
 
 ---
 
@@ -477,7 +477,7 @@ spec draft --pr
 | `spec edit [id]` | Open in `$EDITOR` (or print the docs URL) |
 | `spec decide [id]` | Manage the decision log (`--question`, `--resolve`, `--list`) |
 | `spec search "query"` | Full-text search across active + archived specs |
-| `spec context "question"` | Semantic search (keyword fallback without AI) |
+| `spec context "question"` | Keyword search across specs and decisions |
 
 ### Planning, build & review
 

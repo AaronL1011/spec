@@ -76,9 +76,3 @@ type AI struct{}
 func (AI) Complete(ctx context.Context, prompt string, system string) (string, error) {
 	return "", nil
 }
-func (AI) Embed(ctx context.Context, text string) ([]float32, error) { return nil, nil }
-
-// Intake is a no-op IntakeAdapter.
-type Intake struct{}
-
-func (Intake) FetchItems(ctx context.Context) ([]adapter.IntakeItem, error) { return nil, nil }

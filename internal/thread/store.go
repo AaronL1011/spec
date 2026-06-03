@@ -24,8 +24,6 @@ type Store interface {
 	// Resolve marks a thread resolved. Resolving an already-resolved thread
 	// is a no-op that returns the thread unchanged.
 	Resolve(specID, threadID, by string) (Thread, error)
-	// Get returns a single thread by ID.
-	Get(specID, threadID string) (Thread, error)
 }
 
 // document is the on-disk shape of a sidecar file.
@@ -63,20 +61,6 @@ func (s *SidecarStore) List(specID string) ([]Thread, error) {
 		return nil, err
 	}
 	return doc.Threads, nil
-}
-
-// Get returns a single thread by ID.
-func (s *SidecarStore) Get(specID, threadID string) (Thread, error) {
-	threads, err := s.List(specID)
-	if err != nil {
-		return Thread{}, err
-	}
-	for _, t := range threads {
-		if t.ID == threadID {
-			return t, nil
-		}
-	}
-	return Thread{}, fmt.Errorf("thread %s not found in %s", threadID, normalizeID(specID))
 }
 
 // Create appends a new open thread.

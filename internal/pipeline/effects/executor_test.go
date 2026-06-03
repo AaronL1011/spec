@@ -238,47 +238,6 @@ func TestExecutor_MultipleEffects(t *testing.T) {
 	}
 }
 
-func TestHasErrors(t *testing.T) {
-	tests := []struct {
-		name    string
-		results []Result
-		want    bool
-	}{
-		{
-			name: "no errors",
-			results: []Result{
-				{Success: true},
-				{Success: true},
-			},
-			want: false,
-		},
-		{
-			name: "has error",
-			results: []Result{
-				{Success: true},
-				{Success: false},
-			},
-			want: true,
-		},
-		{
-			name: "skipped not counted as error",
-			results: []Result{
-				{Success: true},
-				{Success: false, Skipped: true},
-			},
-			want: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := HasErrors(tt.results); got != tt.want {
-				t.Errorf("HasErrors() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestExpandTemplate(t *testing.T) {
 	execCtx := ExecutionContext{
 		SpecID:    "SPEC-123",

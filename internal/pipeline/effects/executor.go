@@ -421,24 +421,3 @@ func ShouldArchive(results []Result) bool {
 	}
 	return false
 }
-
-// HasErrors checks if any effect failed.
-func HasErrors(results []Result) bool {
-	for _, r := range results {
-		if !r.Success && !r.Skipped {
-			return true
-		}
-	}
-	return false
-}
-
-// ErrorSummary returns a summary of all errors.
-func ErrorSummary(results []Result) string {
-	var errors []string
-	for _, r := range results {
-		if r.Error != nil {
-			errors = append(errors, r.Error.Error())
-		}
-	}
-	return strings.Join(errors, "; ")
-}

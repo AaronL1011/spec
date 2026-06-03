@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -78,22 +77,6 @@ func (e *claimExhaustedError) Error() string {
 		"could not allocate a %s ID after %d attempts under contention — no number was claimed; retry shortly",
 		e.kind.idPrefix(), e.attempts,
 	)
-}
-
-// IsClaimOffline reports whether err is (or wraps) a claim offline failure.
-func IsClaimOffline(err error) bool {
-	var e *claimOfflineError
-	return asClaimOffline(err, &e)
-}
-
-func asClaimOffline(err error, target **claimOfflineError) bool {
-	return errors.As(err, target)
-}
-
-// IsClaimExhausted reports whether err is (or wraps) a claim-exhaustion failure.
-func IsClaimExhausted(err error) bool {
-	var e *claimExhaustedError
-	return errors.As(err, &e)
 }
 
 // ClaimNextID atomically claims the next sequential ID for the given counter

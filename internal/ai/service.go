@@ -1,5 +1,5 @@
-// Package ai provides the AI service layer for content drafting, summarisation,
-// and semantic search. Every method returns nil when AI is unconfigured.
+// Package ai provides the AI service layer for content drafting. Every method
+// returns nil when AI is unconfigured.
 package ai
 
 import (
@@ -49,37 +49,6 @@ func (s *Service) Draft(ctx context.Context, prompt string, contextParts ...stri
 		// Degrade gracefully: return nil, not an error
 		fmt.Printf("AI provider unreachable. Proceeding without draft.\n")
 		return "", nil
-	}
-	return result, nil
-}
-
-// Summarise summarises text to a target length.
-// Returns ("", nil) when AI is unavailable.
-func (s *Service) Summarise(ctx context.Context, text string, maxLength int) (string, error) {
-	if !s.IsAvailable() {
-		return "", nil
-	}
-
-	prompt := fmt.Sprintf("Summarise the following in %d words or fewer:\n\n%s", maxLength, text)
-	system := "You are a concise summariser. Output only the summary, no preamble."
-
-	result, err := s.adapter.Complete(ctx, prompt, system)
-	if err != nil {
-		return "", nil
-	}
-	return result, nil
-}
-
-// Embed returns a vector embedding for the given text.
-// Returns (nil, nil) when AI is unavailable.
-func (s *Service) Embed(ctx context.Context, text string) ([]float32, error) {
-	if !s.IsAvailable() {
-		return nil, nil
-	}
-
-	result, err := s.adapter.Embed(ctx, text)
-	if err != nil {
-		return nil, nil
 	}
 	return result, nil
 }

@@ -83,8 +83,6 @@ func newSettings(rc *config.ResolvedConfig, styles Styles, keys KeyMap) settings
 	}
 }
 
-func (m settingsModel) init() tea.Cmd { return nil }
-
 func (m settingsModel) isEditing() bool {
 	return m.mode == settingsEditing
 }

@@ -3,7 +3,6 @@ package planning
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/aaronl1011/spec/internal/markdown"
@@ -192,12 +191,6 @@ func (p *Plan) Progress() (int, int) {
 	return completed, len(p.Steps)
 }
 
-// ProgressString returns a progress string like "3/7 steps".
-func (p *Plan) ProgressString() string {
-	completed, total := p.Progress()
-	return fmt.Sprintf("%d/%d steps", completed, total)
-}
-
 // IsReviewPending returns true if review is requested but not yet approved.
 func (p *Plan) IsReviewPending() bool {
 	return p != nil && p.Review != nil && p.Review.Status == ReviewPending
@@ -365,28 +358,4 @@ func (p *Plan) Validate() []string {
 	}
 
 	return issues
-}
-
-// Summary returns a brief text summary of the plan.
-func (p *Plan) Summary() string {
-	if !p.HasSteps() {
-		return "No build plan"
-	}
-
-	var parts []string
-	completed, total := p.Progress()
-	parts = append(parts, fmt.Sprintf("%d/%d steps", completed, total))
-
-	if p.Review != nil {
-		switch p.Review.Status {
-		case ReviewPending:
-			parts = append(parts, "review pending")
-		case ReviewApproved:
-			parts = append(parts, "approved")
-		case ReviewChangesRequested:
-			parts = append(parts, "changes requested")
-		}
-	}
-
-	return strings.Join(parts, ", ")
 }

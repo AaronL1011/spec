@@ -438,34 +438,6 @@ user:
 	}
 }
 
-func TestValidMultiplexers(t *testing.T) {
-	valid := ValidMultiplexers()
-	if len(valid) != 5 {
-		t.Errorf("ValidMultiplexers count = %d, want 5", len(valid))
-	}
-
-	tests := []struct {
-		input string
-		want  bool
-	}{
-		{"", true},
-		{"tmux", true},
-		{"zellij", true},
-		{"wezterm", true},
-		{"iterm2", true},
-		{"none", true},
-		{"invalid", false},
-		{"screen", false},
-	}
-
-	for _, tt := range tests {
-		got := IsValidMultiplexer(tt.input)
-		if got != tt.want {
-			t.Errorf("IsValidMultiplexer(%q) = %v, want %v", tt.input, got, tt.want)
-		}
-	}
-}
-
 func TestFastTrackConfig(t *testing.T) {
 	content := `
 version: "1"
@@ -474,8 +446,6 @@ fast_track:
   allowed_roles: [engineer, tl, senior]
   max_duration: "2d"
   require_labels: [bug, hotfix]
-  pipeline_variant: bug
-  excluded_stages: [design, qa-expectations]
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "spec.config.yaml")
@@ -518,14 +488,6 @@ fast_track:
 
 	if len(ft.RequireLabels) != 2 {
 		t.Errorf("RequireLabels count = %d, want 2", len(ft.RequireLabels))
-	}
-
-	if ft.PipelineVariant != "bug" {
-		t.Errorf("PipelineVariant = %q, want bug", ft.PipelineVariant)
-	}
-
-	if len(ft.ExcludedStages) != 2 {
-		t.Errorf("ExcludedStages count = %d, want 2", len(ft.ExcludedStages))
 	}
 }
 
