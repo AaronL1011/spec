@@ -344,6 +344,32 @@ func (m specDetailModel) handleRenderedMsg(msg sectionRenderedMsg) (specDetailMo
 
 // ── Key Handling ──────────────────────────────────────────────────────────────
 
+// wheelScroll scrolls the detail view by delta lines (negative = up). It
+// mirrors the Up/Down key behaviour: the reader viewport (or focused thread
+// pane) in reader mode, the overview offset otherwise. Driven by the mouse
+// wheel so pointer and keyboard scrolling stay consistent.
+func (m *specDetailModel) wheelScroll(delta int) {
+	if m.readerMode {
+		if m.paneFocused {
+			m.threadScroll = clampCursor(m.threadScroll+delta, m.maxThreadScroll()+1)
+			return
+		}
+		if delta < 0 {
+			m.readerViewport.ScrollUp(-delta)
+		} else {
+			m.readerViewport.ScrollDown(delta)
+		}
+		return
+	}
+	m.scroll += delta
+	if m.scroll < 0 {
+		m.scroll = 0
+	}
+	if mx := m.maxScroll(); m.scroll > mx {
+		m.scroll = mx
+	}
+}
+
 func (m specDetailModel) updateOverview(msg tea.KeyMsg) (specDetailModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Up):
@@ -602,10 +628,94 @@ func (m specDetailModel) viewReader() string {
 	if m.readerContent == "" {
 		return ""
 	}
-	if m.width >= 100 {
+	if m.width >= readerSidebarMinWidth {
 		return m.viewReaderWithSidebar()
 	}
 	return m.viewReaderNarrow()
+}
+
+// Reader sidebar geometry. readerSidebarMinWidth is the terminal width at or
+// above which the section navigator column is shown; readerSidebarWidth is the
+// column's cell width. Both the renderer and the click hit-tester depend on
+// these, so they live here as the single definition.
+const (
+	readerSidebarMinWidth = 100
+	readerSidebarWidth    = 26
+)
+
+// sidebarLine is one rendered row of the reader's section navigator.
+// sectionIdx indexes readableSections for clickable section rows, or is -1 for
+// the header, blank, and padding rows.
+type sidebarLine struct {
+	text       string
+	sectionIdx int
+}
+
+// buildSidebar builds the section navigator column already scrolled to keep
+// the active section visible and padded/truncated to exactly `visible` rows.
+// viewReaderWithSidebar() and sectionAtClick() both derive from it so the
+// drawn column and its clickable rows stay in lockstep.
+func (m specDetailModel) buildSidebar(sections []markdown.Section, visible int) []sidebarLine {
+	lines := make([]sidebarLine, 0, len(sections)+2)
+	// Use a plain accent-styled header rather than SectionTitle: the latter
+	// carries MarginTop(1), which embeds a newline and would desync this
+	// column's row count from the content column on its right.
+	lines = append(lines,
+		sidebarLine{text: m.styles.Accent.Bold(true).Render(" " + GlyphSection + " Sections"), sectionIdx: -1},
+		sidebarLine{text: "", sectionIdx: -1},
+	)
+	for i, sec := range sections {
+		fill := IconPending
+		if len(strings.TrimSpace(sec.Content)) > 20 {
+			fill = IconFilled
+		}
+		// Open-thread badge keeps attention on unresolved review work.
+		badge := ""
+		if n := m.openCountForSection(sec.Slug); n > 0 {
+			badge = fmt.Sprintf(" ●%d", n)
+		}
+		label := truncate(sec.Slug, readerSidebarWidth-7-len(badge))
+		line := fmt.Sprintf(" %s %d %s%s", fill, i+1, label, badge)
+		if i == m.sectionIdx {
+			line = m.styles.Accent.Bold(true).Render(line)
+		} else {
+			line = m.styles.Muted.Render(line)
+		}
+		lines = append(lines, sidebarLine{text: line, sectionIdx: i})
+	}
+	for len(lines) < visible {
+		lines = append(lines, sidebarLine{text: "", sectionIdx: -1})
+	}
+	if len(lines) > visible {
+		ss, se := scrollWindow(m.sectionIdx+2, len(lines), visible)
+		lines = lines[ss:se]
+	}
+	return lines
+}
+
+// sectionAtClick maps a content-local (x, y) within the reader to a sidebar
+// section index. It returns ok=false when the reader has no sidebar (narrow
+// terminals or not in reader mode), the click is outside the sidebar column,
+// or the row is the header/blank/padding rather than a section entry.
+func (m specDetailModel) sectionAtClick(x, y int) (int, bool) {
+	if !m.readerMode || m.width < readerSidebarMinWidth {
+		return 0, false
+	}
+	if x < 0 || x >= readerSidebarWidth {
+		return 0, false
+	}
+	visible := m.height
+	if visible < 3 {
+		visible = 3
+	}
+	lines := m.buildSidebar(m.readableSections(), visible)
+	if y < 0 || y >= len(lines) {
+		return 0, false
+	}
+	if lines[y].sectionIdx < 0 {
+		return 0, false
+	}
+	return lines[y].sectionIdx, true
 }
 
 // viewReaderNarrow renders the reader on terminals too narrow for a sidebar.
@@ -624,43 +734,16 @@ func (m specDetailModel) viewReaderNarrow() string {
 }
 
 func (m specDetailModel) viewReaderWithSidebar() string {
-	const sidebarWidth = 26
+	const sidebarWidth = readerSidebarWidth
 	visible := m.height
 	if visible < 3 {
 		visible = 3
 	}
 
-	sections := m.readableSections()
-	var sidebar []string
-	// Use a plain accent-styled header rather than SectionTitle: the latter
-	// carries MarginTop(1), which embeds a newline and would desync this
-	// column's row count from the content column on its right.
-	sidebar = append(sidebar, m.styles.Accent.Bold(true).Render(" "+GlyphSection+" Sections"), "")
-	for i, sec := range sections {
-		fill := IconPending
-		if len(strings.TrimSpace(sec.Content)) > 20 {
-			fill = IconFilled
-		}
-		// Open-thread badge keeps attention on unresolved review work.
-		badge := ""
-		if n := m.openCountForSection(sec.Slug); n > 0 {
-			badge = fmt.Sprintf(" ●%d", n)
-		}
-		label := truncate(sec.Slug, sidebarWidth-7-len(badge))
-		line := fmt.Sprintf(" %s %d %s%s", fill, i+1, label, badge)
-		if i == m.sectionIdx {
-			line = m.styles.Accent.Bold(true).Render(line)
-		} else {
-			line = m.styles.Muted.Render(line)
-		}
-		sidebar = append(sidebar, line)
-	}
-	for len(sidebar) < visible {
-		sidebar = append(sidebar, "")
-	}
-	if len(sidebar) > visible {
-		ss, se := scrollWindow(m.sectionIdx+2, len(sidebar), visible)
-		sidebar = sidebar[ss:se]
+	sidebarModel := m.buildSidebar(m.readableSections(), visible)
+	sidebar := make([]string, len(sidebarModel))
+	for i, sl := range sidebarModel {
+		sidebar[i] = sl.text
 	}
 
 	// Thread pane is drawn at the bottom of the content column. Build the

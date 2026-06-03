@@ -533,3 +533,63 @@ func TestStepIcon(t *testing.T) {
 		}
 	}
 }
+
+func TestSpecDetail_SectionAtClick(t *testing.T) {
+	m := testSpecDetailModel()
+	m.width = 120 // >= readerSidebarMinWidth so the sidebar is shown
+	m.height = 30
+	m.readerMode = true
+	m.sections = []markdown.Section{
+		{Slug: "problem", Heading: "## 1. Problem", Level: 2, Content: "Problem text."},
+		{Slug: "goals", Heading: "## 2. Goals", Level: 2, Content: "Goals text."},
+		{Slug: "solution", Heading: "## 3. Solution", Level: 2, Content: "Solution text."},
+	}
+
+	// Sidebar rows: 0 header, 1 blank, 2 section0, 3 section1, 4 section2.
+	cases := []struct {
+		name    string
+		x, y    int
+		wantIdx int
+		wantOK  bool
+	}{
+		{"header row", 5, 0, 0, false},
+		{"blank row", 5, 1, 0, false},
+		{"first section", 5, 2, 0, true},
+		{"second section", 5, 3, 1, true},
+		{"third section", 5, 4, 2, true},
+		{"below sections", 5, 10, 0, false},
+		{"right of sidebar", readerSidebarWidth, 2, 0, false},
+	}
+	for _, tc := range cases {
+		idx, ok := m.sectionAtClick(tc.x, tc.y)
+		if ok != tc.wantOK || (ok && idx != tc.wantIdx) {
+			t.Errorf("%s: sectionAtClick(%d,%d) = (%d,%v), want (%d,%v)",
+				tc.name, tc.x, tc.y, idx, ok, tc.wantIdx, tc.wantOK)
+		}
+	}
+}
+
+func TestSpecDetail_SectionAtClick_NoSidebarWhenNarrow(t *testing.T) {
+	m := testSpecDetailModel()
+	m.width = 80 // below readerSidebarMinWidth → no sidebar
+	m.height = 30
+	m.readerMode = true
+	m.sections = []markdown.Section{
+		{Slug: "problem", Heading: "## 1. Problem", Level: 2, Content: "x"},
+	}
+	if _, ok := m.sectionAtClick(5, 2); ok {
+		t.Error("narrow reader has no sidebar; click should miss")
+	}
+}
+
+func TestSpecDetail_SectionAtClick_OverviewMisses(t *testing.T) {
+	m := testSpecDetailModel()
+	m.width = 120
+	m.readerMode = false // overview mode has no sidebar
+	m.sections = []markdown.Section{
+		{Slug: "problem", Heading: "## 1. Problem", Level: 2, Content: "x"},
+	}
+	if _, ok := m.sectionAtClick(5, 2); ok {
+		t.Error("overview mode has no sidebar; click should miss")
+	}
+}

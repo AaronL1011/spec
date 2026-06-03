@@ -188,11 +188,7 @@ func (m specListModel) view() string {
 	b.WriteString("\n")
 
 	// Visible window — scroll if needed.
-	visibleRows := m.height - 6 // search bar, header, separator, padding
-	if visibleRows < 3 {
-		visibleRows = 3
-	}
-	start, end := scrollWindow(m.cursor, len(m.filtered), visibleRows)
+	start, end := scrollWindow(m.cursor, len(m.filtered), m.visibleRows())
 
 	for i := start; i < end; i++ {
 		spec := m.filtered[i]
@@ -206,6 +202,43 @@ func (m specListModel) view() string {
 	}
 
 	return b.String()
+}
+
+// specListHeaderRows is the number of fixed rows drawn above the first spec
+// row: the search/count line, a blank, the column header, and the rule.
+// view() and clickRow() must agree on this offset.
+const specListHeaderRows = 4
+
+// visibleRows is how many spec rows fit on screen below the header rows.
+func (m specListModel) visibleRows() int {
+	v := m.height - 6 // search bar, blank, header, separator, padding
+	if v < 3 {
+		v = 3
+	}
+	return v
+}
+
+// clickRow maps a content-local row y to a spec and selects it.
+func (m *specListModel) clickRow(y int) clickResult {
+	row := y - specListHeaderRows
+	if row < 0 {
+		return clickMissed
+	}
+	start, _ := scrollWindow(m.cursor, len(m.filtered), m.visibleRows())
+	idx := start + row
+	if idx < 0 || idx >= len(m.filtered) {
+		return clickMissed
+	}
+	if idx == m.cursor {
+		return clickActivated
+	}
+	m.cursor = idx
+	return clickSelected
+}
+
+// wheelRows moves the spec selection by delta rows (negative = up).
+func (m *specListModel) wheelRows(delta int) {
+	m.cursor = clampCursor(m.cursor+delta, len(m.filtered))
 }
 
 func (m specListModel) formatRow(id, title, status, author, updated string, width int) string {
@@ -344,6 +377,22 @@ func loadAllSpecs(ctx context.Context, rc *config.ResolvedConfig, archiveMode bo
 		})
 	}
 	return specs, syncErr
+}
+
+// clampCursor keeps a cursor index within [0, total-1]. An empty list yields
+// 0. Shared by the list views' mouse-wheel handlers so wheel scrolling can
+// never run the selection off either end.
+func clampCursor(cursor, total int) int {
+	if total <= 0 {
+		return 0
+	}
+	if cursor < 0 {
+		return 0
+	}
+	if cursor > total-1 {
+		return total - 1
+	}
+	return cursor
 }
 
 // scrollWindow computes the visible slice for a scrollable list.

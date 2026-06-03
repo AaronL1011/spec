@@ -20,6 +20,7 @@ const (
 	fieldHandle
 	fieldTheme
 	fieldRefresh
+	fieldMouse
 	fieldEditor
 	fieldCount
 )
@@ -148,7 +149,7 @@ func (m settingsModel) updateEditing(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 	case key.Matches(msg, m.keys.Enter):
 		return m.confirmEdit()
 	case msg.Type == tea.KeySpace:
-		if m.focused == fieldRole || m.focused == fieldTheme {
+		if m.isEnumField(m.focused) {
 			m.cycleEnumForward()
 			return m, m.themePreviewCmd()
 		} else if m.isTextField(m.focused) {
@@ -158,7 +159,7 @@ func (m settingsModel) updateEditing(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 		runes := string(msg.Runes)
 		// l/h cycle enum fields (Role/Theme); for text fields they are
 		// ordinary characters and must be inserted like any other rune.
-		if m.focused == fieldRole || m.focused == fieldTheme {
+		if m.isEnumField(m.focused) {
 			switch runes {
 			case " ", "l":
 				m.cycleEnumForward()
@@ -289,6 +290,8 @@ func (m settingsModel) savedValue(field settingsField) string {
 			return m.rc.User.Preferences.Editor
 		}
 		return "vi"
+	case fieldMouse:
+		return onOff(m.rc.User.Preferences.Mouse)
 	default:
 		return ""
 	}
@@ -315,6 +318,8 @@ func (m *settingsModel) applyValue(field settingsField, value string) {
 		m.rc.User.Preferences.RefreshInterval = value
 	case fieldEditor:
 		m.rc.User.Preferences.Editor = value
+	case fieldMouse:
+		m.rc.User.Preferences.Mouse = value == "on"
 	}
 }
 
@@ -356,6 +361,12 @@ func (m settingsModel) validateDraft() (string, error) {
 			return "", fmt.Errorf("editor cannot be empty")
 		}
 		return v, nil
+	case fieldMouse:
+		v := m.draftEnumValue(fieldMouse)
+		if v != "on" && v != "off" {
+			return "", fmt.Errorf("mouse must be on or off")
+		}
+		return v, nil
 	default:
 		return "", fmt.Errorf("unknown field")
 	}
@@ -368,6 +379,25 @@ func (m settingsModel) isTextField(field settingsField) bool {
 	default:
 		return false
 	}
+}
+
+// isEnumField reports whether a field cycles through a fixed value set (and so
+// is driven by space/l/h rather than text entry).
+func (m settingsModel) isEnumField(field settingsField) bool {
+	switch field {
+	case fieldRole, fieldTheme, fieldMouse:
+		return true
+	default:
+		return false
+	}
+}
+
+// onOff maps a bool to the enum tokens used for boolean settings.
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
 }
 
 func (m *settingsModel) appendDraft(s string) {
@@ -409,6 +439,8 @@ func (m settingsModel) enumList(field settingsField) []string {
 		return config.ValidRoles()
 	case fieldTheme:
 		return ThemeNames()
+	case fieldMouse:
+		return []string{"off", "on"}
 	default:
 		return nil
 	}
@@ -561,6 +593,7 @@ func (m settingsModel) layoutLines() []settingsLine {
 	appendLine(m.styles.SectionTitle.Render("  Appearance")+"\n", fieldCount, false)
 	appendLine(m.renderEditableRow("Theme", fieldTheme)+"\n", fieldTheme, true)
 	appendLine(m.renderEditableRow("Refresh", fieldRefresh)+"\n", fieldRefresh, true)
+	appendLine(m.renderEditableRow("Mouse", fieldMouse)+"\n", fieldMouse, true)
 	appendLine(m.renderEditableRow("Editor", fieldEditor)+"\n", fieldEditor, true)
 	appendLine("\n", fieldCount, false)
 
@@ -660,7 +693,7 @@ func (m settingsModel) renderEditableRow(label string, field settingsField) stri
 		valuePart.WriteString(m.styles.RowNormal.Render(value))
 	}
 
-	if editing && (field == fieldRole || field == fieldTheme) {
+	if editing && m.isEnumField(field) {
 		valuePart.WriteString(" ")
 		valuePart.WriteString(m.styles.Muted.Render("(space/l/h cycle)"))
 	} else if m.mode == settingsBrowse {

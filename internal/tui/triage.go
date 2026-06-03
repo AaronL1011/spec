@@ -113,11 +113,7 @@ func (m triageModel) view() string {
 
 	contentWidth := ContentWidth(m.width)
 
-	visibleRows := m.height - 5
-	if visibleRows < 3 {
-		visibleRows = 3
-	}
-	start, end := scrollWindow(m.cursor, len(m.items), visibleRows)
+	start, end := scrollWindow(m.cursor, len(m.items), m.visibleRows())
 
 	for i := start; i < end; i++ {
 		item := m.items[i]
@@ -126,6 +122,42 @@ func (m triageModel) view() string {
 	}
 
 	return b.String()
+}
+
+// listHeaderRows is the number of fixed rows the triage and review lists draw
+// above their first item row: a count line and a blank separator.
+const listHeaderRows = 2
+
+// visibleRows is how many item rows fit on screen below the header rows.
+func (m triageModel) visibleRows() int {
+	v := m.height - 5
+	if v < 3 {
+		v = 3
+	}
+	return v
+}
+
+// clickRow maps a content-local row y to a triage item and selects it.
+func (m *triageModel) clickRow(y int) clickResult {
+	row := y - listHeaderRows
+	if row < 0 {
+		return clickMissed
+	}
+	start, _ := scrollWindow(m.cursor, len(m.items), m.visibleRows())
+	idx := start + row
+	if idx < 0 || idx >= len(m.items) {
+		return clickMissed
+	}
+	if idx == m.cursor {
+		return clickActivated
+	}
+	m.cursor = idx
+	return clickSelected
+}
+
+// wheelRows moves the triage selection by delta rows (negative = up).
+func (m *triageModel) wheelRows(delta int) {
+	m.cursor = clampCursor(m.cursor+delta, len(m.items))
 }
 
 func (m triageModel) renderTriageRow(item triageItem, selected bool, width int) string {

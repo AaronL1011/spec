@@ -121,60 +121,93 @@ func (m dashboardModel) view() string {
 		return m.styles.Success.Render(Indent(1) + IconToastOK + " All clear — nothing needs your attention")
 	}
 
-	contentWidth := ContentWidth(m.width)
-
-	// Build all lines first, then apply scroll window.
-	var allLines []string
-	currentSection := ""
-	for i, row := range m.items {
-		if row.section != currentSection {
-			currentSection = row.section
-			count := m.sectionCount(currentSection)
-			if i > 0 {
-				allLines = append(allLines, "")
-			}
-			allLines = append(allLines, m.sectionHeader(currentSection, count, contentWidth))
-		}
-		allLines = append(allLines, m.renderRow(row, i == m.cursor, contentWidth))
-	}
-
-	// Find which line index the cursor row occupies.
-	cursorLine := m.cursorLineIndex()
-
-	visible := m.height
-	if visible < 3 {
-		visible = 3
-	}
-
-	start, end := scrollWindowAround(cursorLine, len(allLines), visible)
+	lines := m.layoutLines(ContentWidth(m.width))
+	start, end := m.scrollBounds(len(lines))
 
 	var b strings.Builder
-	for _, l := range allLines[start:end] {
-		b.WriteString(l)
+	for _, l := range lines[start:end] {
+		b.WriteString(l.text)
 		b.WriteString("\n")
 	}
 	return b.String()
 }
 
-// cursorLineIndex returns which rendered line the cursor row maps to,
-// accounting for section headers and blank separators.
-func (m dashboardModel) cursorLineIndex() int {
-	line := 0
+// dashLine is one rendered dashboard line. itemIdx indexes m.items for
+// selectable rows, or is -1 for section headers and blank separators.
+type dashLine struct {
+	text    string
+	itemIdx int
+}
+
+// layoutLines builds the full ordered line model for the dashboard: section
+// headers, blank separators, and item rows. view(), cursorLineIndex(), and
+// clickRow() all derive from this so the drawn layout and the click geometry
+// can never drift.
+func (m dashboardModel) layoutLines(contentWidth int) []dashLine {
+	var lines []dashLine
 	currentSection := ""
 	for i, row := range m.items {
 		if row.section != currentSection {
 			currentSection = row.section
-			if i > 0 {
-				line++ // blank separator
-			}
-			line++ // section header
+			count := m.sectionCount(currentSection)
+			// A blank line separates each section (and gives the first one
+			// breathing room under the tab strip). It is modelled as its own
+			// line so one dashLine always maps to exactly one screen row — the
+			// invariant clickRow relies on. sectionHeader must therefore not
+			// embed its own newline (no MarginTop styling).
+			lines = append(lines, dashLine{itemIdx: -1})
+			lines = append(lines, dashLine{text: m.sectionHeader(currentSection, count, contentWidth), itemIdx: -1})
 		}
-		if i == m.cursor {
-			return line
-		}
-		line++
+		lines = append(lines, dashLine{text: m.renderRow(row, i == m.cursor, contentWidth), itemIdx: i})
 	}
-	return line
+	return lines
+}
+
+// scrollBounds returns the visible [start,end) window of the line model,
+// centred on the cursor's line. Shared by view() and clickRow().
+func (m dashboardModel) scrollBounds(totalLines int) (start, end int) {
+	visible := m.height
+	if visible < 3 {
+		visible = 3
+	}
+	return scrollWindowAround(m.cursorLineIndex(), totalLines, visible)
+}
+
+// cursorLineIndex returns which rendered line the cursor row maps to,
+// accounting for section headers and blank separators.
+func (m dashboardModel) cursorLineIndex() int {
+	// Structural only (which line the cursor row sits on), so the rendered
+	// width is irrelevant; pass 0 to avoid recomputing styled text.
+	for i, l := range m.layoutLines(0) {
+		if l.itemIdx == m.cursor {
+			return i
+		}
+	}
+	return 0
+}
+
+// clickRow maps a content-local row y to a dashboard item and selects it.
+func (m *dashboardModel) clickRow(y int) clickResult {
+	lines := m.layoutLines(ContentWidth(m.width))
+	start, end := m.scrollBounds(len(lines))
+	li := start + y
+	if y < 0 || li < start || li >= end || li >= len(lines) {
+		return clickMissed
+	}
+	idx := lines[li].itemIdx
+	if idx < 0 {
+		return clickMissed // section header or blank separator
+	}
+	if idx == m.cursor {
+		return clickActivated
+	}
+	m.cursor = idx
+	return clickSelected
+}
+
+// wheelRows moves the dashboard selection by delta rows (negative = up).
+func (m *dashboardModel) wheelRows(delta int) {
+	m.cursor = clampCursor(m.cursor+delta, len(m.items))
 }
 
 func (m *dashboardModel) setSize(w, h int) {
@@ -344,7 +377,10 @@ func (m dashboardModel) sectionHeader(section string, count, width int) string {
 	label := " " + section + " "
 	countStr := fmt.Sprintf(" %d ", count)
 
-	renderedLabel := m.styles.SectionTitle.Render(label)
+	// Accent-bold, not SectionTitle: the latter carries MarginTop(1), which
+	// embeds a leading newline and would make this one rendered line occupy two
+	// screen rows, desyncing clickRow's row-to-item mapping.
+	renderedLabel := m.styles.Accent.Bold(true).Render(label)
 	renderedCount := m.styles.Subtitle.Render(countStr)
 
 	used := lipgloss.Width(renderedLabel) + lipgloss.Width(renderedCount)

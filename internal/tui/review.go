@@ -115,11 +115,7 @@ func (m reviewModel) view() string {
 
 	contentWidth := ContentWidth(m.width)
 
-	visibleRows := m.height - 5
-	if visibleRows < 3 {
-		visibleRows = 3
-	}
-	start, end := scrollWindow(m.cursor, len(m.items), visibleRows)
+	start, end := scrollWindow(m.cursor, len(m.items), m.visibleRows())
 
 	for i := start; i < end; i++ {
 		item := m.items[i]
@@ -128,6 +124,38 @@ func (m reviewModel) view() string {
 	}
 
 	return b.String()
+}
+
+// visibleRows is how many review rows fit on screen below the header rows.
+func (m reviewModel) visibleRows() int {
+	v := m.height - 5
+	if v < 3 {
+		v = 3
+	}
+	return v
+}
+
+// clickRow maps a content-local row y to a review item and selects it.
+func (m *reviewModel) clickRow(y int) clickResult {
+	row := y - listHeaderRows
+	if row < 0 {
+		return clickMissed
+	}
+	start, _ := scrollWindow(m.cursor, len(m.items), m.visibleRows())
+	idx := start + row
+	if idx < 0 || idx >= len(m.items) {
+		return clickMissed
+	}
+	if idx == m.cursor {
+		return clickActivated
+	}
+	m.cursor = idx
+	return clickSelected
+}
+
+// wheelRows moves the review selection by delta rows (negative = up).
+func (m *reviewModel) wheelRows(delta int) {
+	m.cursor = clampCursor(m.cursor+delta, len(m.items))
 }
 
 func (m reviewModel) renderReviewRow(item reviewItem, selected bool, width int) string {
