@@ -55,8 +55,10 @@ func (Repo) RequestedReviews(ctx context.Context, user string) ([]adapter.PullRe
 // Agent is a no-op AgentAdapter.
 type Agent struct{}
 
-func (Agent) Invoke(ctx context.Context, contextFile string, workDir string) error { return nil }
-func (Agent) SupportsMCP() bool                                                    { return false }
+func (Agent) Invoke(ctx context.Context, req adapter.InvokeRequest) (*adapter.InvokeResult, error) {
+	return &adapter.InvokeResult{}, nil
+}
+func (Agent) Capabilities() adapter.Capabilities { return adapter.Capabilities{} }
 
 // Deploy is a no-op DeployAdapter.
 type Deploy struct{}

@@ -517,6 +517,11 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// esc escalation: pop → arm → quit.
 	if key.Matches(msg, a.keys.Back) {
+		// Let the active view pop its own dismissible state first (e.g. clear a
+		// committed search filter) before we treat esc as an exit-arm.
+		if a.activeViewCanPopEsc() {
+			return a, a.delegateToActive(msg)
+		}
 		if a.exitArmed && time.Since(a.exitArmedAt) <= exitArmWindow {
 			return a, tea.Quit
 		}
@@ -790,6 +795,14 @@ func (a App) viewCapturingInput() bool {
 	return false
 }
 
+// activeViewCanPopEsc reports whether the active view has dismissible state that
+// esc should clear (e.g. a committed search filter) before the app treats esc
+// as the exit-arm. This keeps the double-esc exit guard from hijacking esc when
+// the user is trying to clear a filter.
+func (a App) activeViewCanPopEsc() bool {
+	return a.activeView == ViewSpecs && a.specs.hasActiveFilter()
+}
+
 func (a App) activeViewContent() string {
 	switch a.activeView {
 	case ViewDashboard:
@@ -990,6 +1003,7 @@ func (a *App) openDetail(specID string) tea.Cmd {
 	a.showDetail = true
 	a.detailFrom = a.activeView
 	a.detail = newSpecDetail(a.rc, specID, a.styles, a.keys, a.theme)
+	a.detail.db = a.db
 	a.detail.setSize(a.width, a.contentHeight())
 	a.statusBar.SetView(a.activeView.Label() + " › " + specID)
 	a.syncBusyState()
@@ -1208,7 +1222,17 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return editSpec(a.rc, specID, editor), true
 	case key.Matches(msg, a.keys.Build) && isSpecID(specID):
-		return a.startAction("building "+specID, buildSpec(a.rc, specID)), true
+		// Pre-flight stage guard runs before the confirm modal so an invalid
+		// spec surfaces inline and never reaches the confirm step.
+		if err := a.preflightBuild(specID); err != nil {
+			a.statusBar.SetStatusError("Build unavailable", err.Error())
+			return nil, true
+		}
+		a.pendingAction = "build"
+		a.pendingSpecID = specID
+		a.modal.ShowConfirm("Build "+specID, a.buildConfirmBody(specID))
+		a.modal.SetSize(a.width, a.contentHeight())
+		return nil, true
 	case key.Matches(msg, a.keys.Push) && isSpecID(specID):
 		return a.startAction("pushing "+specID, pushSpec(a.rc, specID)), true
 	case key.Matches(msg, a.keys.Sync) && isSpecID(specID):
@@ -1316,6 +1340,8 @@ func (a *App) executeActionWithInput(input string) tea.Cmd {
 			reason = "blocked from TUI"
 		}
 		return a.startAction("blocking "+specID, blockSpec(a.rc, specID, reason, a.rc.UserName()))
+	case "build":
+		return a.startAction("building "+specID, buildSpec(a.rc, specID))
 	case "unblock":
 		return a.startAction("unblocking "+specID, unblockSpec(a.rc, specID))
 	case "archive":

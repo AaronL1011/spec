@@ -18,6 +18,12 @@ type UserConfig struct {
 
 	Preferences PreferencesConfig `yaml:"preferences"`
 
+	// Agent is an OPTIONAL per-user coding-agent override. A coding harness is
+	// a personal tool, so each engineer may pick their own (e.g. claude-code or
+	// pi) regardless of the team default. When set (provider non-empty), it
+	// takes precedence over integrations.agent in the team config.
+	Agent *ProviderConfig `yaml:"agent,omitempty"`
+
 	// Workspaces maps repo names to local filesystem paths.
 	// Used for cross-repo navigation in multi-repo build plans.
 	// Example: workspaces: { auth-service: ~/code/auth-service }

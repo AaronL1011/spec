@@ -289,6 +289,13 @@ func (m specListModel) isInputActive() bool {
 	return m.searchActive
 }
 
+// hasActiveFilter returns true when a committed search filter is applied but the
+// search bar is no longer capturing input. In this state Esc should clear the
+// filter rather than arm the app's exit guard.
+func (m specListModel) hasActiveFilter() bool {
+	return !m.searchActive && m.searchQuery != ""
+}
+
 func (m specListModel) selectedSpecID() string {
 	if m.cursor >= 0 && m.cursor < len(m.filtered) {
 		return m.filtered[m.cursor].ID

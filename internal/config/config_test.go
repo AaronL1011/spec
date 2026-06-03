@@ -613,3 +613,122 @@ workspaces:
 		t.Errorf("workspace path = %q", reloaded.GetWorkspacePath("auth-service"))
 	}
 }
+
+func TestEffectiveAgentConfig(t *testing.T) {
+	teamAgent := ProviderConfig{Provider: "claude-code", Extra: map[string]string{"command": "claude"}}
+	team := &TeamConfig{}
+	team.Integrations.Agent = teamAgent
+
+	tests := []struct {
+		name string
+		rc   ResolvedConfig
+		want string
+	}{
+		{
+			name: "team default when no user override",
+			rc:   ResolvedConfig{Team: team},
+			want: "claude-code",
+		},
+		{
+			name: "user override wins over team",
+			rc: ResolvedConfig{
+				Team: team,
+				User: &UserConfig{Agent: &ProviderConfig{Provider: "pi"}},
+			},
+			want: "pi",
+		},
+		{
+			name: "empty user provider falls back to team",
+			rc: ResolvedConfig{
+				Team: team,
+				User: &UserConfig{Agent: &ProviderConfig{Provider: ""}},
+			},
+			want: "claude-code",
+		},
+		{
+			name: "user override with no team config",
+			rc:   ResolvedConfig{User: &UserConfig{Agent: &ProviderConfig{Provider: "pi"}}},
+			want: "pi",
+		},
+		{
+			name: "nothing configured yields empty",
+			rc:   ResolvedConfig{},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.rc.EffectiveAgentConfig().Provider; got != tt.want {
+				t.Errorf("EffectiveAgentConfig().Provider = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUserConfigParsesAgentOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `user:
+  name: Aaron
+  owner_role: engineer
+agent:
+  provider: pi
+  command: pi
+  skill: ~/skills/spec-build
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	uc, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("LoadUserConfig: %v", err)
+	}
+	if uc.Agent == nil {
+		t.Fatal("expected agent override to parse")
+	}
+	if uc.Agent.Provider != "pi" {
+		t.Errorf("provider = %q, want pi", uc.Agent.Provider)
+	}
+	if uc.Agent.Get("command") != "pi" {
+		t.Errorf("command = %q, want pi", uc.Agent.Get("command"))
+	}
+	if uc.Agent.Get("skill") != "~/skills/spec-build" {
+		t.Errorf("skill = %q", uc.Agent.Get("skill"))
+	}
+}
+
+func TestUserConfigAgentOverrideRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	cfg := &UserConfig{
+		Agent: &ProviderConfig{
+			Provider: "pi",
+			Extra:    map[string]string{"command": "pi-dev", "skill": "~/skills/spec-build"},
+		},
+	}
+	cfg.User.Name = "Aaron"
+
+	// Write then re-read: a settings save must not drop Extra keys.
+	if err := WriteUserConfig(path, cfg); err != nil {
+		t.Fatalf("WriteUserConfig: %v", err)
+	}
+	got, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("LoadUserConfig: %v", err)
+	}
+	if got.Agent == nil {
+		t.Fatal("agent override lost on round-trip")
+	}
+	if got.Agent.Provider != "pi" {
+		t.Errorf("provider = %q, want pi", got.Agent.Provider)
+	}
+	if got.Agent.Get("command") != "pi-dev" {
+		t.Errorf("command = %q, want pi-dev (dropped on marshal?)", got.Agent.Get("command"))
+	}
+	if got.Agent.Get("skill") != "~/skills/spec-build" {
+		t.Errorf("skill = %q (dropped on marshal?)", got.Agent.Get("skill"))
+	}
+}

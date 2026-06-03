@@ -14,6 +14,7 @@ import (
 	"github.com/aaronl1011/spec/internal/adapter/jira"
 	"github.com/aaronl1011/spec/internal/adapter/noop"
 	"github.com/aaronl1011/spec/internal/adapter/ollama"
+	"github.com/aaronl1011/spec/internal/adapter/pi"
 	"github.com/aaronl1011/spec/internal/adapter/slack"
 	"github.com/aaronl1011/spec/internal/adapter/teams"
 	"github.com/aaronl1011/spec/internal/config"
@@ -185,14 +186,22 @@ func resolveRepo(cfg *config.TeamConfig) (adapter.RepoAdapter, string) {
 }
 
 func resolveAgent(cfg *config.TeamConfig) (adapter.AgentAdapter, string) {
-	provider := cfg.Integrations.Agent.Provider
+	return Agent(cfg.Integrations.Agent)
+}
+
+// Agent resolves a coding-agent adapter from a single provider config. It is
+// exported so callers can resolve a per-user agent override independently of
+// the team registry (see ResolvedConfig.EffectiveAgentConfig).
+func Agent(agentCfg config.ProviderConfig) (adapter.AgentAdapter, string) {
+	provider := agentCfg.Provider
 	switch provider {
 	case "", "none":
 		return noop.Agent{}, ""
 	case "claude-code":
-		command := cfg.Integrations.Agent.Get("command")
-		return claude.NewAgent(command), ""
-	case "cursor", "copilot", "pi":
+		return claude.NewAgent(agentCfg.Get("command")), ""
+	case "pi":
+		return pi.NewAgent(agentCfg.Get("command")), ""
+	case "cursor", "copilot":
 		return noop.Agent{}, fmt.Sprintf("%s agent adapter not yet implemented — agent disabled", provider)
 	default:
 		return noop.Agent{}, fmt.Sprintf("unknown agent provider %q — agent disabled", provider)

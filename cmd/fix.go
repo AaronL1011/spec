@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aaronl1011/spec/internal/build"
+	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/tui"
 	"github.com/spf13/cobra"
@@ -37,6 +39,8 @@ Example:
 func init() {
 	fixCmd.Flags().StringSlice("label", nil, "labels to add (e.g., bug, hotfix)")
 	fixCmd.Flags().String("repo", "", "target repository")
+	fixCmd.Flags().Bool("auto", false, "after creating, run a headless agent to implement the fix")
+	fixCmd.Flags().Bool("headless", false, "alias for --auto")
 	rootCmd.AddCommand(fixCmd)
 }
 
@@ -140,7 +144,39 @@ func runFix(cmd *cobra.Command, args []string) error {
 		fmt.Printf("\n⏱ Note: Fast-track specs should complete within %s\n", ftConfig.MaxDuration)
 	}
 
+	auto, _ := cmd.Flags().GetBool("auto")
+	headless, _ := cmd.Flags().GetBool("headless")
+	if auto || headless {
+		return runHeadlessFix(rc, specID)
+	}
+
 	return nil
+}
+
+// runHeadlessFix launches a headless agent build session for a freshly-created
+// fast-track spec. It reuses the fast-track gating already enforced in runFix.
+func runHeadlessFix(rc *config.ResolvedConfig, specID string) error {
+	specPath, err := resolveSpecPath(rc, specID)
+	if err != nil {
+		return fmt.Errorf("%s not found after creation — run 'spec do %s' manually", specID, specID)
+	}
+
+	db, err := openDB()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	reg := buildRegistry(rc)
+	engine := build.NewEngine(db, reg.Agent(), buildEngineOptions(rc, true))
+
+	workDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("could not determine working directory: %w", err)
+	}
+
+	fmt.Printf("\nRunning headless agent for %s…\n", specID)
+	return engine.StartOrResume(ctx(), specID, specPath, workDir)
 }
 
 func buildFastTrackSpec(id, title, author, cycle string, labels []string, repo string, now time.Time) string {

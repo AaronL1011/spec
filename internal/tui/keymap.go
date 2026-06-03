@@ -171,7 +171,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Build: key.NewBinding(
 			key.WithKeys("b"),
-			key.WithHelp("b", "build"),
+			key.WithHelp("b", "start/resume build (MCP agent)"),
 		),
 		Block: key.NewBinding(
 			key.WithKeys("x"),

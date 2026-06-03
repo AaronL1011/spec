@@ -1,6 +1,7 @@
 package build
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aaronl1011/spec/internal/store"
@@ -187,5 +188,91 @@ func TestMCPServerResources(t *testing.T) {
 	}
 	if !found {
 		t.Error("spec://current/full resource not found")
+	}
+}
+
+func TestParsePRStack_PartProseFormat(t *testing.T) {
+	content := `---
+id: SPEC-005
+status: build
+---
+
+# SPEC-005
+
+### 7.4 PR Stack Plan
+
+PR split driven by cross-repo dependencies.
+
+**Part 1 — ` + "`nexl-ai-core-libs`" + `: Proto Definitions**
+
+Repo: ` + "`nexl-ai-core-libs`" + `
+Blocker for: Part 2
+
+| Deliverable | Notes |
+|---|---|
+| proto | x |
+
+**Part 2 — ` + "`nexl-ai-core`" + `: Full Implementation**
+
+Repo: ` + "`nexl-ai-core`" + `
+
+**Part 3 — ` + "`nexl360`" + `: Management Screen**
+
+Repo: ` + "`nexl360`" + `
+`
+
+	steps, err := ParsePRStack(content)
+	if err != nil {
+		t.Fatalf("ParsePRStack: %v", err)
+	}
+	if len(steps) != 3 {
+		t.Fatalf("steps = %d, want 3", len(steps))
+	}
+	want := []struct {
+		num  int
+		repo string
+		desc string
+	}{
+		{1, "nexl-ai-core-libs", "Proto Definitions"},
+		{2, "nexl-ai-core", "Full Implementation"},
+		{3, "nexl360", "Management Screen"},
+	}
+	for i, w := range want {
+		if steps[i].Number != w.num || steps[i].Repo != w.repo || steps[i].Description != w.desc {
+			t.Errorf("step[%d] = {%d %q %q}, want {%d %q %q}",
+				i, steps[i].Number, steps[i].Repo, steps[i].Description, w.num, w.repo, w.desc)
+		}
+	}
+}
+
+func TestParsePRStack_ListFormatStillWorks(t *testing.T) {
+	content := `# S
+
+### 7.3 PR Stack Plan
+1. [auth-service] Add limiter
+2. [api-gateway] Add middleware
+`
+	steps, err := ParsePRStack(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 2 || steps[0].Repo != "auth-service" || steps[1].Repo != "api-gateway" {
+		t.Fatalf("list format regressed: %+v", steps)
+	}
+}
+
+func TestBuildKickoffPrompt(t *testing.T) {
+	got := buildKickoffPrompt(&BuildContext{
+		CurrentStep: PRStep{Number: 2, Repo: "nexl-ai-core", Description: "Full Implementation"},
+	})
+	for _, want := range []string{"Begin step 2", "[nexl-ai-core]", "Full Implementation", "spec_step_complete"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("kickoff %q missing %q", got, want)
+		}
+	}
+
+	// No current step still yields a non-empty kickoff.
+	if buildKickoffPrompt(&BuildContext{}) == "" {
+		t.Error("kickoff should never be empty")
 	}
 }
