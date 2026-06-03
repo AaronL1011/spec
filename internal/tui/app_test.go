@@ -1171,3 +1171,63 @@ func TestApp_IntakeAcceptsSpaces(t *testing.T) {
 		t.Errorf("title = %q, want 'new item'", a.intake.title)
 	}
 }
+
+// TestApp_EscClearsSearchFilterBeforeArmingExit reproduces the bug where the
+// double-esc exit guard hijacked esc and made clearing a committed search
+// filter impossible. Sequence: / type → esc (leave bar) → esc (clear filter,
+// not arm) → esc (arm exit).
+func TestApp_EscClearsSearchFilterBeforeArmingExit(t *testing.T) {
+	app := testApp()
+	app.width = 100
+	app.height = 30
+	app.propagateSize()
+	app.activeView = ViewSpecs
+	app.specs.loading = false
+	app.specs.allSpecs = []specListItem{
+		{ID: "SPEC-001", Title: "Auth"},
+		{ID: "SPEC-002", Title: "Payments"},
+	}
+	app.specs.applyFilter()
+
+	// '/' enters search; type a query.
+	model, _ := app.Update(keyMsg("/"))
+	a := model.(App)
+	if !a.specs.searchActive {
+		t.Fatal("'/' should activate the search bar")
+	}
+	model, _ = a.Update(keyMsg("auth"))
+	a = model.(App)
+	if a.specs.searchQuery == "" {
+		t.Fatal("typing should build the search query")
+	}
+
+	// esc #1: leave the search bar but keep the filter; must not arm exit.
+	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	a = model.(App)
+	if a.specs.searchActive {
+		t.Error("first esc should exit the search bar")
+	}
+	if a.specs.searchQuery == "" {
+		t.Error("first esc should keep the committed filter")
+	}
+	if a.exitArmed {
+		t.Error("first esc should not arm exit")
+	}
+
+	// esc #2: clear the filter; must not arm exit.
+	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	a = model.(App)
+	if a.specs.searchQuery != "" {
+		t.Errorf("second esc should clear the filter, got %q", a.specs.searchQuery)
+	}
+	if a.exitArmed {
+		t.Error("second esc should clear the filter, not arm exit")
+	}
+
+	// esc #3: nothing left to pop → arm exit.
+	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	a = model.(App)
+	if !a.exitArmed {
+		t.Error("third esc with no filter should arm exit")
+	}
+}

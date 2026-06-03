@@ -517,6 +517,11 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// esc escalation: pop → arm → quit.
 	if key.Matches(msg, a.keys.Back) {
+		// Let the active view pop its own dismissible state first (e.g. clear a
+		// committed search filter) before we treat esc as an exit-arm.
+		if a.activeViewCanPopEsc() {
+			return a, a.delegateToActive(msg)
+		}
 		if a.exitArmed && time.Since(a.exitArmedAt) <= exitArmWindow {
 			return a, tea.Quit
 		}
@@ -788,6 +793,14 @@ func (a App) viewCapturingInput() bool {
 		return a.settings.isEditing()
 	}
 	return false
+}
+
+// activeViewCanPopEsc reports whether the active view has dismissible state that
+// esc should clear (e.g. a committed search filter) before the app treats esc
+// as the exit-arm. This keeps the double-esc exit guard from hijacking esc when
+// the user is trying to clear a filter.
+func (a App) activeViewCanPopEsc() bool {
+	return a.activeView == ViewSpecs && a.specs.hasActiveFilter()
 }
 
 func (a App) activeViewContent() string {

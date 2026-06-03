@@ -1,6 +1,7 @@
 package tui
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"testing"
 )
@@ -231,5 +232,37 @@ func TestScrollWindow(t *testing.T) {
 			t.Errorf("scrollWindow(%d,%d,%d) = (%d,%d), want (%d,%d)",
 				tt.cursor, tt.total, tt.visible, s, e, tt.wantStart, tt.wantEnd)
 		}
+	}
+}
+
+func TestSpecList_HasActiveFilter(t *testing.T) {
+	m := testSpecListModel()
+	if m.hasActiveFilter() {
+		t.Error("no filter and not searching → false")
+	}
+	m.searchActive = true
+	m.searchQuery = "auth"
+	if m.hasActiveFilter() {
+		t.Error("while actively typing → false (search bar owns esc)")
+	}
+	m.searchActive = false
+	if !m.hasActiveFilter() {
+		t.Error("committed filter, not searching → true")
+	}
+}
+
+func TestSpecList_EscClearsCommittedFilter(t *testing.T) {
+	m := testSpecListModel()
+	m.allSpecs = []specListItem{{ID: "SPEC-001", Title: "Auth"}, {ID: "SPEC-002", Title: "Pay"}}
+	m.searchQuery = "auth"
+	m.searchActive = false
+	m.applyFilter()
+
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEscape})
+	if m.searchQuery != "" {
+		t.Errorf("esc (not searching) should clear filter, got %q", m.searchQuery)
+	}
+	if len(m.filtered) != 2 {
+		t.Errorf("clearing filter should restore all specs, got %d", len(m.filtered))
 	}
 }
