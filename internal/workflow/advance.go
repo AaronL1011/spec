@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/aaronl1011/spec/internal/pipeline/effects"
@@ -57,28 +58,35 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 		return nil, err
 	}
 
+	// Read sections up front so the next-stage computation can evaluate
+	// skip_when expressions against the spec's current state.
+	sections, err := markdown.ExtractSectionsFromFile(in.SpecPath)
+	if err != nil {
+		return nil, err
+	}
+	hasPRStack := markdown.IsSectionNonEmpty(sections, "pr_stack_plan")
+
+	resolved, _ := d.resolvedPipeline()
+
 	target := in.TargetStage
+	var autoSkipped []string
 	if target == "" {
-		next, err := pipeline.NextStage(pl, meta.Status, true)
+		next, skipped, err := nextEffectiveStage(resolved, pl, meta.Status, sections, hasPRStack, meta)
 		if err != nil {
 			return nil, fmt.Errorf("cannot advance from %q: %w", meta.Status, err)
 		}
 		target = next
+		autoSkipped = skipped
 	}
 
 	res := &AdvanceResult{
 		SpecID:        in.SpecID,
 		PreviousStage: meta.Status,
 		NewStage:      target,
+		Skipped:       autoSkipped,
 		DryRun:        in.DryRun,
 	}
 
-	// Evaluate gates on the target stage.
-	sections, err := markdown.ExtractSectionsFromFile(in.SpecPath)
-	if err != nil {
-		return nil, err
-	}
-	hasPRStack := markdown.IsSectionNonEmpty(sections, "pr_stack_plan")
 	gateResults := pipeline.EvaluateGates(pl, target, sections, hasPRStack, false, meta)
 	if !pipeline.AllGatesPassed(gateResults) {
 		res.GateFailures = pipeline.FailedGates(gateResults)
@@ -89,7 +97,6 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 		res.Skipped = pipeline.SkippedStages(pl, meta.Status, target)
 	}
 
-	resolved, _ := d.resolvedPipeline()
 	execCtx := d.execContext(in.SpecID, meta.Title, res.PreviousStage, target, in.SpecDir, meta.EpicKey, effects.TransitionAdvance, in.DryRun)
 
 	if in.DryRun {
@@ -101,9 +108,14 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 		return nil, err
 	}
 
-	// Fast-track: record skipped stages in the decision log (best-effort).
+	// Record skipped stages in the decision log (best-effort). Fast-track
+	// (--to) and skip_when both populate res.Skipped.
 	if len(res.Skipped) > 0 {
-		msg := fmt.Sprintf("FAST-TRACK: %s → %s. Skipped: %s", res.PreviousStage, target, joinComma(res.Skipped))
+		label := "FAST-TRACK"
+		if in.TargetStage == "" {
+			label = "SKIP-WHEN"
+		}
+		msg := fmt.Sprintf("%s: %s → %s. Skipped: %s", label, res.PreviousStage, target, joinComma(res.Skipped))
 		_, _ = markdown.AppendDecision(in.SpecPath, msg, d.user())
 	}
 
@@ -165,6 +177,42 @@ func (d Deps) previewAdvanceEffects(ctx context.Context, resolved *pipeline.Reso
 	}
 	executor := effects.NewExecutor(true)
 	return outcomes(executor.Execute(ctx, stage.Transitions.Advance.Effects, execCtx))
+}
+
+// nextEffectiveStage computes the next stage to advance to, honouring any
+// stage-level skip_when expressions when a resolved pipeline is available.
+// It returns the target stage and the list of stages skipped because their
+// skip_when condition matched. When no resolved pipeline is available it falls
+// back to the plain next-stage computation.
+func nextEffectiveStage(resolved *pipeline.ResolvedPipeline, pl config.PipelineConfig, current string, sections []markdown.Section, hasPRStack bool, meta *markdown.SpecMeta) (string, []string, error) {
+	if resolved == nil {
+		next, err := pipeline.NextStage(pl, current, true)
+		return next, nil, err
+	}
+
+	ctx := pipeline.BuildExprContext(sections, hasPRStack, false, meta)
+	next, ok := pipeline.NextEffectiveStage(resolved, current, ctx)
+	if !ok {
+		return "", nil, fmt.Errorf("no next stage after %q", current)
+	}
+
+	// Determine which stages between current and next were skipped via skip_when.
+	skipResults := pipeline.EvaluateSkipWhen(resolved, ctx)
+	skippedSet := make(map[string]bool, len(skipResults))
+	for _, r := range skipResults {
+		if r.Skipped {
+			skippedSet[r.StageName] = true
+		}
+	}
+	var skipped []string
+	fromIdx, toIdx := resolved.StageIndex[current], resolved.StageIndex[next]
+	for i := fromIdx + 1; i < toIdx; i++ {
+		name := resolved.Stages[i].Name
+		if skippedSet[name] {
+			skipped = append(skipped, name)
+		}
+	}
+	return next, skipped, nil
 }
 
 func joinComma(s []string) string {

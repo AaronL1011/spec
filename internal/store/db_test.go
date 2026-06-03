@@ -178,30 +178,3 @@ func TestActivity(t *testing.T) {
 		t.Fatalf("entries = %d, want 2", len(entries))
 	}
 }
-
-func TestEmbeddings(t *testing.T) {
-	db := mustOpenMemory(t)
-
-	v1 := []float32{1.0, 0.0, 0.0}
-	v2 := []float32{0.0, 1.0, 0.0}
-	v3 := []float32{0.9, 0.1, 0.0}
-
-	if err := db.EmbeddingUpsert("SPEC-001", "full", "auth spec", v1, "test"); err != nil {
-		t.Fatalf("EmbeddingUpsert: %v", err)
-	}
-	if err := db.EmbeddingUpsert("SPEC-002", "full", "billing spec", v2, "test"); err != nil {
-		t.Fatalf("EmbeddingUpsert: %v", err)
-	}
-
-	results, err := db.EmbeddingSearch(v3, 2)
-	if err != nil {
-		t.Fatalf("EmbeddingSearch: %v", err)
-	}
-	if len(results) != 2 {
-		t.Fatalf("results = %d, want 2", len(results))
-	}
-	// v3 is more similar to v1 than v2
-	if results[0].SpecID != "SPEC-001" {
-		t.Errorf("top result = %q, want SPEC-001", results[0].SpecID)
-	}
-}

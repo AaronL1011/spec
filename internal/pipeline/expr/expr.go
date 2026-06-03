@@ -145,15 +145,6 @@ func Compile(expression string) error {
 	return nil
 }
 
-// CompileWithContext validates an expression with a specific context.
-func CompileWithContext(expression string, ctx Context) error {
-	_, err := expr.Compile(expression, expr.Env(ctx), expr.AsBool())
-	if err != nil {
-		return fmt.Errorf("invalid expression: %w", err)
-	}
-	return nil
-}
-
 // NewContext creates a new empty context with initialized maps.
 func NewContext() Context {
 	return Context{

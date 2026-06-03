@@ -77,13 +77,3 @@ func Resolve() (*ResolvedConfig, error) {
 
 	return rc, nil
 }
-
-// MustResolve loads configuration and returns it, panicking on error.
-// Use only in places where config is absolutely required.
-func MustResolve() *ResolvedConfig {
-	rc, err := Resolve()
-	if err != nil {
-		panic(err)
-	}
-	return rc
-}

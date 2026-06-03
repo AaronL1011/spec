@@ -86,8 +86,3 @@ func DetectSpecFromBranch(ctx context.Context, dir string) string {
 func Diff(ctx context.Context, dir, baseRef string) (string, error) {
 	return Run(ctx, dir, "diff", baseRef)
 }
-
-// DiffStaged returns the diff of staged changes.
-func DiffStaged(ctx context.Context, dir string) (string, error) {
-	return Run(ctx, dir, "diff", "--cached")
-}

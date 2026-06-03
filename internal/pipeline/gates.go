@@ -20,8 +20,10 @@ type GateResult struct {
 	Reason string
 }
 
-// EvaluateGates checks all gates for the current stage by building a context from raw parameters.
-func EvaluateGates(pipeline config.PipelineConfig, currentStage string, sections []markdown.Section, hasPRStack bool, prsApproved bool, meta *markdown.SpecMeta) []GateResult {
+// BuildExprContext builds the expression context used by both gate evaluation
+// and skip_when evaluation from a spec's sections and metadata. It is the single
+// source of truth for translating spec state into an expr.Context.
+func BuildExprContext(sections []markdown.Section, hasPRStack bool, prsApproved bool, meta *markdown.SpecMeta) expr.Context {
 	var timeInStage time.Duration
 	var revertCount int
 	var specID, specTitle, specStatus string
@@ -41,14 +43,12 @@ func EvaluateGates(pipeline config.PipelineConfig, currentStage string, sections
 		specStatus = meta.Status
 	}
 
-	// Build expression context from available data
 	ctx := expr.NewContextBuilder().
 		WithSpec(specID, specTitle, specStatus, nil, 0, timeInStage, revertCount).
 		WithPRStack(hasPRStack, 0, 0, false, false).
 		WithPRs(0, 0, prsApproved).
 		Build()
 
-	// Add sections to context
 	for _, sec := range sections {
 		ctx.Sections[sec.Slug] = expr.SectionContext{
 			Empty:     strings.TrimSpace(sec.Content) == "",
@@ -56,21 +56,12 @@ func EvaluateGates(pipeline config.PipelineConfig, currentStage string, sections
 		}
 	}
 
-	return evaluateGatesWithBuiltContext(pipeline, currentStage, sections, ctx)
+	return ctx
 }
 
-// EvaluateGatesWithContext checks all gates using a pre-built expression context.
-func EvaluateGatesWithContext(pipeline config.PipelineConfig, currentStage string, ctx expr.Context) []GateResult {
-	// Convert context sections to markdown.Section for compatibility
-	var sections []markdown.Section
-	for slug, sec := range ctx.Sections {
-		content := ""
-		if !sec.Empty {
-			content = "non-empty" // placeholder for section check
-		}
-		sections = append(sections, markdown.Section{Slug: slug, Content: content})
-	}
-
+// EvaluateGates checks all gates for the current stage by building a context from raw parameters.
+func EvaluateGates(pipeline config.PipelineConfig, currentStage string, sections []markdown.Section, hasPRStack bool, prsApproved bool, meta *markdown.SpecMeta) []GateResult {
+	ctx := BuildExprContext(sections, hasPRStack, prsApproved, meta)
 	return evaluateGatesWithBuiltContext(pipeline, currentStage, sections, ctx)
 }
 

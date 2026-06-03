@@ -5,7 +5,7 @@ LDFLAGS := -ldflags "-s -w -X github.com/aaronl1011/spec/cmd.Version=$(VERSION)"
 GOFLAGS := -trimpath
 DETECTED_SHELL := $(notdir $(shell echo $$SHELL))
 
-.PHONY: build test lint lint-strict lint-install clean install install-completions fmt vet docs install-man
+.PHONY: build test lint lint-strict lint-install deadcode clean install install-completions fmt vet docs install-man
 
 build:
 	go build $(GOFLAGS) $(LDFLAGS) -o bin/$(BINARY) .
@@ -70,6 +70,17 @@ lint-strict:
 lint-install:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
+# Pinned to match the CI deadcode job.
+DEADCODE_VERSION := v0.39.0
+
+# deadcode fails the build if any function is unreachable from main OR from the
+# test surface (-test). Test helpers such as store.OpenMemory are intentionally
+# treated as live. A non-zero exit means there is dead code to remove.
+deadcode:
+	@out=$$(go run golang.org/x/tools/cmd/deadcode@$(DEADCODE_VERSION) -test ./...); \
+	if [ -n "$$out" ]; then echo "$$out"; echo "dead code found — remove it or wire it up"; exit 1; fi; \
+	echo "no dead code"
+
 fmt:
 	gofmt -s -w .
 
@@ -79,4 +90,4 @@ vet:
 clean:
 	rm -rf bin/ coverage.out coverage.html
 
-all: lint test build
+all: lint deadcode test build

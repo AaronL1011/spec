@@ -352,77 +352,6 @@ transitions:
 	}
 }
 
-func TestVariantConfig(t *testing.T) {
-	yamlContent := `
-default: standard
-variants:
-  standard:
-    preset: product
-  bug:
-    preset: product
-    skip:
-      - design
-      - tl_review
-  hotfix:
-    stages:
-      - name: triage
-        owner: engineer
-      - name: build
-        owner: engineer
-      - name: done
-        owner: tl
-variant_from_labels:
-  - label: bug
-    variant: bug
-  - label: hotfix
-    variant: hotfix
-  - variant: standard
-    default: true
-`
-	var pipeline PipelineConfig
-	if err := yaml.Unmarshal([]byte(yamlContent), &pipeline); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if pipeline.Default != "standard" {
-		t.Errorf("Default = %q, want %q", pipeline.Default, "standard")
-	}
-	if len(pipeline.Variants) != 3 {
-		t.Errorf("len(Variants) = %d, want 3", len(pipeline.Variants))
-	}
-	if pipeline.Variants["bug"].Preset != "product" {
-		t.Errorf("Variants[bug].Preset = %q, want %q", pipeline.Variants["bug"].Preset, "product")
-	}
-	if len(pipeline.Variants["bug"].Skip) != 2 {
-		t.Errorf("len(Variants[bug].Skip) = %d, want 2", len(pipeline.Variants["bug"].Skip))
-	}
-	if len(pipeline.VariantFromLabels) != 3 {
-		t.Errorf("len(VariantFromLabels) = %d, want 3", len(pipeline.VariantFromLabels))
-	}
-	if pipeline.VariantFromLabels[0].Label != "bug" {
-		t.Errorf("VariantFromLabels[0].Label = %q, want %q", pipeline.VariantFromLabels[0].Label, "bug")
-	}
-}
-
-func TestNewSimpleGate(t *testing.T) {
-	gate := NewSimpleGate("section_not_empty", "problem_statement")
-	if gate.SectionNotEmpty != "problem_statement" {
-		t.Errorf("SectionNotEmpty = %q, want %q", gate.SectionNotEmpty, "problem_statement")
-	}
-	if gate.Type() != "section_not_empty" {
-		t.Errorf("Type() = %q, want %q", gate.Type(), "section_not_empty")
-	}
-}
-
-func TestNewExprGate(t *testing.T) {
-	gate := NewExprGate("decisions.unresolved == 0", "All decisions must be resolved")
-	if gate.Expr != "decisions.unresolved == 0" {
-		t.Errorf("Expr = %q, want %q", gate.Expr, "decisions.unresolved == 0")
-	}
-	if gate.Message != "All decisions must be resolved" {
-		t.Errorf("Message = %q, want %q", gate.Message, "All decisions must be resolved")
-	}
-}
-
 func TestStageReviewConfig(t *testing.T) {
 	yamlContent := `
 name: engineering
@@ -570,24 +499,6 @@ func TestGateConfig_ReviewApproved(t *testing.T) {
 	}
 	if g.Type() != "review_approved" {
 		t.Errorf("Type = %q, want review_approved", g.Type())
-	}
-}
-
-func TestNewSimpleGate_NewTypes(t *testing.T) {
-	tests := []struct {
-		gateType string
-		wantType string
-	}{
-		{"steps_exists", "steps_exists"},
-		{"pr_stack_exists", "steps_exists"}, // legacy maps to new
-		{"review_approved", "review_approved"},
-	}
-
-	for _, tt := range tests {
-		g := NewSimpleGate(tt.gateType, "")
-		if g.Type() != tt.wantType {
-			t.Errorf("NewSimpleGate(%q).Type() = %q, want %q", tt.gateType, g.Type(), tt.wantType)
-		}
 	}
 }
 

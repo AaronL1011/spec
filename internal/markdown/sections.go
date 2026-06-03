@@ -233,14 +233,3 @@ func IsValidSectionSlug(slug string) bool {
 	}
 	return false
 }
-
-// SectionsOwnedBy returns sections owned by the given role.
-func SectionsOwnedBy(sections []Section, role string) []Section {
-	var owned []Section
-	for _, s := range sections {
-		if s.Owner == role {
-			owned = append(owned, s)
-		}
-	}
-	return owned
-}

@@ -3,16 +3,36 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
+	"github.com/muesli/termenv"
 )
 
 // Renderer renders markdown content into ANSI-styled terminal text.
 type Renderer interface {
 	Render(ctx context.Context, md string, width int) (string, error)
+}
+
+// newRenderer returns the markdown renderer appropriate for the current
+// output environment. When colour is disabled (NO_COLOR / a dumb terminal)
+// it returns the unstyled PlainRenderer; otherwise the Glamour renderer
+// themed from the resolved Theme.
+func newRenderer(theme Theme) Renderer {
+	if colourDisabled() {
+		return NewPlainRenderer()
+	}
+	return NewGlamourRenderer(theme)
+}
+
+// colourDisabled reports whether ANSI styling should be suppressed, honouring
+// the NO_COLOR convention (https://no-color.org) and a profile-less terminal.
+func colourDisabled() bool {
+	output := termenv.NewOutput(os.Stdout)
+	return termenv.EnvNoColor() || output.Profile == termenv.Ascii
 }
 
 // GlamourRenderer renders markdown using Glamour with a pre-resolved style.

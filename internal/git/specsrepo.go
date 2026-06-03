@@ -431,17 +431,12 @@ func queuePush(ctx context.Context, cfg *config.SpecsRepoConfig, dir string, opt
 	opts.record(OpPush, OutcomeQueued, detail)
 }
 
-// PushLocalEdits commits any uncommitted changes in the specs repo and pushes them.
-// Unlike WithSpecsRepo, which resets to remote state before applying a mutation,
-// PushLocalEdits preserves existing local edits — it is the backing implementation
-// for `spec push`. Returns true if changes were found and pushed.
-// On a push conflict it fetches and rebases rather than hard-resetting, preserving
-// the committed local work.
-func PushLocalEdits(ctx context.Context, cfg *config.SpecsRepoConfig, commitMsg string) (bool, error) {
-	return PushLocalEditsOpts(ctx, cfg, commitMsg, SyncOptions{})
-}
-
-// PushLocalEditsOpts is PushLocalEdits with surface/trigger attribution. Unlike
+// PushLocalEditsOpts commits any uncommitted changes in the specs repo and
+// pushes them. Unlike WithSpecsRepo, which resets to remote state before
+// applying a mutation, it preserves existing local edits — it is the backing
+// implementation for `spec push`. Returns true if changes were found and
+// pushed. On a push conflict it fetches and rebases rather than hard-resetting,
+// preserving the committed local work. Unlike
 // WithSpecsRepoOpts it preserves already-committed local work on a conflict
 // abort — it must never hard-reset away the user's pushed-intent commits
 // (SPEC-013 §7.1 / §7.2). It shares the identical section-aware conflict check
@@ -508,20 +503,6 @@ func PushLocalEditsOpts(ctx context.Context, cfg *config.SpecsRepoConfig, commit
 		return false, err
 	}
 	return true, nil
-}
-
-// ReadSpecFile reads a spec file from the specs repo. It resolves content
-// from the fetched remote ref (`git show origin/<branch>:specs/<file>`) so it
-// reflects upstream without touching the working tree (SPEC-013 axis 2). It
-// falls back to the on-disk working-tree copy when the ref read fails (e.g. a
-// brand-new local file not yet committed).
-func ReadSpecFile(cfg *config.SpecsRepoConfig, filename string) ([]byte, error) {
-	dir := SpecsRepoDir(cfg)
-	rel := filepath.ToSlash(filepath.Join(SpecsSubDir, filename))
-	if body, err := showFile(context.Background(), dir, remoteBranchRef(cfg), rel); err == nil {
-		return []byte(body), nil
-	}
-	return os.ReadFile(filepath.Join(dir, SpecsSubDir, filename))
 }
 
 // ListSpecFiles returns all spec files in the specs/ directory of the specs
@@ -638,11 +619,6 @@ func listMarkdownFiles(dir string) ([]string, error) {
 		}
 	}
 	return files, nil
-}
-
-// SpecFilePath returns the absolute path to a spec file in the specs repo.
-func SpecFilePath(cfg *config.SpecsRepoConfig, filename string) string {
-	return filepath.Join(SpecsRepoDir(cfg), SpecsSubDir, filename)
 }
 
 // TriageFilePath returns the absolute path to a triage file.

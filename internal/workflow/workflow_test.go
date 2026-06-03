@@ -131,6 +131,68 @@ func TestAdvance_DryRun_DoesNotMutate(t *testing.T) {
 	}
 }
 
+func TestAdvance_SkipWhen_SkipsMatchingStage(t *testing.T) {
+	// Pipeline: draft (pm) → review (skip_when matches) → done (pm).
+	// Advancing from draft should land on done, skipping review.
+	tc := &config.TeamConfig{}
+	tc.Pipeline = config.PipelineConfig{Stages: []config.StageConfig{
+		{Name: "draft", Owner: config.Owners{"pm"}},
+		{Name: "review", Owner: config.Owners{"pm"}, SkipWhen: `spec.title == "Test Spec"`},
+		{Name: "done", Owner: config.Owners{"pm"}},
+	}}
+	tc.Sync.ConflictStrategy = "warn"
+	uc := &config.UserConfig{}
+	uc.User.Name = "Tester"
+	uc.User.OwnerRole = "pm"
+	d := Deps{Config: &config.ResolvedConfig{Team: tc, User: uc}, Registry: testRegistry(), Role: "pm"}
+
+	path, dir := writeSpec(t, "draft", "We have a real problem to solve.")
+	res, err := Advance(context.Background(), d, AdvanceInput{
+		SpecID: "SPEC-001", SpecPath: path, SpecDir: dir,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.NewStage != "done" {
+		t.Fatalf("NewStage = %q, want done (review skipped via skip_when)", res.NewStage)
+	}
+	if len(res.Skipped) != 1 || res.Skipped[0] != "review" {
+		t.Fatalf("Skipped = %v, want [review]", res.Skipped)
+	}
+	if got := statusOf(t, path); got != "done" {
+		t.Fatalf("spec status = %q, want done", got)
+	}
+}
+
+func TestAdvance_SkipWhen_NonMatchingStageNotSkipped(t *testing.T) {
+	// skip_when condition is false, so the review stage is NOT skipped.
+	tc := &config.TeamConfig{}
+	tc.Pipeline = config.PipelineConfig{Stages: []config.StageConfig{
+		{Name: "draft", Owner: config.Owners{"pm"}},
+		{Name: "review", Owner: config.Owners{"pm"}, SkipWhen: `spec.title == "Other"`},
+		{Name: "done", Owner: config.Owners{"pm"}},
+	}}
+	tc.Sync.ConflictStrategy = "warn"
+	uc := &config.UserConfig{}
+	uc.User.Name = "Tester"
+	uc.User.OwnerRole = "pm"
+	d := Deps{Config: &config.ResolvedConfig{Team: tc, User: uc}, Registry: testRegistry(), Role: "pm"}
+
+	path, dir := writeSpec(t, "draft", "We have a real problem to solve.")
+	res, err := Advance(context.Background(), d, AdvanceInput{
+		SpecID: "SPEC-001", SpecPath: path, SpecDir: dir,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.NewStage != "review" {
+		t.Fatalf("NewStage = %q, want review (skip_when did not match)", res.NewStage)
+	}
+	if len(res.Skipped) != 0 {
+		t.Fatalf("Skipped = %v, want none", res.Skipped)
+	}
+}
+
 func TestAdvance_RoleGuard(t *testing.T) {
 	path, dir := writeSpec(t, "draft", "problem text")
 	// A designer does not own the draft stage and is not a TL.

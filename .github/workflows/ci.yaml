@@ -33,6 +33,9 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
+      - name: Check for dead code
+        run: make deadcode
+
       - name: Run tests
         run: go test ./... -race -count=1 -timeout=10m
 

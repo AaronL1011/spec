@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -256,10 +257,12 @@ func TestClaimNextID_ExhaustionIsHardError(t *testing.T) {
 	if attempts != maxClaimRetries+1 {
 		t.Fatalf("looped %d times, want %d", attempts, maxClaimRetries+1)
 	}
-	if !IsClaimExhausted(lastErr) {
+	var exhausted *claimExhaustedError
+	if !errors.As(lastErr, &exhausted) {
 		t.Fatalf("expected exhaustion error, got %T", lastErr)
 	}
-	if IsClaimOffline(lastErr) {
+	var offlineCheck *claimOfflineError
+	if errors.As(lastErr, &offlineCheck) {
 		t.Fatal("exhaustion must not be classified as offline (no queue path)")
 	}
 }
@@ -279,7 +282,8 @@ func TestClaimNextID_OfflineHardFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected offline claim to fail")
 	}
-	if !IsClaimOffline(err) {
+	var offline *claimOfflineError
+	if !errors.As(err, &offline) {
 		t.Fatalf("expected claimOfflineError, got %T: %v", err, err)
 	}
 }

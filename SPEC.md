@@ -114,7 +114,6 @@ The fundamental insight is this: **developers don't hate their tools. They hate 
 | # | As a... | I want to... | So that... |
 |---|---|---|---|
 | US-01 | Anyone | Create a lightweight triage item from the CLI when I spot a bug, receive an alert, or hear a feature request | Work enters the system immediately without requiring a full spec upfront |
-| US-01a | Engineer | Have `spec` auto-summarise a PagerDuty alert or Slack thread into a triage description when AI is configured | I capture intake items in seconds without manually distilling noisy sources |
 | US-02 | PM | Flesh out a triage item into a full spec draft, with AI-drafted sections where configured | The lightweight intake becomes a structured, reviewable document without starting from a blank page |
 | US-03 | TL | Fast-track a triage item directly to engineering for urgent fixes | Critical bugs skip the full spec ceremony when appropriate |
 
@@ -165,8 +164,7 @@ The fundamental insight is this: **developers don't hate their tools. They hate 
 
 | # | As a... | I want to... | So that... |
 |---|---|---|---|
-| US-24 | Any team member | Search historical specs and decision logs with natural language | I can understand why the system was built the way it was |
-| US-24a | Any team member | Ask a natural language question and get an AI-synthesised answer grounded in spec history | I get a direct answer with citations, not just a list of matching documents |
+| US-24 | Any team member | Search historical specs and decision logs by keyword | I can understand why the system was built the way it was |
 | US-25 | New hire | Browse archived specs in reverse-chronological order | I can build system understanding before writing code |
 | US-26 | Team | Use `spec` regardless of whether our stack is Atlassian, Linear, or Notion | We are not locked into a single vendor |
 
@@ -482,8 +480,8 @@ integrations:
   agent:
     provider: claude-code              # claude-code | cursor | copilot | pi | custom
 
-  ai:                                  # optional - spec's own LLM for drafting, summarisation, semantic search
-    provider: anthropic                # anthropic | openai | ollama | none
+  ai:                                  # optional - spec's own LLM for content drafting
+    provider: anthropic                # anthropic | ollama | none
     model: claude-sonnet-4-20250514
     token: ${AI_API_KEY}
 
@@ -726,7 +724,7 @@ The `repos` frontmatter field lists the service repos this spec touches (e.g., `
 | Command | Description |
 |---|---|
 | `spec search "<query>"` | Full-text search across active and archived specs. |
-| `spec context "<question>"` | Semantic search - find relevant specs, decisions, and rationale for a natural language question. Uses embeddings when `ai` is configured; falls back to keyword search otherwise. Designed for onboarding and agent context retrieval. |
+| `spec context "<question>"` | Keyword search - find relevant specs, decisions, and rationale for a natural language question. Designed for onboarding and agent context retrieval. |
 | `spec history [--limit N]` | List recent completed specs with summaries and cycle metrics. |
 
 #### Pipeline Visibility
@@ -875,7 +873,7 @@ Every feature in `spec` works without an LLM. If you configure one, things get b
 
 | | `agent` integration | `ai` integration |
 |---|---|---|
-| **Purpose** | External coding tool for building features | `spec`'s own LLM for content drafting, summarisation, semantic search |
+| **Purpose** | External coding tool for building features | `spec`'s own LLM for content drafting |
 | **Interaction** | `spec` writes context files and launches the tool | `spec` calls an API and receives text |
 | **Examples** | Claude Code, Cursor, Copilot, Pi | Anthropic API, OpenAI API, Ollama (local) |
 | **When used** | `spec build`, `spec do` | `spec draft`, `spec promote`, `spec review`, `spec context` |
@@ -940,7 +938,6 @@ AI never writes directly to a spec without human review. There is no "auto-accep
 | **PR description** | `spec draft <id> --pr` | Generates a PR description from the diff + spec context + PR stack position | User writes the PR description manually or uses a template |
 | **PR stack proposal** | `spec draft <id> --pr-stack` | Reads §4 and §7.1, proposes a decomposition for §7.3 | User writes the PR stack plan manually |
 | **Review request** | `spec review <id>` | Enriches the review message with a summary of what changed and what to look for | Template-based message with PR links only |
-| **Semantic search** | `spec context "<question>"` | Uses embeddings for semantic matching; optionally synthesises an answer with citations | Falls back to keyword/full-text search (`spec search`) |
 | **Commit messages** | `spec build` / `spec do` (if configured) | Suggests conventional commit messages from staged changes + spec context | User writes commit messages manually |
 
 #### What AI is NOT used for
@@ -959,7 +956,7 @@ Including `ollama` (local models) as a first-class provider is essential for:
 - Privacy-sensitive specs
 - Cost control
 
-Local models are worse at drafting long-form content but perfectly adequate for embeddings (semantic search) and summarisation (triage intake). The `ai` adapter interface is the same regardless of provider - switching from `anthropic` to `ollama` is a config change.
+Local models are worse at drafting long-form content but adequate for the content-drafting prompts `spec draft` uses. The `ai` adapter interface is the same regardless of provider - switching from `anthropic` to `ollama` is a config change.
 
 ---
 
@@ -990,12 +987,6 @@ Local models are worse at drafting long-form content but perfectly adequate for 
 - [ ] If `--priority` is omitted, defaults to `medium`
 - [ ] A notification is posted to the configured comms channel with the triage item details
 - [ ] `spec list --triage` shows all open triage items sorted by priority then age
-
-### US-01a - AI-assisted triage summarisation
-- [ ] When `ai` is configured and `spec intake` includes `--source-ref` pointing to an alert or Slack thread, the AI service summarises the source into a triage description
-- [ ] The summary is presented via accept / edit / skip before being written to the triage item
-- [ ] When `ai` is not configured, `--source-ref` is stored in the triage item but no summary is generated; the user writes the description manually
-- [ ] When `ai` is configured but the provider is unreachable, `spec intake` proceeds without the summary and prints a degradation notice
 
 ### US-02 - Triage promotion
 - [ ] `spec promote TRIAGE-088` scaffolds a new `SPEC-<id>.md` with context from the triage item pre-populated (title, problem context, source reference)
@@ -1104,7 +1095,7 @@ Local models are worse at drafting long-form content but perfectly adequate for 
 ### US-24 - Knowledge search
 - [ ] `spec search "authentication"` performs full-text search across active and archived specs
 - [ ] Results show spec ID, title, status, and matching excerpts with highlighting
-- [ ] `spec context "how does auth work?"` performs semantic search and returns structured results: relevant specs with their decision logs and key sections
+- [ ] `spec context "how does auth work?"` performs keyword search and returns structured results: relevant specs with their key sections
 
 ### US-26 - Stack flexibility
 - [ ] Switching `integrations.comms.provider` from `teams` to `slack` requires only a config change
@@ -1173,12 +1164,6 @@ Local models are worse at drafting long-form content but perfectly adequate for 
 - [ ] If accepted or edited, the description is set on the PR via the repo adapter (GitHub/GitLab API)
 - [ ] `--pr-number <#>` targets a specific PR; without it, targets the current branch's open PR
 - [ ] Requires both `ai` and `repo` integrations; errors clearly if either is unconfigured
-
-### US-24a - AI-synthesised knowledge answers
-- [ ] When `ai` is configured, `spec context "how does auth work?"` returns an AI-synthesised answer grounded in matching specs, with citations (spec IDs, section references, decision log entry numbers)
-- [ ] The answer is clearly labelled as AI-generated
-- [ ] When `ai` is not configured, `spec context` falls back to keyword search matching (equivalent to `spec search` but with structured output)
-- [ ] The synthesised answer never fabricates information - it only references content that exists in the specs repo; if insufficient context is found, it says so
 
 ### US-11 - Decision log management
 - [ ] `spec decide SPEC-042 --question "REST vs gRPC?"` appends a new row with auto-incremented number, user identity, date
@@ -1265,8 +1250,7 @@ spec-cli/
 │   │   ├── db.go                 # DB init, migrations, connection management
 │   │   ├── cache.go              # Dashboard cache (specs, PRs, mentions - with TTL)
 │   │   ├── sessions.go           # Build session state (current step, branch, context)
-│   │   ├── activity.go           # Activity log (timestamped events per spec)
-│   │   └── embeddings.go         # Vector storage for semantic search
+│   │   └── activity.go           # Activity log (timestamped events per spec)
 │   │
 │   ├── sync/                     # Bidirectional sync engine
 │   │   ├── engine.go             # Orchestrator: inbound, outbound, conflict detection
@@ -1290,8 +1274,7 @@ spec-cli/
 │   │
 │   ├── knowledge/                # Knowledge base engine
 │   │   ├── search.go             # Full-text search via git-grep
-│   │   ├── context.go            # Semantic search (embeddings) + answer synthesis
-│   │   └── index.go              # Embedding index management
+│   │   └── context.go            # Keyword search over specs and decisions
 │   │
 │   ├── ai/                       # AI service layer
 │   │   ├── service.go            # AIService interface + null-safe wrapper
@@ -1306,7 +1289,6 @@ spec-cli/
 │   │   ├── repo.go               # RepoAdapter interface
 │   │   ├── agent.go              # AgentAdapter interface
 │   │   ├── deploy.go             # DeployAdapter interface
-│   │   ├── intake.go             # IntakeAdapter interface
 │   │   └── ai.go                 # AIAdapter interface
 │   │
 │   └── adapter/                  # Adapter implementations (one subpackage per provider)
@@ -1322,11 +1304,9 @@ spec-cli/
 │       ├── claude/               # Claude Code: AgentAdapter
 │       │   └── agent.go          # Subprocess spawn, MCP-native
 │       ├── anthropic/            # Anthropic API: AIAdapter
-│       │   └── ai.go             # Chat completions, embeddings
-│       ├── openai/               # OpenAI API: AIAdapter
-│       │   └── ai.go             # Chat completions, embeddings
+│       │   └── ai.go             # Chat completions
 │       └── ollama/               # Ollama: AIAdapter
-│           └── ai.go             # Local model completions, embeddings
+│           └── ai.go             # Local model completions
 │
 ├── main.go                       # Entrypoint: initialise Cobra root, execute
 ├── go.mod
@@ -1415,9 +1395,6 @@ type DeployAdapter interface {
 type AIAdapter interface {
     // Complete sends a prompt and returns the completion.
     Complete(ctx context.Context, prompt string, system string) (string, error)
-    // Embed returns a vector embedding for the given text.
-    // Returns nil, ErrEmbeddingsNotSupported if the provider doesn't support embeddings.
-    Embed(ctx context.Context, text string) ([]float32, error)
 }
 ```
 
@@ -1518,18 +1495,6 @@ CREATE TABLE activity (
 );
 CREATE INDEX idx_activity_spec ON activity(spec_id, created_at);
 CREATE INDEX idx_activity_time ON activity(created_at);
-
--- Embeddings: vector storage for semantic search
-CREATE TABLE embeddings (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    spec_id   TEXT NOT NULL,
-    section   TEXT NOT NULL,                -- section slug or "full" for whole-spec
-    content   TEXT NOT NULL,                -- the text that was embedded
-    vector    BLOB NOT NULL,                -- float32 array, serialised
-    model     TEXT NOT NULL,                -- model used for embedding
-    updated_at INTEGER NOT NULL
-);
-CREATE INDEX idx_embed_spec ON embeddings(spec_id);
 
 -- Sync state: tracks last-synced hashes per section per spec
 CREATE TABLE sync_state (
@@ -1837,8 +1802,8 @@ spec (no args)
 | 12 | spec-cli | Claude Code adapter | `internal/adapter/claude/` - MCP-native agent adapter. `SupportsMCP() = true`, `Invoke` spawns `claude` subprocess (agent discovers MCP server via `.mcp.json`). | 6, 11 |
 | 13 | spec-cli | GitHub adapter (repo) | `internal/adapter/github/repo.go` - `ListPRs`, `PRStatus`, `SetPRDescription`, `RequestedReviews`. Uses `go-github`. | 6 |
 | 14 | spec-cli | AI service layer | `internal/ai/` - `AIService` null-safe wrapper, accept/edit/skip interaction flow, prompt templates. `spec draft` command (section, PR, PR stack). | 3, 5, 6 |
-| 15 | spec-cli | Anthropic AI adapter | `internal/adapter/anthropic/` - chat completions + embeddings via Anthropic API. | 6, 14 |
-| 16 | spec-cli | Ollama AI adapter | `internal/adapter/ollama/` - local model completions + embeddings. | 6, 14 |
+| 15 | spec-cli | Anthropic AI adapter | `internal/adapter/anthropic/` - chat completions via Anthropic API. | 6, 14 |
+| 16 | spec-cli | Ollama AI adapter | `internal/adapter/ollama/` - local model completions. | 6, 14 |
 
 **Phase 3 - Integrations & Sync (v0.3)**
 
@@ -1856,7 +1821,7 @@ spec (no args)
 |---|---|---|---|---|
 | 22 | spec-cli | GitHub Actions deploy adapter | `internal/adapter/github/deploy.go` - workflow dispatch trigger, run status polling. `spec deploy` command. | 6, 13 |
 | 23 | spec-cli | Ceremony engine | `internal/ceremony/` - standup generation from activity log + git + PR data, retro metrics aggregation, qualitative capture. `spec standup`, `spec retro`, `spec metrics` commands. | 3, 13, 17 |
-| 24 | spec-cli | Knowledge engine | `internal/knowledge/` - full-text search via git-grep, semantic search with embeddings (lazy index build), answer synthesis. `spec search`, `spec context`, `spec history` commands. | 3, 4, 14 |
+| 24 | spec-cli | Knowledge engine | `internal/knowledge/` - full-text + keyword search via git-grep. `spec search`, `spec context`, `spec history` commands. | 3, 4, 14 |
 | 25 | spec-cli | `spec watch` | Live-updating terminal dashboard. Polling loop with configurable interval. Pipeline visualisation - specs grouped by stage, stale indicators. Uses `golang.org/x/term` for raw terminal mode. | 9 |
 
 ---

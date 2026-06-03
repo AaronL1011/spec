@@ -229,7 +229,6 @@ integrations:
 
     # --- Ollama (local) ---
     model: llama3
-    embed_model: nomic-embed-text
     base_url: http://localhost:11434  # optional; default shown
 ```
 
@@ -332,8 +331,6 @@ fast_track:
   allowed_roles: [engineer, tl]   # default: [engineer, tl]
   max_duration: 48h               # escalate to TL/PM after this duration
   require_labels: [bug, hotfix]   # spec must carry these labels
-  pipeline_variant: bug-fix       # use a named pipeline variant
-  excluded_stages: [design, qa-expectations]  # or skip specific stages instead
 ```
 
 | Field | Default | Description |
@@ -342,8 +339,6 @@ fast_track:
 | `allowed_roles` | `[engineer, tl]` | Roles that can create fast-track specs |
 | `max_duration` | — | Duration string (`2d`, `48h`) before escalation fires |
 | `require_labels` | — | Labels that must appear on the spec |
-| `pipeline_variant` | — | Named variant to use (takes priority over `excluded_stages`) |
-| `excluded_stages` | — | Stages to drop from the default pipeline |
 
 ---
 
@@ -547,34 +542,19 @@ the `engineering` stage to enforce technical plan sign-off.
     min_approvals: 1
 ```
 
-### Pipeline variants
+### Conditional stage skipping
 
-Define alternative pipelines for different work types (bugs, spikes, etc.) and
-auto-select them from spec labels.
+Individual stages can be skipped per-spec by attaching a `skip_when` expression.
+When the expression evaluates true for a spec, that stage is skipped on advance
+(the skip is recorded in the decision log).
 
 ```yaml
 pipeline:
-  default: product
-
-  variants:
-    bug-fix:
-      preset: minimal
-      skip: [design, qa-expectations]
-
-    spike:
-      stages:
-        - name: research
-          owner: engineer
-        - name: done
-          owner: tl
-
-  variant_from_labels:
-    - label: bug
-      variant: bug-fix
-    - label: spike
-      variant: spike
-    - default: true              # fallback when no label matches
-      variant: product
+  preset: product
+  stages:
+    - name: design
+      owner: designer
+      skip_when: "'urgent' in spec.labels"   # skip design for urgent work
 ```
 
 ---

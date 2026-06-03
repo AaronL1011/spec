@@ -141,7 +141,7 @@ func newSpecDetail(rc *config.ResolvedConfig, specID string, styles Styles, keys
 		keys:                 keys,
 		theme:                theme,
 		readerCache:          make(map[string]string),
-		renderer:             NewGlamourRenderer(theme),
+		renderer:             newRenderer(theme),
 		readerViewport:       vp,
 		paneVisible:          true,
 		pendingScrollRestore: -1,
@@ -1026,10 +1026,6 @@ func (m specDetailModel) maxScroll() int {
 		return 0
 	}
 	return mx
-}
-
-func stepIcon(status string) string {
-	return StepIconFor(status)
 }
 
 func (m specDetailModel) estimateContentLines() int {

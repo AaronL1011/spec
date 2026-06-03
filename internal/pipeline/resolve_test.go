@@ -132,112 +132,6 @@ func TestResolveDefault(t *testing.T) {
 	}
 }
 
-func TestResolveForSpecWithVariant(t *testing.T) {
-	cfg := config.PipelineConfig{
-		Preset: "product",
-		Variants: map[string]config.VariantConfig{
-			"bug": {
-				Preset: "product",
-				Skip:   []string{"design", "qa_expectations"},
-			},
-		},
-		VariantFromLabels: []config.LabelVariantMapping{
-			{Label: "bug", Variant: "bug"},
-		},
-	}
-
-	// Test with bug label
-	resolved, err := ResolveForSpec(cfg, []string{"bug", "urgent"})
-	if err != nil {
-		t.Fatalf("ResolveForSpec: %v", err)
-	}
-
-	if resolved.VariantName != "bug" {
-		t.Errorf("VariantName = %q, want %q", resolved.VariantName, "bug")
-	}
-
-	// Check design was skipped
-	if resolved.StageByName("design") != nil {
-		t.Error("design stage should have been skipped")
-	}
-}
-
-func TestResolveForSpecWithDefault(t *testing.T) {
-	cfg := config.PipelineConfig{
-		Preset:  "product",
-		Default: "standard",
-		Variants: map[string]config.VariantConfig{
-			"standard": {
-				Preset: "product",
-			},
-			"bug": {
-				Preset: "startup",
-			},
-		},
-	}
-
-	// Test with no matching labels
-	resolved, err := ResolveForSpec(cfg, []string{"feature"})
-	if err != nil {
-		t.Fatalf("ResolveForSpec: %v", err)
-	}
-
-	if resolved.VariantName != "standard" {
-		t.Errorf("VariantName = %q, want %q", resolved.VariantName, "standard")
-	}
-}
-
-func TestResolvedPipelineMethods(t *testing.T) {
-	cfg := config.PipelineConfig{
-		Preset: "minimal",
-	}
-
-	resolved, err := Resolve(cfg)
-	if err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-
-	// Test NextStage
-	next, ok := resolved.NextStage("draft")
-	if !ok {
-		t.Error("NextStage(draft) should return true")
-	}
-	if next != "build" {
-		t.Errorf("NextStage(draft) = %q, want %q", next, "build")
-	}
-
-	// Test PrevStage
-	prev, ok := resolved.PrevStage("build")
-	if !ok {
-		t.Error("PrevStage(build) should return true")
-	}
-	if prev != "draft" {
-		t.Errorf("PrevStage(build) = %q, want %q", prev, "draft")
-	}
-
-	// Test IsValidTransition
-	if !resolved.IsValidTransition("draft", "build") {
-		t.Error("IsValidTransition(draft, build) should be true")
-	}
-	if resolved.IsValidTransition("build", "draft") {
-		t.Error("IsValidTransition(build, draft) should be false")
-	}
-
-	// Test IsValidReversion
-	if !resolved.IsValidReversion("build", "draft") {
-		t.Error("IsValidReversion(build, draft) should be true")
-	}
-	if resolved.IsValidReversion("draft", "build") {
-		t.Error("IsValidReversion(draft, build) should be false")
-	}
-
-	// Test StageOwner
-	owner := resolved.StageOwner("build")
-	if owner != "engineer" {
-		t.Errorf("StageOwner(build) = %q, want %q", owner, "engineer")
-	}
-}
-
 func TestLoadPreset(t *testing.T) {
 	for _, name := range PresetNames() {
 		t.Run(name, func(t *testing.T) {
@@ -453,7 +347,7 @@ func TestNextEffectiveStage(t *testing.T) {
 	}
 }
 
-func TestShouldSkipStage(t *testing.T) {
+func TestEvaluateSkipWhen_PerStage(t *testing.T) {
 	resolved := &ResolvedPipeline{
 		Stages: []config.StageConfig{
 			{Name: "design", Owner: config.Owners{"designer"}, SkipWhen: "'urgent' in spec.labels"},
@@ -463,35 +357,28 @@ func TestShouldSkipStage(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		stageName string
-		labels    []string
-		wordCount int
-		wantSkip  bool
+		name        string
+		labels      []string
+		wordCount   int
+		wantSkipped map[string]bool
 	}{
 		{
-			name:      "design not skipped",
-			stageName: "design",
-			labels:    []string{"feature"},
-			wantSkip:  false,
+			name:        "nothing skipped",
+			labels:      []string{"feature"},
+			wordCount:   200,
+			wantSkipped: map[string]bool{},
 		},
 		{
-			name:      "design skipped for urgent",
-			stageName: "design",
-			labels:    []string{"urgent"},
-			wantSkip:  true,
+			name:        "design skipped for urgent",
+			labels:      []string{"urgent"},
+			wordCount:   200,
+			wantSkipped: map[string]bool{"design": true},
 		},
 		{
-			name:      "qa not skipped with enough words",
-			stageName: "qa",
-			wordCount: 200,
-			wantSkip:  false,
-		},
-		{
-			name:      "qa skipped for short specs",
-			stageName: "qa",
-			wordCount: 50,
-			wantSkip:  true,
+			name:        "qa skipped for short specs",
+			labels:      []string{"feature"},
+			wordCount:   50,
+			wantSkipped: map[string]bool{"qa": true},
 		},
 	}
 
@@ -501,9 +388,19 @@ func TestShouldSkipStage(t *testing.T) {
 				WithSpec("SPEC-001", "Test", "triage", tt.labels, tt.wordCount, 0, 0).
 				Build()
 
-			skipped, _ := ShouldSkipStage(resolved, tt.stageName, ctx)
-			if skipped != tt.wantSkip {
-				t.Errorf("ShouldSkipStage(%q) = %v, want %v", tt.stageName, skipped, tt.wantSkip)
+			got := map[string]bool{}
+			for _, r := range EvaluateSkipWhen(resolved, ctx) {
+				if r.Skipped {
+					got[r.StageName] = true
+				}
+			}
+			if len(got) != len(tt.wantSkipped) {
+				t.Fatalf("skipped = %v, want %v", got, tt.wantSkipped)
+			}
+			for name := range tt.wantSkipped {
+				if !got[name] {
+					t.Errorf("expected %q to be skipped", name)
+				}
 			}
 		})
 	}

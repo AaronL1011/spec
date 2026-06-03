@@ -9,16 +9,10 @@ import (
 type mockAI struct {
 	completeResult string
 	completeErr    error
-	embedResult    []float32
-	embedErr       error
 }
 
 func (m *mockAI) Complete(ctx context.Context, prompt string, system string) (string, error) {
 	return m.completeResult, m.completeErr
-}
-
-func (m *mockAI) Embed(ctx context.Context, text string) ([]float32, error) {
-	return m.embedResult, m.embedErr
 }
 
 func TestService_IsAvailable(t *testing.T) {
@@ -73,41 +67,6 @@ func TestService_Draft_ProviderError_DegradesGracefully(t *testing.T) {
 	}
 	if result != "" {
 		t.Errorf("expected empty result on error, got %q", result)
-	}
-}
-
-func TestService_Embed_Unavailable(t *testing.T) {
-	svc := NewService(nil, true)
-	result, err := svc.Embed(context.Background(), "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != nil {
-		t.Errorf("expected nil result, got %v", result)
-	}
-}
-
-func TestService_Embed_Success(t *testing.T) {
-	mock := &mockAI{embedResult: []float32{0.1, 0.2, 0.3}}
-	svc := NewService(mock, true)
-
-	result, err := svc.Embed(context.Background(), "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result) != 3 {
-		t.Fatalf("expected 3-dim vector, got %d", len(result))
-	}
-}
-
-func TestService_Summarise_Unavailable(t *testing.T) {
-	svc := NewService(nil, false)
-	result, err := svc.Summarise(context.Background(), "long text", 50)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != "" {
-		t.Errorf("expected empty result, got %q", result)
 	}
 }
 

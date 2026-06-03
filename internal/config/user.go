@@ -96,24 +96,6 @@ const (
 	MultiplexerNone    = "none"
 )
 
-// ValidMultiplexers returns the valid multiplexer values.
-func ValidMultiplexers() []string {
-	return []string{MultiplexerTmux, MultiplexerZellij, MultiplexerWezterm, MultiplexerIterm2, MultiplexerNone}
-}
-
-// IsValidMultiplexer checks if a multiplexer string is valid.
-func IsValidMultiplexer(m string) bool {
-	if m == "" {
-		return true // empty is valid (defaults to none)
-	}
-	for _, v := range ValidMultiplexers() {
-		if v == m {
-			return true
-		}
-	}
-	return false
-}
-
 // AIDraftsEnabled returns whether AI drafts are enabled.
 // Defaults to true if not explicitly set.
 func (p PreferencesConfig) AIDraftsEnabled() bool {

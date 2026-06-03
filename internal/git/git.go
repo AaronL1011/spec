@@ -185,14 +185,6 @@ func HasChanges(ctx context.Context, dir string) (bool, error) {
 	return status != "", nil
 }
 
-// Log returns recent commit messages.
-func Log(ctx context.Context, dir string, n int, format string) (string, error) {
-	if format == "" {
-		format = "%h %s"
-	}
-	return Run(ctx, dir, "log", fmt.Sprintf("-n%d", n), fmt.Sprintf("--format=%s", format))
-}
-
 // ConfigGet returns a git config value.
 func ConfigGet(ctx context.Context, dir, key string) (string, error) {
 	return Run(ctx, dir, "config", "--get", key)
@@ -205,19 +197,4 @@ func UserName(ctx context.Context) string {
 		return "unknown"
 	}
 	return name
-}
-
-// UserEmail returns the configured git user.email.
-func UserEmail(ctx context.Context) string {
-	email, err := ConfigGet(ctx, ".", "user.email")
-	if err != nil {
-		return ""
-	}
-	return email
-}
-
-// IsGitRepo checks if the directory is inside a git repository.
-func IsGitRepo(dir string) bool {
-	_, err := Run(context.Background(), dir, "rev-parse", "--git-dir")
-	return err == nil
 }

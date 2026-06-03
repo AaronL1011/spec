@@ -248,9 +248,8 @@ func resolveAI(cfg *config.TeamConfig) (adapter.AIAdapter, string) {
 		return anthropic.NewClient(token, model), ""
 	case "ollama":
 		model := cfg.Integrations.AI.Get("model")
-		embedModel := cfg.Integrations.AI.Get("embed_model")
 		baseURL := cfg.Integrations.AI.Get("base_url")
-		return ollama.NewClient(model, embedModel, baseURL), ""
+		return ollama.NewClient(model, baseURL), ""
 	case "openai":
 		return noop.AI{}, "openai adapter not yet implemented — AI disabled"
 	default:

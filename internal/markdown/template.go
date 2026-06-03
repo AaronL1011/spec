@@ -88,23 +88,6 @@ created: %s
 `, id, title, priority, source, sourceRef, reportedBy, date, id, title)
 }
 
-// NextSpecID scans existing spec filenames and returns the next sequential ID.
-// Files should be like SPEC-001.md, SPEC-002.md, etc.
-//
-// Deprecated for allocation: authoritative IDs come from git.ClaimNextID. This
-// is retained only to compute the bootstrap high-water-mark for a repo with no
-// counter ref yet (SPEC-018 §7.1).
-func NextSpecID(existingFiles []string) string {
-	return fmt.Sprintf("SPEC-%03d", MaxSpecNum(existingFiles)+1)
-}
-
-// NextTriageID scans existing triage filenames and returns the next sequential ID.
-//
-// Deprecated for allocation: see NextSpecID.
-func NextTriageID(existingFiles []string) string {
-	return fmt.Sprintf("TRIAGE-%03d", MaxTriageNum(existingFiles)+1)
-}
-
 // MaxSpecNum returns the highest SPEC-NNN number among the given filenames, or
 // 0 if none. It is the bootstrap seed for the counter ref (SPEC-018 §7.1).
 func MaxSpecNum(existingFiles []string) int {

@@ -43,7 +43,7 @@ func TestComplete_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", "", server.URL)
+	client := NewClient("", server.URL)
 	result, err := client.Complete(context.Background(), "Draft a section", "You are helpful")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -68,59 +68,13 @@ func TestComplete_NoSystem(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", "", server.URL)
+	client := NewClient("", server.URL)
 	result, err := client.Complete(context.Background(), "test", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result != "OK" {
 		t.Errorf("unexpected result: %q", result)
-	}
-}
-
-func TestEmbed_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/embed" {
-			t.Errorf("expected /api/embed, got %s", r.URL.Path)
-		}
-
-		var req embedRequest
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if req.Model != "nomic-embed-text" {
-			t.Errorf("expected embed model nomic-embed-text, got %s", req.Model)
-		}
-
-		resp := embedResponse{
-			Embeddings: [][]float32{{0.1, 0.2, 0.3}},
-		}
-		_ = json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
-
-	client := NewClient("", "", server.URL)
-	vec, err := client.Embed(context.Background(), "test text")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(vec) != 3 {
-		t.Fatalf("expected 3-dim vector, got %d", len(vec))
-	}
-	if vec[0] != 0.1 || vec[1] != 0.2 || vec[2] != 0.3 {
-		t.Errorf("unexpected vector: %v", vec)
-	}
-}
-
-func TestEmbed_Empty(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := embedResponse{Embeddings: [][]float32{}}
-		_ = json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
-
-	client := NewClient("", "", server.URL)
-	_, err := client.Embed(context.Background(), "test")
-	if err == nil {
-		t.Fatal("expected error for empty embeddings")
 	}
 }
 
@@ -131,7 +85,7 @@ func TestComplete_APIError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", "", server.URL)
+	client := NewClient("", server.URL)
 	_, err := client.Complete(context.Background(), "test", "")
 	if err == nil {
 		t.Fatal("expected error for 500 response")

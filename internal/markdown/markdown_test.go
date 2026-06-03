@@ -191,21 +191,6 @@ func TestIsSectionNonEmpty(t *testing.T) {
 	}
 }
 
-func TestSectionsOwnedBy(t *testing.T) {
-	body := Body(testSpec)
-	sections := ExtractSections(body)
-
-	pmSections := SectionsOwnedBy(sections, "pm")
-	if len(pmSections) < 4 {
-		t.Errorf("pm sections = %d, want >= 4", len(pmSections))
-	}
-
-	engSections := SectionsOwnedBy(sections, "engineer")
-	if len(engSections) < 2 {
-		t.Errorf("engineer sections = %d, want >= 2", len(engSections))
-	}
-}
-
 func TestReplaceSectionContent(t *testing.T) {
 	result, err := ReplaceSectionContent(testSpec, "problem_statement", "New problem statement content.\n")
 	if err != nil {
@@ -305,38 +290,38 @@ func TestResolveNonExistentDecision(t *testing.T) {
 	}
 }
 
-func TestNextSpecID(t *testing.T) {
+func TestMaxSpecNum(t *testing.T) {
 	tests := []struct {
 		files []string
-		want  string
+		want  int
 	}{
-		{nil, "SPEC-001"},
-		{[]string{"SPEC-001.md"}, "SPEC-002"},
-		{[]string{"SPEC-001.md", "SPEC-042.md", "SPEC-003.md"}, "SPEC-043"},
-		{[]string{"README.md"}, "SPEC-001"},
+		{nil, 0},
+		{[]string{"SPEC-001.md"}, 1},
+		{[]string{"SPEC-001.md", "SPEC-042.md", "SPEC-003.md"}, 42},
+		{[]string{"README.md"}, 0},
 	}
 
 	for _, tt := range tests {
-		got := NextSpecID(tt.files)
+		got := MaxSpecNum(tt.files)
 		if got != tt.want {
-			t.Errorf("NextSpecID(%v) = %q, want %q", tt.files, got, tt.want)
+			t.Errorf("MaxSpecNum(%v) = %d, want %d", tt.files, got, tt.want)
 		}
 	}
 }
 
-func TestNextTriageID(t *testing.T) {
+func TestMaxTriageNum(t *testing.T) {
 	tests := []struct {
 		files []string
-		want  string
+		want  int
 	}{
-		{nil, "TRIAGE-001"},
-		{[]string{"TRIAGE-001.md", "TRIAGE-088.md"}, "TRIAGE-089"},
+		{nil, 0},
+		{[]string{"TRIAGE-001.md", "TRIAGE-088.md"}, 88},
 	}
 
 	for _, tt := range tests {
-		got := NextTriageID(tt.files)
+		got := MaxTriageNum(tt.files)
 		if got != tt.want {
-			t.Errorf("NextTriageID(%v) = %q, want %q", tt.files, got, tt.want)
+			t.Errorf("MaxTriageNum(%v) = %d, want %d", tt.files, got, tt.want)
 		}
 	}
 }

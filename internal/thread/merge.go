@@ -1,5 +1,32 @@
 package thread
 
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Parse decodes a sidecar document body into its thread set. An empty body
+// yields an empty (non-nil-error) result so callers can merge cleanly.
+func Parse(data []byte) ([]Thread, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	var doc document
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parsing thread sidecar: %w", err)
+	}
+	return doc.Threads, nil
+}
+
+// Marshal serializes a thread set into the deterministic sidecar document
+// shape, applying the same ordering as the on-disk store so merged output
+// diffs cleanly.
+func Marshal(threads []Thread) ([]byte, error) {
+	sortThreads(threads)
+	return marshal(document{Threads: threads})
+}
+
 // Merge reconciles two thread sets into one. It is used to resolve the rare
 // case where two reviewers edited the same sidecar offline.
 //

@@ -20,9 +20,6 @@ type ResolvedPipeline struct {
 	// PresetName is the preset that was used (empty if none).
 	PresetName string
 
-	// VariantName is the variant that was selected (empty if default).
-	VariantName string
-
 	// SkippedStages lists stages that were removed via Skip config.
 	SkippedStages []string
 }
@@ -34,47 +31,6 @@ func (r *ResolvedPipeline) StageByName(name string) *config.StageConfig {
 		return nil
 	}
 	return &r.Stages[idx]
-}
-
-// StageOwner returns the owner role for a stage.
-func (r *ResolvedPipeline) StageOwner(name string) string {
-	stage := r.StageByName(name)
-	if stage == nil {
-		return ""
-	}
-	return stage.GetOwner()
-}
-
-// NextStage returns the next stage after the given one.
-func (r *ResolvedPipeline) NextStage(current string) (string, bool) {
-	idx, ok := r.StageIndex[current]
-	if !ok || idx >= len(r.Stages)-1 {
-		return "", false
-	}
-	return r.Stages[idx+1].Name, true
-}
-
-// PrevStage returns the previous stage before the given one.
-func (r *ResolvedPipeline) PrevStage(current string) (string, bool) {
-	idx, ok := r.StageIndex[current]
-	if !ok || idx <= 0 {
-		return "", false
-	}
-	return r.Stages[idx-1].Name, true
-}
-
-// IsValidTransition checks if advancing from 'from' to 'to' is valid.
-func (r *ResolvedPipeline) IsValidTransition(from, to string) bool {
-	fromIdx, fromOk := r.StageIndex[from]
-	toIdx, toOk := r.StageIndex[to]
-	return fromOk && toOk && toIdx > fromIdx
-}
-
-// IsValidReversion checks if reverting from 'from' to 'to' is valid.
-func (r *ResolvedPipeline) IsValidReversion(from, to string) bool {
-	fromIdx, fromOk := r.StageIndex[from]
-	toIdx, toOk := r.StageIndex[to]
-	return fromOk && toOk && toIdx < fromIdx
 }
 
 // Resolve takes a pipeline config and returns a fully resolved pipeline.
@@ -140,55 +96,6 @@ func Resolve(cfg config.PipelineConfig) (*ResolvedPipeline, error) {
 		PresetName:    presetName,
 		SkippedStages: skipped,
 	}, nil
-}
-
-// ResolveForSpec returns the pipeline variant for a specific spec based on its labels.
-func ResolveForSpec(cfg config.PipelineConfig, labels []string) (*ResolvedPipeline, error) {
-	// Check if spec matches a variant based on labels
-	variantName := ""
-	if len(cfg.VariantFromLabels) > 0 {
-		labelSet := make(map[string]bool)
-		for _, l := range labels {
-			labelSet[l] = true
-		}
-
-		for _, mapping := range cfg.VariantFromLabels {
-			if mapping.Default && variantName == "" {
-				variantName = mapping.Variant
-			}
-			if mapping.Label != "" && labelSet[mapping.Label] {
-				variantName = mapping.Variant
-				break
-			}
-		}
-	}
-
-	// Use default variant if set and no match
-	if variantName == "" && cfg.Default != "" {
-		variantName = cfg.Default
-	}
-
-	// If we have a variant, resolve it
-	if variantName != "" && cfg.Variants != nil {
-		variant, ok := cfg.Variants[variantName]
-		if ok {
-			// Create a pipeline config from the variant
-			variantCfg := config.PipelineConfig{
-				Preset: variant.Preset,
-				Skip:   variant.Skip,
-				Stages: variant.Stages,
-			}
-			resolved, err := Resolve(variantCfg)
-			if err != nil {
-				return nil, fmt.Errorf("resolving variant %q: %w", variantName, err)
-			}
-			resolved.VariantName = variantName
-			return resolved, nil
-		}
-	}
-
-	// No variant - resolve the base config
-	return Resolve(cfg)
 }
 
 // applyStageOverrides merges override stages into base stages.
@@ -521,22 +428,4 @@ func NextEffectiveStage(resolved *ResolvedPipeline, current string, ctx expr.Con
 		return "", false
 	}
 	return effective[currentIdx+1].Name, true
-}
-
-// ShouldSkipStage checks if a specific stage should be skipped for a spec.
-func ShouldSkipStage(resolved *ResolvedPipeline, stageName string, ctx expr.Context) (bool, string) {
-	stage := resolved.StageByName(stageName)
-	if stage == nil || stage.SkipWhen == "" {
-		return false, ""
-	}
-
-	shouldSkip, err := expr.Evaluate(stage.SkipWhen, ctx)
-	if err != nil {
-		return false, fmt.Sprintf("error: %v", err)
-	}
-
-	if shouldSkip {
-		return true, stage.SkipWhen
-	}
-	return false, ""
 }

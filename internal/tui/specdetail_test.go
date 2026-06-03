@@ -515,25 +515,6 @@ func TestSpecDetail_FastNavSpamDoesNotLeavePendingArtifacts(t *testing.T) {
 	}
 }
 
-func TestStepIcon(t *testing.T) {
-	tests := []struct {
-		status string
-		want   string
-	}{
-		{"done", IconDone},
-		{"in_progress", IconActive},
-		{"active", IconActive},
-		{"blocked", IconBlocked},
-		{"", IconOpen},
-		{"pending", IconOpen},
-	}
-	for _, tt := range tests {
-		if got := stepIcon(tt.status); got != tt.want {
-			t.Errorf("stepIcon(%q) = %q, want %q", tt.status, got, tt.want)
-		}
-	}
-}
-
 func TestSpecDetail_SectionAtClick(t *testing.T) {
 	m := testSpecDetailModel()
 	m.width = 120 // >= readerSidebarMinWidth so the sidebar is shown

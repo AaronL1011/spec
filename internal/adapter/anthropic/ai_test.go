@@ -3,7 +3,6 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -77,17 +76,6 @@ func TestComplete_APIError(t *testing.T) {
 	_, err := client.Complete(context.Background(), "test", "")
 	if err == nil {
 		t.Fatal("expected error for 401 response")
-	}
-}
-
-func TestEmbed_NotSupported(t *testing.T) {
-	client := NewClient("test-key", "")
-	result, err := client.Embed(context.Background(), "test text")
-	if result != nil {
-		t.Errorf("expected nil result, got %v", result)
-	}
-	if !errors.Is(err, ErrEmbeddingsNotSupported) {
-		t.Errorf("expected ErrEmbeddingsNotSupported, got %v", err)
 	}
 }
 

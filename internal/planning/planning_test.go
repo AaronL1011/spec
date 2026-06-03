@@ -161,10 +161,6 @@ func TestPlan_Progress(t *testing.T) {
 	if total != 5 {
 		t.Errorf("total = %d, want 5", total)
 	}
-
-	if plan.ProgressString() != "2/5 steps" {
-		t.Errorf("ProgressString = %q", plan.ProgressString())
-	}
 }
 
 func TestPlan_RequestReview(t *testing.T) {
@@ -430,51 +426,5 @@ func TestPlan_ToFrontmatter(t *testing.T) {
 	}
 	if len(review.Approvals) != 1 {
 		t.Errorf("approvals count = %d", len(review.Approvals))
-	}
-}
-
-func TestPlan_Summary(t *testing.T) {
-	tests := []struct {
-		name string
-		plan *Plan
-		want string
-	}{
-		{
-			"no steps",
-			&Plan{},
-			"No build plan",
-		},
-		{
-			"with progress",
-			&Plan{Steps: []Step{
-				{Status: StatusComplete},
-				{Status: StatusPending},
-			}},
-			"1/2 steps",
-		},
-		{
-			"with pending review",
-			&Plan{
-				Steps:  []Step{{Status: StatusPending}},
-				Review: &ReviewState{Status: ReviewPending},
-			},
-			"0/1 steps, review pending",
-		},
-		{
-			"approved",
-			&Plan{
-				Steps:  []Step{{Status: StatusComplete}},
-				Review: &ReviewState{Status: ReviewApproved},
-			},
-			"1/1 steps, approved",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.plan.Summary(); got != tt.want {
-				t.Errorf("Summary() = %q, want %q", got, tt.want)
-			}
-		})
 	}
 }

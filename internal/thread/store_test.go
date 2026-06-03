@@ -167,6 +167,61 @@ func TestSave_RemovesSidecarWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestParseMarshal_RoundTripThroughMerge(t *testing.T) {
+	// Simulates the sidecar conflict-resolution path: two serialized sidecars
+	// are parsed, merged, and re-marshalled into a single reconciled document.
+	at := time.Date(2026, 5, 30, 10, 0, 0, 0, time.UTC)
+	localDoc, err := Marshal([]Thread{
+		{ID: "T-1", Section: "s", Status: StatusOpen, Created: at, Question: "local"},
+	})
+	if err != nil {
+		t.Fatalf("Marshal local: %v", err)
+	}
+	remoteDoc, err := Marshal([]Thread{
+		{ID: "T-2", Section: "s", Status: StatusOpen, Created: at.Add(time.Minute), Question: "remote"},
+	})
+	if err != nil {
+		t.Fatalf("Marshal remote: %v", err)
+	}
+
+	local, err := Parse(localDoc)
+	if err != nil {
+		t.Fatalf("Parse local: %v", err)
+	}
+	remote, err := Parse(remoteDoc)
+	if err != nil {
+		t.Fatalf("Parse remote: %v", err)
+	}
+
+	merged := Merge(local, remote)
+	if len(merged) != 2 {
+		t.Fatalf("merged threads = %d, want 2", len(merged))
+	}
+
+	// Re-marshalling the merged set must parse back to the same threads.
+	out, err := Marshal(merged)
+	if err != nil {
+		t.Fatalf("Marshal merged: %v", err)
+	}
+	reparsed, err := Parse(out)
+	if err != nil {
+		t.Fatalf("Parse merged: %v", err)
+	}
+	if len(reparsed) != 2 {
+		t.Fatalf("reparsed threads = %d, want 2", len(reparsed))
+	}
+}
+
+func TestParse_EmptyIsEmpty(t *testing.T) {
+	threads, err := Parse(nil)
+	if err != nil {
+		t.Fatalf("Parse(nil): %v", err)
+	}
+	if len(threads) != 0 {
+		t.Fatalf("Parse(nil) = %d threads, want 0", len(threads))
+	}
+}
+
 func TestMerge_UnionsThreadsAndReplies(t *testing.T) {
 	at := time.Date(2026, 5, 30, 10, 0, 0, 0, time.UTC)
 	resolvedAt := at.Add(time.Hour)

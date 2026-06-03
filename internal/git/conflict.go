@@ -3,11 +3,13 @@ package git
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/markdown"
 	syncpkg "github.com/aaronl1011/spec/internal/sync"
+	"github.com/aaronl1011/spec/internal/thread"
 )
 
 // sectionOverlap decides whether a set of locally-changed files collides with
@@ -35,6 +37,15 @@ func sectionOverlap(ctx context.Context, dir string, ourFiles, upstreamFiles []s
 	for _, file := range ourFiles {
 		if _, changedUpstream := upstream[file]; !changedUpstream {
 			continue
+		}
+
+		// Thread sidecars edited on both sides are reconciled associatively
+		// (two reviewers editing offline) rather than treated as a conflict.
+		if isThreadSidecar(file) {
+			if mergeSidecar(ctx, dir, file, remoteRef) {
+				continue
+			}
+			return file
 		}
 
 		// Non-spec / non-markdown file changed on both sides: conservative
@@ -112,6 +123,45 @@ func sectionHashes(content string) map[string]string {
 // showFile returns the content of a file at a ref via `git show ref:path`.
 func showFile(ctx context.Context, dir, ref, file string) (string, error) {
 	return Run(ctx, dir, "show", ref+":"+file)
+}
+
+// isThreadSidecar reports whether file is a thread sidecar (.threads.yaml)
+// under the specs sub-tree.
+func isThreadSidecar(file string) bool {
+	slashed := filepath.ToSlash(file)
+	return strings.HasPrefix(slashed, SpecsSubDir+"/") && strings.HasSuffix(slashed, ".threads.yaml")
+}
+
+// mergeSidecar reconciles a thread sidecar that changed on both sides by
+// unioning the local (HEAD) and remote thread sets via thread.Merge and
+// writing the result to the working tree. It returns true when the merge
+// succeeded and the working tree now holds the reconciled sidecar; false when
+// the caller should fall back to a conservative whole-file conflict.
+func mergeSidecar(ctx context.Context, dir, file, remoteRef string) bool {
+	localBody, err := showFile(ctx, dir, "HEAD", file)
+	if err != nil {
+		return false
+	}
+	remoteBody, err := showFile(ctx, dir, remoteRef, file)
+	if err != nil {
+		return false
+	}
+	local, err := thread.Parse([]byte(localBody))
+	if err != nil {
+		return false
+	}
+	remote, err := thread.Parse([]byte(remoteBody))
+	if err != nil {
+		return false
+	}
+	merged, err := thread.Marshal(thread.Merge(local, remote))
+	if err != nil {
+		return false
+	}
+	if err := os.WriteFile(filepath.Join(dir, file), merged, 0o644); err != nil {
+		return false
+	}
+	return true
 }
 
 func isSpecMarkdown(file string) bool {

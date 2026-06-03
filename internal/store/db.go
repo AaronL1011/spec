@@ -144,18 +144,6 @@ func (db *DB) migrateV1() error {
 		`CREATE INDEX IF NOT EXISTS idx_activity_spec ON activity(spec_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_activity_time ON activity(created_at)`,
 
-		// Embeddings: vector storage for semantic search
-		`CREATE TABLE IF NOT EXISTS embeddings (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			spec_id    TEXT NOT NULL,
-			section    TEXT NOT NULL,
-			content    TEXT NOT NULL,
-			vector     BLOB NOT NULL,
-			model      TEXT NOT NULL,
-			updated_at INTEGER NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_embed_spec ON embeddings(spec_id)`,
-
 		// Sync state: tracks last-synced hashes per section per spec
 		`CREATE TABLE IF NOT EXISTS sync_state (
 			spec_id   TEXT NOT NULL,

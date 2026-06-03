@@ -81,16 +81,6 @@ func PRStackPrompt(solution, architectureNotes string, repos []string) string {
 	return sb.String()
 }
 
-// TriageSummarisePrompt generates a prompt for summarising a triage source.
-func TriageSummarisePrompt(sourceContent string) string {
-	return fmt.Sprintf(`Summarise the following alert/report into a concise triage description.
-Include: what happened, what's the impact, and any initial context.
-Keep it to 2-3 sentences.
-
-Source:
-%s`, sourceContent)
-}
-
 func humanizeSlug(slug string) string {
 	return strings.ReplaceAll(slug, "_", " ")
 }

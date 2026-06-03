@@ -53,13 +53,6 @@ type FastTrackConfig struct {
 
 	// RequireLabels requires fast-track specs to have specific labels (e.g., ["bug", "hotfix"]).
 	RequireLabels []string `yaml:"require_labels,omitempty"`
-
-	// PipelineVariant is the pipeline variant to use for fast-track specs.
-	// If empty, uses a minimal default: build → pr-review → done.
-	PipelineVariant string `yaml:"pipeline_variant,omitempty"`
-
-	// ExcludedStages lists stages to skip in fast-track (if not using a variant).
-	ExcludedStages []string `yaml:"excluded_stages,omitempty"`
 }
 
 // GetAllowedRoles returns allowed roles or default ["engineer", "tl"].

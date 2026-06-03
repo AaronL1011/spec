@@ -26,8 +26,7 @@ func runContext(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// For now, fall back to keyword search
-	// Full semantic search with embeddings will be added in Phase 4
+	// Keyword search over the specs repo.
 	query := strings.ToLower(question)
 
 	// Extract keywords (simple: split on spaces, filter short words)
@@ -59,10 +58,6 @@ func runContext(cmd *cobra.Command, args []string) error {
 			}
 			fmt.Println()
 		}
-	}
-
-	if rc.HasIntegration("ai") {
-		fmt.Println("For AI-synthesised answers, 'spec context' will use embeddings when the knowledge engine ships.")
 	}
 
 	return nil
