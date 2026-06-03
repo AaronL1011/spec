@@ -10,6 +10,7 @@ import (
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/adapter/noop"
 	"github.com/aaronl1011/spec/internal/adapter/resolve"
+	"github.com/aaronl1011/spec/internal/build"
 	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
@@ -254,24 +255,66 @@ func readSpecMeta(path string) (*markdown.SpecMeta, error) {
 // Uses resolve.All to wire concrete adapters from spec.config.yaml;
 // falls back to all-noop if no team config is present.
 func buildRegistry(rc *config.ResolvedConfig) *adapter.Registry {
+	var reg *adapter.Registry
 	if rc.Team != nil {
-		reg, warnings := resolve.All(rc.Team)
+		var warnings []string
+		reg, warnings = resolve.All(rc.Team)
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
-		return reg
+	} else {
+		// No team config — all noop
+		reg = adapter.NewRegistry(nil)
+		reg.WithComms(noop.Comms{}).
+			WithPM(noop.PM{}).
+			WithDocs(noop.Docs{}).
+			WithRepo(noop.Repo{}).
+			WithAgent(noop.Agent{}).
+			WithDeploy(noop.Deploy{}).
+			WithAI(noop.AI{})
 	}
 
-	// No team config — all noop
-	reg := adapter.NewRegistry(nil)
-	reg.WithComms(noop.Comms{}).
-		WithPM(noop.PM{}).
-		WithDocs(noop.Docs{}).
-		WithRepo(noop.Repo{}).
-		WithAgent(noop.Agent{}).
-		WithDeploy(noop.Deploy{}).
-		WithAI(noop.AI{})
+	// Per-user coding-agent override: a harness is a personal tool, so the
+	// user's ~/.spec/config.yaml `agent:` wins over the team default.
+	if rc.User != nil && rc.User.Agent != nil && rc.User.Agent.Provider != "" {
+		agent, warn := resolve.Agent(*rc.User.Agent)
+		if warn != "" {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warn)
+		}
+		reg.WithAgent(agent)
+	}
+
 	return reg
+}
+
+// buildEngineOptions assembles build.Options from agent integration config.
+// headless plumbs the autonomous run mode (e.g. `spec fix --auto`).
+func buildEngineOptions(rc *config.ResolvedConfig, headless bool) build.Options {
+	opts := build.Options{Headless: headless}
+	// Use the effective agent config so per-user skill/command/test_command
+	// overrides apply alongside the per-user provider choice.
+	agent := rc.EffectiveAgentConfig()
+	if refs := agent.Get("skill"); refs != "" {
+		opts.SkillRefs = splitConfigList(refs)
+	}
+	opts.TestCommand = agent.Get("test_command")
+	if rc.User != nil && len(rc.User.Workspaces) > 0 {
+		opts.Workspaces = rc.User.Workspaces
+	}
+	return opts
+}
+
+// splitConfigList splits a comma- or newline-separated config value into
+// trimmed, non-empty entries.
+func splitConfigList(v string) []string {
+	fields := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '\n' })
+	var out []string
+	for _, f := range fields {
+		if t := strings.TrimSpace(f); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // specPathIn is a shorthand for resolveSpecPathIn using the team config's archive dir.

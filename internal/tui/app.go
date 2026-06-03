@@ -990,6 +990,7 @@ func (a *App) openDetail(specID string) tea.Cmd {
 	a.showDetail = true
 	a.detailFrom = a.activeView
 	a.detail = newSpecDetail(a.rc, specID, a.styles, a.keys, a.theme)
+	a.detail.db = a.db
 	a.detail.setSize(a.width, a.contentHeight())
 	a.statusBar.SetView(a.activeView.Label() + " › " + specID)
 	a.syncBusyState()
@@ -1208,7 +1209,17 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return editSpec(a.rc, specID, editor), true
 	case key.Matches(msg, a.keys.Build) && isSpecID(specID):
-		return a.startAction("building "+specID, buildSpec(a.rc, specID)), true
+		// Pre-flight stage guard runs before the confirm modal so an invalid
+		// spec surfaces inline and never reaches the confirm step.
+		if err := a.preflightBuild(specID); err != nil {
+			a.statusBar.SetStatusError("Build unavailable", err.Error())
+			return nil, true
+		}
+		a.pendingAction = "build"
+		a.pendingSpecID = specID
+		a.modal.ShowConfirm("Build "+specID, a.buildConfirmBody(specID))
+		a.modal.SetSize(a.width, a.contentHeight())
+		return nil, true
 	case key.Matches(msg, a.keys.Push) && isSpecID(specID):
 		return a.startAction("pushing "+specID, pushSpec(a.rc, specID)), true
 	case key.Matches(msg, a.keys.Sync) && isSpecID(specID):
@@ -1316,6 +1327,8 @@ func (a *App) executeActionWithInput(input string) tea.Cmd {
 			reason = "blocked from TUI"
 		}
 		return a.startAction("blocking "+specID, blockSpec(a.rc, specID, reason, a.rc.UserName()))
+	case "build":
+		return a.startAction("building "+specID, buildSpec(a.rc, specID))
 	case "unblock":
 		return a.startAction("unblocking "+specID, unblockSpec(a.rc, specID))
 	case "archive":

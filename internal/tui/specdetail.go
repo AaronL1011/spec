@@ -17,9 +17,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/aaronl1011/spec/internal/build"
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/store"
 	"github.com/aaronl1011/spec/internal/thread"
 )
 
@@ -32,6 +34,7 @@ type specDetailDataMsg struct {
 	Threads   []thread.Thread
 	Hash      string
 	Archived  bool
+	BuildLine string
 	Err       error
 }
 
@@ -58,6 +61,12 @@ type navigateBackMsg struct{}
 type specDetailModel struct {
 	rc     *config.ResolvedConfig
 	specID string
+	// db is the shared store handle, used to read the build session for the
+	// build status line. May be nil (e.g. in tests); the line is then omitted.
+	db *store.DB
+	// buildLine is the compact build status ("step N/M — [repo] desc · ACs x/y")
+	// shown when a build session exists for the spec. Empty when none.
+	buildLine string
 
 	// Spec data
 	meta        *markdown.SpecMeta
@@ -190,9 +199,12 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	}
 	m.notice = ""
 	// No change — skip re-render. Hash-gating keeps an unchanged file (or an
-	// editor's identical re-save) from disturbing the view at all.
+	// editor's identical re-save) from disturbing the view at all. The build
+	// line still refreshes: an agent may advance a step via MCP without
+	// touching the spec file.
 	if msg.Hash != "" && msg.Hash == m.contentHash && m.meta != nil {
 		m.err = nil
+		m.buildLine = msg.BuildLine
 		return m, nil
 	}
 	// A refresh into an already-loaded spec (watcher-triggered or poll) must
@@ -207,6 +219,7 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	m.err = nil
 	m.contentHash = msg.Hash
 	m.isArchived = msg.Archived
+	m.buildLine = msg.BuildLine
 	m.readerCache = make(map[string]string)
 	m.contentLines = m.estimateContentLines()
 	if m.readerMode {
@@ -241,6 +254,7 @@ func (m specDetailModel) applyRefresh(msg specDetailDataMsg) (specDetailModel, t
 	m.err = nil
 	m.contentHash = msg.Hash
 	m.isArchived = msg.Archived
+	m.buildLine = msg.BuildLine
 	m.readerCache = make(map[string]string) // content changed — invalidate renders
 	m.contentLines = m.estimateContentLines()
 
@@ -837,6 +851,12 @@ func (m specDetailModel) viewOverview() string {
 	b.WriteString(m.styles.Muted.Render(Indent(1) + metaLine))
 	b.WriteString("\n")
 
+	// ── Build status line ──
+	if m.buildLine != "" {
+		b.WriteString(m.styles.Subtitle.Render(Indent(1) + truncate(m.buildLine, contentWidth)))
+		b.WriteString("\n")
+	}
+
 	// ── Review status block ───────────────────────────────────────────────────
 	if m.meta.Review != nil {
 		b.WriteString("\n")
@@ -1116,6 +1136,7 @@ func (m specDetailModel) watchPaths() []string {
 func (m specDetailModel) fetchData() tea.Cmd {
 	rc := m.rc
 	specID := m.specID
+	db := m.db
 	return func() tea.Msg {
 		if rc.SpecsRepoDir == "" {
 			return specDetailDataMsg{Err: fmt.Errorf("specs repo not configured")}
@@ -1154,8 +1175,56 @@ func (m specDetailModel) fetchData() tea.Cmd {
 			Threads:   threads,
 			Hash:      contentHash(data),
 			Archived:  isArchived,
+			BuildLine: buildStatusLine(db, specID, content),
 		}
 	}
+}
+
+// buildStatusLine renders the compact build status for the spec-detail header
+// from the persisted build session and the spec's acceptance criteria. It
+// returns an empty string when no session exists (or db is nil).
+func buildStatusLine(db *store.DB, specID, content string) string {
+	if db == nil {
+		return ""
+	}
+	session, err := build.LoadSession(db, specID)
+	if err != nil || session == nil || len(session.Steps) == 0 {
+		return ""
+	}
+
+	var line string
+	if session.IsComplete() {
+		line = fmt.Sprintf("Build: complete (%d/%d steps)", len(session.Steps), len(session.Steps))
+	} else if step := session.CurrentPRStep(); step != nil {
+		line = fmt.Sprintf("Build: step %d/%d — [%s] %s",
+			step.Number, len(session.Steps), step.Repo, step.Description)
+	}
+
+	if total, checked := acceptanceCounts(content); total > 0 {
+		line += fmt.Sprintf(" · ACs %d/%d", checked, total)
+	}
+	return line
+}
+
+// acceptanceCounts counts checked and total acceptance-criteria checkboxes in
+// the spec's acceptance_criteria section.
+func acceptanceCounts(content string) (total, checked int) {
+	sections := markdown.ExtractSections(markdown.Body(content))
+	ac := markdown.FindSection(sections, "acceptance_criteria")
+	if ac == nil {
+		return 0, 0
+	}
+	for _, line := range strings.Split(ac.Content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "- [ ]"):
+			total++
+		case strings.HasPrefix(trimmed, "- [x]"), strings.HasPrefix(trimmed, "- [X]"):
+			total++
+			checked++
+		}
+	}
+	return total, checked
 }
 
 func contentHash(data []byte) string {

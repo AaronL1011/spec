@@ -8,3 +8,5 @@ coverage.html
 .DS_Store
 docs/man/
 .pi-lens/
+# Ephemeral MCP config written by the build engine for MCP-native agents.
+.mcp.json

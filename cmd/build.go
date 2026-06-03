@@ -22,6 +22,7 @@ or team repository state, and launches the build engine session.`,
 }
 
 func init() {
+	buildCmd.Flags().Bool("restart", false, "discard the existing build session and re-derive steps from the spec's PR stack")
 	rootCmd.AddCommand(buildCmd)
 }
 
@@ -63,8 +64,15 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = db.Close() }()
 
+	if restart, _ := cmd.Flags().GetBool("restart"); restart {
+		if err := db.SessionDelete(specID); err != nil {
+			return fmt.Errorf("clearing build session for %s: %w", specID, err)
+		}
+		fmt.Printf("Cleared existing build session for %s — re-deriving steps.\n", specID)
+	}
+
 	reg := buildRegistry(rc)
-	engine := build.NewEngine(db, reg.Agent())
+	engine := build.NewEngine(db, reg.Agent(), buildEngineOptions(rc, false))
 
 	workDir, err := os.Getwd()
 	if err != nil {

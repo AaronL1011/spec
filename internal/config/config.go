@@ -141,6 +141,20 @@ func (p *ProviderConfig) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
+// MarshalYAML emits provider plus all extra settings so a ProviderConfig
+// round-trips through WriteUserConfig (e.g. a TUI settings save) without
+// dropping keys like `command` or `skill`, which live in Extra (yaml:"-").
+func (p ProviderConfig) MarshalYAML() (interface{}, error) {
+	m := make(map[string]string, len(p.Extra)+1)
+	if p.Provider != "" {
+		m["provider"] = p.Provider
+	}
+	for k, v := range p.Extra {
+		m[k] = v
+	}
+	return m, nil
+}
+
 // DeployConfig holds deployment provider and environments.
 type DeployConfig struct {
 	Provider     string        `yaml:"provider"`
@@ -399,6 +413,20 @@ type ResolvedConfig struct {
 // Pipeline returns the effective pipeline config.
 func (r *ResolvedConfig) Pipeline() PipelineConfig {
 	return EffectivePipeline(r.Team)
+}
+
+// EffectiveAgentConfig returns the coding-agent provider config to use,
+// preferring the per-user override (~/.spec/config.yaml `agent:`) when its
+// provider is set, then the team default (integrations.agent), then empty.
+// This lets engineers pick their own harness while keeping a shared baseline.
+func (r *ResolvedConfig) EffectiveAgentConfig() ProviderConfig {
+	if r.User != nil && r.User.Agent != nil && r.User.Agent.Provider != "" {
+		return *r.User.Agent
+	}
+	if r.Team != nil {
+		return r.Team.Integrations.Agent
+	}
+	return ProviderConfig{}
 }
 
 // OwnerRole returns the user's owner role, with optional override.

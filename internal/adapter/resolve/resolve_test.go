@@ -182,8 +182,51 @@ func TestAll_ClaudeCode_Resolves(t *testing.T) {
 	if _, ok := reg.Agent().(noop.Agent); ok {
 		t.Error("expected Claude Agent, got noop")
 	}
-	if !reg.Agent().SupportsMCP() {
+	if !reg.Agent().Capabilities().MCP {
 		t.Error("Claude agent should support MCP")
+	}
+	if len(warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", warnings)
+	}
+}
+
+func TestAgent_ResolvesProviders(t *testing.T) {
+	tests := []struct {
+		provider string
+		wantNoop bool
+		wantMCP  bool
+	}{
+		{"pi", false, true},
+		{"claude-code", false, true},
+		{"", true, false},
+		{"none", true, false},
+		{"cursor", true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			agent, _ := Agent(makeProvider(tt.provider, nil))
+			_, isNoop := agent.(noop.Agent)
+			if isNoop != tt.wantNoop {
+				t.Errorf("provider %q: isNoop = %v, want %v", tt.provider, isNoop, tt.wantNoop)
+			}
+			if agent.Capabilities().MCP != tt.wantMCP {
+				t.Errorf("provider %q: MCP = %v, want %v", tt.provider, agent.Capabilities().MCP, tt.wantMCP)
+			}
+		})
+	}
+}
+
+func TestAll_Pi_Resolves(t *testing.T) {
+	cfg := &config.TeamConfig{}
+	cfg.Integrations.Agent = makeProvider("pi", nil)
+	reg, warnings := All(cfg)
+
+	if _, ok := reg.Agent().(noop.Agent); ok {
+		t.Error("expected pi Agent, got noop")
+	}
+	caps := reg.Agent().Capabilities()
+	if !caps.MCP || !caps.Headless || !caps.Skills || !caps.SystemPrompt {
+		t.Errorf("pi agent should support MCP, headless, skills, and system prompt; got %+v", caps)
 	}
 	if len(warnings) != 0 {
 		t.Errorf("unexpected warnings: %v", warnings)

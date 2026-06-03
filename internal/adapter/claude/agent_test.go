@@ -2,10 +2,14 @@ package claude
 
 import "testing"
 
-func TestSupportsMCP(t *testing.T) {
+func TestCapabilities(t *testing.T) {
 	agent := NewAgent("")
-	if !agent.SupportsMCP() {
+	caps := agent.Capabilities()
+	if !caps.MCP {
 		t.Error("Claude Code should support MCP")
+	}
+	if !caps.SystemPrompt {
+		t.Error("Claude Code should support an appended system prompt")
 	}
 }
 
