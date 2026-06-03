@@ -383,8 +383,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 
 	case settingsAppliedMsg:
-		a.applySettingsField(msg.Field)
-		return a, nil
+		return a, a.applySettingsField(msg.Field)
 
 	case settingsThemePreviewMsg:
 		// Live, non-persisted preview while editing the Theme field.
@@ -456,6 +455,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return a.handleKey(msg)
+
+	case tea.MouseMsg:
+		return a.handleMouse(msg)
 	}
 
 	// Non-key messages — delegate to active view.
@@ -602,18 +604,8 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Enter: open PR in browser for review rows; drill into spec detail otherwise.
 	case key.Matches(msg, a.keys.Enter):
-		if a.activeView == ViewDashboard {
-			if url := a.dashboard.selectedURL(); url != "" {
-				return a, openInBrowser(url)
-			}
-		}
-		if a.activeView == ViewReviews {
-			if url := a.reviews.selectedURL(); url != "" {
-				return a, openInBrowser(url)
-			}
-		}
-		if specID := a.selectedSpecID(); isSpecID(specID) {
-			return a, a.openDetail(specID)
+		if cmd := a.activateSelection(); cmd != nil {
+			return a, cmd
 		}
 	}
 
@@ -658,12 +650,7 @@ func (a App) View() string {
 	tabs := a.tabs.View()
 	statusBar := a.statusBar.View()
 
-	headerHeight := a.header.Height()
-	chromeHeight := headerHeight + 2 // tabs + status bar
-	contentHeight := a.height - chromeHeight
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
+	lay := a.layout()
 
 	// Help overlay covers the full terminal — skip chrome entirely.
 	if a.help.visible {
@@ -686,7 +673,7 @@ func (a App) View() string {
 		content = a.activeViewContent()
 	}
 
-	lines := normalizeContentLines(content, a.width, contentHeight)
+	lines := normalizeContentLines(content, a.width, lay.contentHeight)
 
 	var out string
 	out += header + "\n"
@@ -975,6 +962,28 @@ func (a App) detailRefreshKey() string {
 		return "detail"
 	}
 	return "detail:" + a.detail.specID
+}
+
+// activateSelection runs the "open" action for the current selection in the
+// active view: open a PR/review URL in the browser, otherwise drill into the
+// selected spec's detail. It returns nil when nothing is selected. Both the
+// Enter key and a mouse click on an already-selected row route through here so
+// the two input paths can never diverge.
+func (a *App) activateSelection() tea.Cmd {
+	switch a.activeView {
+	case ViewDashboard:
+		if url := a.dashboard.selectedURL(); url != "" {
+			return openInBrowser(url)
+		}
+	case ViewReviews:
+		if url := a.reviews.selectedURL(); url != "" {
+			return openInBrowser(url)
+		}
+	}
+	if specID := a.selectedSpecID(); isSpecID(specID) {
+		return a.openDetail(specID)
+	}
+	return nil
 }
 
 func (a *App) openDetail(specID string) tea.Cmd {
@@ -1512,9 +1521,19 @@ func (a *App) propagateSize() {
 	a.standup.setSize(a.width, ch)
 }
 
-// applySettingsField applies immediate UI effects after a settings field is confirmed.
-func (a *App) applySettingsField(field settingsField) {
+// applySettingsField applies immediate UI effects after a settings field is
+// confirmed. It returns a command for fields whose effect is a Bubble Tea
+// side effect (e.g. enabling the terminal's mouse reporting), or nil.
+func (a *App) applySettingsField(field settingsField) tea.Cmd {
 	switch field {
+	case fieldMouse:
+		// Apply the new preference to the running program immediately so the
+		// toggle takes effect without a restart. The startup ProgramOption in
+		// cmd/root.go still seeds the initial state from the same preference.
+		if a.rc.User != nil && a.rc.User.Preferences.Mouse {
+			return tea.EnableMouseCellMotion
+		}
+		return tea.DisableMouse
 	case fieldName, fieldRole:
 		if field == fieldRole {
 			a.role = strings.ToLower(a.rc.OwnerRole(""))
@@ -1539,6 +1558,7 @@ func (a *App) applySettingsField(field settingsField) {
 	case fieldRefresh:
 		a.refreshInterval = parseRefreshInterval(a.rc)
 	}
+	return nil
 }
 
 // applyTheme rebuilds all styles from a named theme and propagates to
@@ -1609,12 +1629,7 @@ func (a *App) applyTheme(name string) {
 }
 
 func (a App) contentHeight() int {
-	headerH := a.header.Height()
-	ch := a.height - headerH - 2
-	if ch < 1 {
-		ch = 1
-	}
-	return ch
+	return a.layout().contentHeight
 }
 
 // startAction marks an action as in-flight and returns the command.

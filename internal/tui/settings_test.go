@@ -415,3 +415,34 @@ func TestParseRefreshPref(t *testing.T) {
 		}
 	}
 }
+
+func TestSettings_MouseToggleCyclesAndPersists(t *testing.T) {
+	rc := testResolvedConfig()
+	rc.UserConfigPath = "/tmp/test-config.yaml"
+	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
+	m.focused = fieldMouse
+
+	// Default is off.
+	if got := m.savedValue(fieldMouse); got != "off" {
+		t.Fatalf("default mouse = %q, want off", got)
+	}
+
+	// Enter edit, cycle with space (off → on), confirm.
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeySpace})
+	_, cmd := m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Error("confirming mouse toggle should dispatch a persist command")
+	}
+	if !rc.User.Preferences.Mouse {
+		t.Error("mouse preference should be enabled after toggle")
+	}
+}
+
+func TestSettings_FieldEditorRemainsLast(t *testing.T) {
+	// Inserting fieldMouse must not disturb the wrap-around invariant the
+	// navigation tests rely on: fieldEditor stays the final editable field.
+	if fieldEditor != fieldCount-1 {
+		t.Errorf("fieldEditor (%d) should be the last field before fieldCount (%d)", fieldEditor, fieldCount)
+	}
+}

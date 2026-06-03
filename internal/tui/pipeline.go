@@ -121,22 +121,9 @@ func (m pipelineModel) update(msg tea.Msg) (pipelineModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.keys.Up):
-			if m.specIdx > 0 {
-				m.specIdx--
-			} else if prev := m.prevNonEmptyStage(m.stageIdx); prev >= 0 {
-				// At top of current stage — wrap to last spec of previous stage.
-				m.stageIdx = prev
-				m.specIdx = len(m.stages[prev].Specs) - 1
-			}
+			m.stepUp()
 		case key.Matches(msg, m.keys.Down):
-			specCount := m.currentStageSpecCount()
-			if m.specIdx < specCount-1 {
-				m.specIdx++
-			} else if next := m.nextNonEmptyStage(m.stageIdx); next >= 0 {
-				// At bottom of current stage — wrap to first spec of next stage.
-				m.stageIdx = next
-				m.specIdx = 0
-			}
+			m.stepDown()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("left", "h"))):
 			if m.stageIdx > 0 {
 				m.stageIdx--
@@ -152,21 +139,42 @@ func (m pipelineModel) update(msg tea.Msg) (pipelineModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m pipelineModel) view() string {
-	if m.loading {
-		return m.styles.Muted.Render("  Loading pipeline…")
+// stepUp moves the selection to the previous spec, wrapping to the last spec
+// of the previous non-empty stage at a stage boundary. Shared by the Up key
+// and the mouse wheel so keyboard and wheel navigation stay identical.
+func (m *pipelineModel) stepUp() {
+	if m.specIdx > 0 {
+		m.specIdx--
+	} else if prev := m.prevNonEmptyStage(m.stageIdx); prev >= 0 {
+		m.stageIdx = prev
+		m.specIdx = len(m.stages[prev].Specs) - 1
 	}
-	if m.err != nil {
-		return m.styles.Error.Render(fmt.Sprintf("  Error: %v", m.err))
-	}
-	if len(m.stages) == 0 {
-		return m.styles.Muted.Render("  No pipeline stages configured")
-	}
+}
 
-	// Build all lines, track which line the cursor maps to.
-	var allLines []string
-	cursorLine := 0
+// stepDown moves the selection to the next spec, wrapping to the first spec of
+// the next non-empty stage at a stage boundary.
+func (m *pipelineModel) stepDown() {
+	if m.specIdx < m.currentStageSpecCount()-1 {
+		m.specIdx++
+	} else if next := m.nextNonEmptyStage(m.stageIdx); next >= 0 {
+		m.stageIdx = next
+		m.specIdx = 0
+	}
+}
 
+// pipeLine is one rendered pipeline line. stageIdx/specIdx index a selectable
+// spec row, or are -1 for stage headers, blank separators, and empty markers.
+type pipeLine struct {
+	text     string
+	stageIdx int
+	specIdx  int
+}
+
+// layoutLines builds the full ordered line model: stage headers, blank
+// separators, empty-stage markers, and spec rows. view() and clickRow() both
+// derive from this so the drawn layout and the click geometry cannot drift.
+func (m pipelineModel) layoutLines() []pipeLine {
+	var lines []pipeLine
 	for si, stage := range m.stages {
 		isActiveStage := si == m.stageIdx
 
@@ -190,36 +198,95 @@ func (m pipelineModel) view() string {
 
 		// Blank separator between stages (not before first).
 		if si > 0 {
-			allLines = append(allLines, "")
+			lines = append(lines, pipeLine{stageIdx: -1, specIdx: -1})
 		}
-		allLines = append(allLines, header)
+		lines = append(lines, pipeLine{text: header, stageIdx: -1, specIdx: -1})
 
 		if len(stage.Specs) == 0 {
-			allLines = append(allLines, m.styles.Muted.Render(Indent(2)+"—"))
+			lines = append(lines, pipeLine{text: m.styles.Muted.Render(Indent(2) + "—"), stageIdx: -1, specIdx: -1})
 		} else {
 			for ri, spec := range stage.Specs {
 				selected := isActiveStage && ri == m.specIdx
-				if selected {
-					cursorLine = len(allLines)
-				}
-				allLines = append(allLines, m.renderPipelineRow(spec, selected))
+				lines = append(lines, pipeLine{text: m.renderPipelineRow(spec, selected), stageIdx: si, specIdx: ri})
 			}
 		}
 	}
+	return lines
+}
 
-	// Scroll so the selected row is visible.
+// cursorLineIndex returns the line index of the selected spec row, or 0.
+func (m pipelineModel) cursorLineIndex(lines []pipeLine) int {
+	for i, l := range lines {
+		if l.stageIdx == m.stageIdx && l.specIdx == m.specIdx {
+			return i
+		}
+	}
+	return 0
+}
+
+// scrollBounds returns the visible [start,end) window of the line model,
+// centred on the selected spec row. Shared by view() and clickRow().
+func (m pipelineModel) scrollBounds(lines []pipeLine) (start, end int) {
 	visible := m.height
 	if visible < 3 {
 		visible = 3
 	}
-	start, end := scrollWindowAround(cursorLine, len(allLines), visible)
+	return scrollWindowAround(m.cursorLineIndex(lines), len(lines), visible)
+}
+
+func (m pipelineModel) view() string {
+	if m.loading {
+		return m.styles.Muted.Render("  Loading pipeline…")
+	}
+	if m.err != nil {
+		return m.styles.Error.Render(fmt.Sprintf("  Error: %v", m.err))
+	}
+	if len(m.stages) == 0 {
+		return m.styles.Muted.Render("  No pipeline stages configured")
+	}
+
+	lines := m.layoutLines()
+	start, end := m.scrollBounds(lines)
 
 	var b strings.Builder
-	for _, l := range allLines[start:end] {
-		b.WriteString(l)
+	for _, l := range lines[start:end] {
+		b.WriteString(l.text)
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// clickRow maps a content-local row y to a pipeline spec and selects it.
+func (m *pipelineModel) clickRow(y int) clickResult {
+	lines := m.layoutLines()
+	start, end := m.scrollBounds(lines)
+	li := start + y
+	if y < 0 || li < start || li >= end || li >= len(lines) {
+		return clickMissed
+	}
+	ln := lines[li]
+	if ln.stageIdx < 0 {
+		return clickMissed // stage header, separator, or empty marker
+	}
+	if ln.stageIdx == m.stageIdx && ln.specIdx == m.specIdx {
+		return clickActivated
+	}
+	m.stageIdx = ln.stageIdx
+	m.specIdx = ln.specIdx
+	return clickSelected
+}
+
+// wheelRows moves the pipeline selection by delta rows (negative = up),
+// reusing the same stage-aware stepping as the keyboard.
+func (m *pipelineModel) wheelRows(delta int) {
+	step := m.stepDown
+	if delta < 0 {
+		step = m.stepUp
+		delta = -delta
+	}
+	for range delta {
+		step()
+	}
 }
 
 func (m pipelineModel) renderPipelineRow(spec pipelineSpec, selected bool) string {
