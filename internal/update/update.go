@@ -121,12 +121,20 @@ func (u *Updater) Apply(ctx context.Context, plan *Plan, stdout, stderr io.Write
 	}
 }
 
-// moduleRef builds the `go install` module reference, pinning the target tag
-// when one was requested and otherwise tracking @latest.
+// moduleRef builds the `go install` module reference. It pins the exact tag
+// the Plan already resolved rather than re-resolving @latest at install time:
+// the Go module proxy resolves @latest independently of the GitHub release API
+// used by Plan and can lag behind it, which would install (and silently report)
+// a different version than the one we told the user we were fetching. An
+// explicitly requested target wins; @latest is only a last-resort fallback when
+// no concrete tag is known.
 func (u *Updater) moduleRef(plan *Plan) string {
-	ref := "latest"
-	if plan.opts.TargetVersion != "" {
-		ref = plan.opts.TargetVersion
+	ref := plan.opts.TargetVersion
+	if ref == "" {
+		ref = plan.LatestVersion
+	}
+	if ref == "" {
+		ref = "latest"
 	}
 	return u.modulePath + "@" + ref
 }
