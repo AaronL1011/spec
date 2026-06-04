@@ -9,23 +9,43 @@ import (
 	"github.com/aaronl1011/spec/internal/store"
 )
 
-// MCPServer serves spec context to MCP-compatible agents.
-// This is a simplified implementation that handles the core resource/tool protocol.
+// MCPServer serves spec context to MCP-compatible agents. It owns the DAG, the
+// node ledger, and every git/worktree operation: the orchestrator reads the DAG
+// once and checkpoints each node back through the node tools, while spec-cli
+// keeps all branch/worktree mechanics on this side of the contract.
 type MCPServer struct {
 	session  *SessionState
 	ctx      *BuildContext
 	db       *store.DB
 	specPath string
+	opts     Options
+	graph    *Graph
 }
 
-// NewMCPServer creates a new MCP server for a build session.
-func NewMCPServer(session *SessionState, buildCtx *BuildContext, db *store.DB, specPath string) *MCPServer {
-	return &MCPServer{
+// NewMCPServer creates a new MCP server for a build session. opts carries the
+// workspace map (source repos for worktrees) and skill routing inputs. The DAG
+// is built from the session's steps; a malformed plan yields a nil graph and a
+// descriptive DAG resource rather than a panic.
+func NewMCPServer(session *SessionState, buildCtx *BuildContext, db *store.DB, specPath string, opts Options) *MCPServer {
+	s := &MCPServer{
 		session:  session,
 		ctx:      buildCtx,
 		db:       db,
 		specPath: specPath,
+		opts:     opts,
 	}
+	if session != nil {
+		if g, err := BuildGraph(session.Steps); err == nil {
+			s.graph = g
+		}
+	}
+	return s
+}
+
+// NodeToolNames lists the build-session tools this server adds on top of the
+// generic spec tools. Exposed so the combined MCP handler can advertise them.
+func NodeToolNames() []string {
+	return []string{"spec_step_complete", "spec_provision_node", "spec_node_complete", "spec_node_failed"}
 }
 
 // MCPResource represents a resource served by the MCP server.
@@ -75,7 +95,79 @@ func (s *MCPServer) ListResources() []MCPResource {
 		})
 	}
 
+	resources = append(resources, MCPResource{
+		URI:     "spec://current/dag",
+		Name:    "Build DAG",
+		Content: s.dagJSON(),
+	})
+
 	return resources
+}
+
+// dagNode is the JSON shape of a node in the spec://current/dag resource.
+type dagNode struct {
+	ID         string   `json:"id"`
+	Number     int      `json:"number"`
+	Repo       string   `json:"repo,omitempty"`
+	Layer      string   `json:"layer,omitempty"`
+	DependsOn  []string `json:"dependsOn"`
+	Status     string   `json:"status"`
+	Branch     string   `json:"branch,omitempty"`
+	SkillPaths []string `json:"skillPaths"`
+}
+
+// dagDocument is the top-level JSON shape of spec://current/dag.
+type dagDocument struct {
+	SpecID      string     `json:"specId"`
+	MaxParallel int        `json:"maxParallel"`
+	Nodes       []dagNode  `json:"nodes"`
+	Waves       [][]string `json:"waves"`
+	Error       string     `json:"error,omitempty"`
+}
+
+// dagJSON renders the DAG resource the orchestrator reads once to plan its walk.
+func (s *MCPServer) dagJSON() string {
+	doc := dagDocument{SpecID: s.session.SpecID, MaxParallel: s.opts.MaxParallel, Nodes: []dagNode{}, Waves: [][]string{}}
+	if s.graph == nil {
+		doc.Error = "PR stack did not form a valid DAG — check §7.3 (after: ...) edges"
+		b, _ := json.MarshalIndent(doc, "", "  ")
+		return string(b)
+	}
+
+	for _, n := range s.graph.Nodes {
+		id := n.NodeID()
+		deps := s.graph.Dependencies(id)
+		if deps == nil {
+			deps = []string{}
+		}
+		skills := s.skillsForNode(n)
+		if skills == nil {
+			skills = []string{}
+		}
+		doc.Nodes = append(doc.Nodes, dagNode{
+			ID:         id,
+			Number:     n.Number,
+			Repo:       n.Repo,
+			Layer:      n.Layer,
+			DependsOn:  deps,
+			Status:     s.session.NodeStatus(id),
+			Branch:     s.session.node(id).Branch,
+			SkillPaths: skills,
+		})
+	}
+	for _, wave := range s.graph.Waves() {
+		var ids []string
+		for _, n := range wave {
+			ids = append(ids, n.NodeID())
+		}
+		doc.Waves = append(doc.Waves, ids)
+	}
+
+	b, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return fmt.Sprintf(`{"specId":%q,"error":"marshalling dag: %v"}`, s.session.SpecID, err)
+	}
+	return string(b)
 }
 
 // GetResource returns a specific resource by URI.
@@ -113,6 +205,12 @@ func (s *MCPServer) CallTool(name string, args json.RawMessage) (*MCPToolResult,
 		return s.toolDecideResolve(args)
 	case "spec_step_complete":
 		return s.toolStepComplete()
+	case "spec_provision_node":
+		return s.toolProvisionNode(args)
+	case "spec_node_complete":
+		return s.toolNodeComplete(args)
+	case "spec_node_failed":
+		return s.toolNodeFailed(args)
 	case "spec_status":
 		return s.toolStatus()
 	case "spec_search":

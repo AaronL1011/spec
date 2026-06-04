@@ -15,7 +15,9 @@ import (
 	"github.com/aaronl1011/spec/internal/store"
 )
 
-// Engine orchestrates the build process.
+// Engine orchestrates the build handoff. spec-cli owns the DAG, the durable
+// node ledger, and all git/worktree/GitHub mechanics; the agent (pi) conducts
+// the traversal via MCP. One StartOrResume call = one whole-DAG invocation.
 type Engine struct {
 	db    *store.DB
 	agent adapter.AgentAdapter
@@ -28,12 +30,13 @@ func NewEngine(db *store.DB, agent adapter.AgentAdapter, opts Options) *Engine {
 	return &Engine{db: db, agent: agent, opts: opts}
 }
 
-// StartOrResume begins or continues a build session for a spec. It walks the
-// PR stack one step at a time, automatically moving into each step's target
-// repository (via configured workspaces) so a multi-repo spec can be executed
-// end-to-end. It advances to the next step only when the current one is
-// completed (via MCP or the interactive prompt); if a step is left unfinished
-// it stops so the user can resume later with `spec do`.
+// StartOrResume begins or continues a build session for a spec. It ensures the
+// session and DAG exist, validates the workspaces the DAG needs, assembles the
+// context, and invokes the agent once with the DAG exposed via MCP. The agent
+// provisions and checkpoints each node back through the spec MCP tools; on
+// return the engine reconciles the node ledger and, if work remains, prints
+// resume guidance. A resume re-dispatches only the surviving ready nodes —
+// completed nodes are never re-run.
 func (e *Engine) StartOrResume(ctx context.Context, specID, specPath, startDir string) error {
 	session, err := LoadSession(e.db, specID)
 	if err != nil {
@@ -45,97 +48,112 @@ func (e *Engine) StartOrResume(ctx context.Context, specID, specPath, startDir s
 			return err
 		}
 	}
+	session.InitNodes()
 
-	for {
-		if session.IsComplete() {
-			fmt.Printf("✓ All %d steps complete for %s.\n", len(session.Steps), specID)
-			return nil
-		}
-
-		step := session.CurrentPRStep()
-		if step == nil {
-			return fmt.Errorf("no current step — session may be corrupted")
-		}
-
-		workDir, err := e.resolveStepDir(specID, step, startDir)
-		if err != nil {
-			return err
-		}
-
-		advanced, err := e.runOneStep(ctx, specID, specPath, session, step, workDir)
-		if err != nil {
-			return err
-		}
-		if !advanced {
-			// Step left in progress — stop; the user resumes with `spec do`.
-			return nil
-		}
-
-		// Reload the session (the MCP server may have advanced it in another
-		// process) and continue with the next step.
-		session, err = LoadSession(e.db, specID)
-		if err != nil {
-			return err
-		}
-		if session == nil {
-			return nil
-		}
-	}
-}
-
-// runOneStep provisions and runs a single step, returning whether it advanced.
-func (e *Engine) runOneStep(ctx context.Context, specID, specPath string, session *SessionState, step *PRStep, workDir string) (bool, error) {
-	if err := e.setupBranch(ctx, session, step, workDir); err != nil {
-		return false, err
-	}
-
-	buildCtx, err := e.assemble(ctx, specPath, session, workDir)
+	graph, err := BuildGraph(session.Steps)
 	if err != nil {
-		return false, err
+		return fmt.Errorf("building DAG for %s: %w", specID, err)
 	}
 
-	e.printStatus(specID, specPath, session, step, workDir)
+	if err := e.validateWorkspaces(ctx, graph, startDir); err != nil {
+		return err
+	}
 
-	req, err := e.provision(specID, buildCtx, workDir)
+	if session.NodesComplete() {
+		fmt.Printf("✓ All %d nodes complete for %s.\n", len(session.Steps), specID)
+		return nil
+	}
+
+	buildCtx, err := e.assemble(ctx, specPath, session, graph, startDir)
 	if err != nil {
-		return false, err
+		return err
 	}
 
-	return e.runStep(ctx, specID, session, step, workDir, req)
+	e.printStatus(specID, specPath, session, graph, startDir)
+
+	req, err := e.provision(specID, buildCtx, startDir)
+	if err != nil {
+		return err
+	}
+
+	_ = LogActivity(specID, "Build session invoked (DAG handoff)")
+	if _, err := e.agent.Invoke(ctx, req); err != nil {
+		return fmt.Errorf("agent exited with error: %w", err)
+	}
+
+	// The agent drove the DAG through the MCP server (a separate process), so
+	// reconcile from the persisted ledger rather than any in-process state.
+	return e.reconcile(specID)
 }
 
-// resolveStepDir returns the directory a step should run in. If the step has no
-// repo, or the current directory already matches it, the start directory is
-// used. Otherwise the configured workspace path for that repo is used; a
-// missing mapping is an actionable error rather than a dead-end.
-func (e *Engine) resolveStepDir(specID string, step *PRStep, startDir string) (string, error) {
-	if step.Repo == "" || step.Repo == filepath.Base(startDir) {
-		return startDir, nil
+// reconcile reloads the ledger after the agent exits and reports completion or
+// prints resume guidance naming the ready and failed nodes.
+func (e *Engine) reconcile(specID string) error {
+	session, err := LoadSession(e.db, specID)
+	if err != nil {
+		return err
+	}
+	if session == nil {
+		return nil
 	}
 
-	ws := expandTilde(e.opts.Workspaces[step.Repo])
-	if ws == "" {
-		return "", fmt.Errorf(
-			"step %d targets repo %q but you're in %q and no workspace is configured\n"+
-				"add it to ~/.spec/config.yaml under:\n  workspaces:\n    %s: /path/to/%s\n"+
-				"or cd into the repo and run: spec do %s",
-			step.Number, step.Repo, filepath.Base(startDir), step.Repo, step.Repo, specID)
+	if session.NodesComplete() {
+		_ = LogActivity(specID, "All nodes complete")
+		fmt.Printf("✓ All %d nodes complete for %s.\n", len(session.Steps), specID)
+		return nil
 	}
-	if !filepath.IsAbs(ws) {
-		ws = filepath.Join(startDir, ws)
+
+	graph, err := BuildGraph(session.Steps)
+	if err != nil {
+		return fmt.Errorf("reconciling DAG for %s: %w", specID, err)
 	}
-	info, err := os.Stat(ws)
-	if err != nil || !info.IsDir() {
-		return "", fmt.Errorf(
-			"step %d targets repo %q but its workspace path %q is not a directory — "+
-				"fix 'workspaces.%s' in ~/.spec/config.yaml",
-			step.Number, step.Repo, ws, step.Repo)
+
+	done := session.DoneSet()
+	ready := graph.ReadySet(done)
+	failed := session.FailedNodes()
+
+	fmt.Printf("\nBuild incomplete for %s — %d/%d nodes done.\n", specID, len(done), len(session.Steps))
+	if len(failed) > 0 {
+		fmt.Printf("Failed nodes: %s\n", strings.Join(failed, ", "))
+		for _, id := range failed {
+			if n := session.Nodes[id]; n != nil && n.Reason != "" {
+				fmt.Printf("  • %s: %s\n", id, n.Reason)
+			}
+		}
 	}
-	fmt.Printf("→ %s: working in %s\n", step.Repo, ws)
-	return ws, nil
+	if len(ready) > 0 {
+		fmt.Printf("Ready to dispatch: %s\n", strings.Join(nodeIDs(ready), ", "))
+	}
+	fmt.Printf("Resume with: spec do %s\n", specID)
+	return nil
 }
 
-// createSession parses the PR stack and creates a fresh session.
+// validateWorkspaces checks that every repo referenced by the DAG resolves to a
+// real git repo before the build starts. A missing or non-repo workspace is an
+// actionable error naming the repo and the config key it needs.
+func (e *Engine) validateWorkspaces(ctx context.Context, graph *Graph, startDir string) error {
+	seen := make(map[string]bool)
+	for _, n := range graph.Nodes {
+		if n.Repo == "" || seen[n.Repo] {
+			continue
+		}
+		seen[n.Repo] = true
+
+		repoPath, err := resolveRepoPath(n.Repo, startDir, e.opts.Workspaces)
+		if err != nil {
+			return err
+		}
+		if !gitpkg.IsRepo(ctx, repoPath) {
+			return fmt.Errorf(
+				"workspace for repo %q (%s) is not a git repository — fix workspaces.%s in ~/.spec/config.yaml",
+				n.Repo, repoPath, n.Repo)
+		}
+	}
+	return nil
+}
+
+// createSession parses the PR stack and creates a fresh session. With no PR
+// stack it falls back to a single repo-less node so a plain spec still builds.
 func (e *Engine) createSession(specID, specPath, workDir string) (*SessionState, error) {
 	steps, err := ParsePRStackFromFile(specPath)
 	if err != nil {
@@ -143,55 +161,22 @@ func (e *Engine) createSession(specID, specPath, workDir string) (*SessionState,
 	}
 
 	if len(steps) == 0 {
-		// No PR stack — single-step build with no repo, so it runs wherever the
-		// user launched it rather than inventing a repo name from the cwd.
-		steps = []PRStep{{
-			Number:      1,
-			Description: "Build implementation",
-			Status:      "pending",
-		}}
+		steps = []PRStep{{Number: 1, ID: "n1", Description: "Build implementation", Status: NodePending}}
 	}
 
 	session, err := CreateSession(e.db, specID, steps, workDir)
 	if err != nil {
 		return nil, err
 	}
-	_ = LogActivity(specID, "Build session started") // Best-effort logging
+	_ = LogActivity(specID, "Build session started")
 	return session, nil
 }
 
-// setupBranch generates a branch name, creates/checks out the branch, and
-// records the base ref for diff capture.
-func (e *Engine) setupBranch(ctx context.Context, session *SessionState, step *PRStep, workDir string) error {
-	if step.Branch == "" {
-		step.Branch = gitpkg.SpecBranchName(session.SpecID, step.Number, step.Description)
-	}
-
-	if !gitpkg.BranchExists(ctx, workDir, step.Branch) {
-		// Record the commit the branch is cut from so we can diff later.
-		if step.BaseRef == "" {
-			if base, err := gitpkg.RevParse(ctx, workDir, "HEAD"); err == nil {
-				step.BaseRef = strings.TrimSpace(base)
-			}
-		}
-		if err := gitpkg.CreateBranch(ctx, workDir, step.Branch); err != nil {
-			return fmt.Errorf("creating branch %s: %w", step.Branch, err)
-		}
-	} else if currentBranch, _ := gitpkg.CurrentBranch(ctx, workDir); currentBranch != step.Branch {
-		if err := gitpkg.CheckoutBranch(ctx, workDir, step.Branch); err != nil {
-			return fmt.Errorf("checking out branch %s: %w", step.Branch, err)
-		}
-	}
-
-	_ = SaveSession(e.db, session) // Best-effort persistence
-	return nil
-}
-
-// assemble builds the context payload, including conventions, skills, and
-// best-effort failing-test output.
-func (e *Engine) assemble(ctx context.Context, specPath string, session *SessionState, workDir string) (*BuildContext, error) {
+// assemble builds the context payload: spec, conventions, prior-node diffs, the
+// union of skills the orchestrator may need, and best-effort failing tests.
+func (e *Engine) assemble(ctx context.Context, specPath string, session *SessionState, graph *Graph, startDir string) (*BuildContext, error) {
 	conventions := ""
-	convPath := filepath.Join(workDir, ".spec", "conventions.md")
+	convPath := filepath.Join(startDir, ".spec", "conventions.md")
 	if data, err := os.ReadFile(convPath); err == nil {
 		conventions = string(data)
 	}
@@ -201,23 +186,39 @@ func (e *Engine) assemble(ctx context.Context, specPath string, session *Session
 		return nil, fmt.Errorf("assembling context: %w", err)
 	}
 
-	profile := readProfile(workDir)
-	for _, p := range resolveSkills(workDir, e.opts.SkillRefs, profile) {
+	buildCtx.SkillPaths = e.unionSkills(graph, startDir)
+	for _, p := range buildCtx.SkillPaths {
 		if body := readSkillBody(p); body != "" {
 			buildCtx.Skills = append(buildCtx.Skills, body)
 		}
 	}
 
-	if out := e.runTests(ctx, workDir); out != "" {
+	if out := e.runTests(ctx, startDir); out != "" {
 		buildCtx.FailingTests = out
 	}
 
 	return buildCtx, nil
 }
 
+// unionSkills returns the deduplicated union of every node's routed skills, in
+// node order — the set the orchestrator may dispatch to its workers.
+func (e *Engine) unionSkills(graph *Graph, startDir string) []string {
+	seen := make(map[string]bool)
+	var paths []string
+	for _, n := range graph.Nodes {
+		for _, p := range skillsForNode(startDir, n, e.opts) {
+			if !seen[p] {
+				seen[p] = true
+				paths = append(paths, p)
+			}
+		}
+	}
+	return paths
+}
+
 // provision writes the context file and the ephemeral MCP config, then builds
-// the adapter request. Skills flow as paths to skill-capable agents; otherwise
-// their bodies ride along in the context file and system prompt.
+// the DAG-framed adapter request. Skill-capable agents get skill paths; others
+// get the skill bodies folded into the system prompt and the context file.
 func (e *Engine) provision(specID string, buildCtx *BuildContext, workDir string) (adapter.InvokeRequest, error) {
 	contextPath := filepath.Join(SessionDir(specID), "context.md")
 	if err := WriteContextFile(buildCtx, contextPath); err != nil {
@@ -231,11 +232,9 @@ func (e *Engine) provision(specID string, buildCtx *BuildContext, workDir string
 
 	caps := e.agent.Capabilities()
 	systemPrompt := buildCtx.SystemPrompt
-
-	profile := readProfile(workDir)
-	skillPaths := resolveSkills(workDir, e.opts.SkillRefs, profile)
+	skillPaths := buildCtx.SkillPaths
 	if !caps.Skills {
-		// Non-skill agents get the playbook inline in the system prompt.
+		// Non-skill agents get the playbooks inline in the system prompt.
 		for _, body := range buildCtx.Skills {
 			systemPrompt += "\n\n" + strings.TrimSpace(body)
 		}
@@ -254,78 +253,40 @@ func (e *Engine) provision(specID string, buildCtx *BuildContext, workDir string
 	}, nil
 }
 
-// runStep invokes the agent and handles step completion. On the MCP path
-// advancement happens via the spec_step_complete tool; the engine only reports
-// status. The interactive [y/n] fallback is gated on non-MCP agents whose step
-// is still in-progress.
-func (e *Engine) runStep(ctx context.Context, specID string, session *SessionState, step *PRStep, workDir string, req adapter.InvokeRequest) (bool, error) {
-	completedStepNum := step.Number
-	baseRef := step.BaseRef
-
-	_ = LogActivity(specID, fmt.Sprintf("Step %d started: %s", step.Number, step.Description))
-	result, err := e.agent.Invoke(ctx, req)
-	if err != nil {
-		return false, fmt.Errorf("agent exited with error: %w", err)
-	}
-	if result == nil {
-		result = &adapter.InvokeResult{}
-	}
-
-	// Re-read session: the MCP server advances it in a separate process.
-	updated, err := LoadSession(e.db, specID)
-	if err != nil {
-		return false, err
-	}
-	advancedViaMCP := result.StepSignalled || (updated != nil && updated.CurrentStep > session.CurrentStep)
-
-	if advancedViaMCP {
-		captureStepDiff(ctx, workDir, specID, completedStepNum, baseRef)
-		_ = LogActivity(specID, fmt.Sprintf("Step %d completed: %s", completedStepNum, step.Description))
-		fmt.Printf("✓ Step %d complete.\n", completedStepNum)
-		return true, nil
-	}
-
-	if e.agent.Capabilities().MCP {
-		// MCP agent that did not advance — nothing to prompt; report status.
-		fmt.Printf("\nStep %d still in progress. Run 'spec do %s' to resume.\n", completedStepNum, specID)
-		return false, nil
-	}
-
-	return e.promptComplete(ctx, specID, session, completedStepNum, baseRef, workDir)
-}
-
-// promptComplete is the interactive fallback for non-MCP agents. It returns
-// whether the step was advanced.
-func (e *Engine) promptComplete(ctx context.Context, specID string, session *SessionState, stepNum int, baseRef, workDir string) (bool, error) {
-	fmt.Printf("\nStep %d complete? [y/n] ", stepNum)
-	var answer string
-	_, _ = fmt.Scanln(&answer)
-	if strings.ToLower(answer) != "y" {
-		return false, nil
-	}
-
-	if err := AdvanceStep(e.db, session); err != nil {
-		return false, err
-	}
-	captureStepDiff(ctx, workDir, specID, stepNum, baseRef)
-	_ = LogActivity(specID, fmt.Sprintf("Step %d completed: %s", stepNum, session.Steps[stepNum-1].Description))
-	fmt.Printf("✓ Step %d complete.\n", stepNum)
-	return true, nil
-}
-
-// printStatus prints the resume banner, the working directory, the MCP context
-// summary (when the agent is MCP-capable), and acceptance-criteria progress.
-func (e *Engine) printStatus(specID, specPath string, session *SessionState, step *PRStep, workDir string) {
-	fmt.Printf("Resuming %s — %s\n", specID, specTitle(specPath))
-	fmt.Printf("Step %d/%d: [%s] %s\n", step.Number, len(session.Steps), step.Repo, step.Description)
+// printStatus prints the resume banner, the DAG shape (waves), the MCP context
+// summary, and acceptance-criteria progress.
+func (e *Engine) printStatus(specID, specPath string, session *SessionState, graph *Graph, workDir string) {
+	fmt.Printf("Building %s — %s\n", specID, specTitle(specPath))
 	fmt.Printf("Dir: %s\n", workDir)
-	fmt.Printf("Branch: %s\n", step.Branch)
+
+	waves := graph.Waves()
+	done := session.DoneSet()
+	fmt.Printf("DAG: %d nodes in %d wave(s)\n", len(graph.Nodes), len(waves))
+	for i, wave := range waves {
+		var labels []string
+		for _, n := range wave {
+			marker := " "
+			switch session.NodeStatus(n.NodeID()) {
+			case NodeComplete:
+				marker = "✓"
+			case NodeInProgress:
+				marker = "▶"
+			case NodeFailed:
+				marker = "✗"
+			}
+			labels = append(labels, fmt.Sprintf("%s %s[%s] %s", marker, n.NodeID(), repoLayer(n), n.Description))
+		}
+		fmt.Printf("  Wave %d: %s\n", i+1, strings.Join(labels, "; "))
+	}
+	if len(done) > 0 {
+		fmt.Printf("Resuming: %d node(s) already complete.\n", len(done))
+	}
 
 	if e.agent.Capabilities().MCP {
 		fmt.Println("MCP server: spec mcp-server --spec " + specID)
 		fmt.Println("Context available:")
+		fmt.Println("  • spec://current/dag (nodes, waves, skill routing)")
 		fmt.Printf("  • spec://current/full (%s)\n", specID)
-		fmt.Println("  • spec://current/prior-diffs")
 		fmt.Println("  • spec://current/conventions")
 	}
 
@@ -333,10 +294,29 @@ func (e *Engine) printStatus(specID, specPath string, session *SessionState, ste
 	fmt.Println()
 }
 
+// repoLayer renders a node's repo:layer tag for status output.
+func repoLayer(n PRStep) string {
+	if n.Layer == "" {
+		return n.Repo
+	}
+	if n.Repo == "" {
+		return ":" + n.Layer
+	}
+	return n.Repo + ":" + n.Layer
+}
+
+// nodeIDs maps steps to their node IDs.
+func nodeIDs(steps []PRStep) []string {
+	out := make([]string, len(steps))
+	for i, s := range steps {
+		out[i] = s.NodeID()
+	}
+	return out
+}
+
 // runTests runs the configured test command and returns its combined output
 // only when it fails. Best-effort: a missing/empty command yields no output.
-// The command is split into argv and executed directly (no shell), so it is a
-// parameterized invocation rather than shell-string composition.
+// The command is split into argv and executed directly (no shell).
 func (e *Engine) runTests(ctx context.Context, workDir string) string {
 	fields := strings.Fields(e.opts.TestCommand)
 	if len(fields) == 0 {

@@ -5,10 +5,34 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/aaronl1011/spec/internal/store"
 )
+
+// Node status values for the per-node ledger.
+const (
+	NodePending    = "pending"
+	NodeInProgress = "in-progress"
+	NodeComplete   = "complete"
+	NodeFailed     = "failed"
+)
+
+// NodeState is the durable per-node record in the DAG ledger. It carries
+// everything needed to resume, diff, and stack a node: its status, the branch
+// and worktree git placed it on, the base ref it was cut from, an optional
+// failure reason, and any draft-PR coordinates recorded during finishing.
+type NodeState struct {
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	Branch   string `json:"branch,omitempty"`
+	BaseRef  string `json:"base_ref,omitempty"`
+	Worktree string `json:"worktree,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+	PRNumber int    `json:"pr_number,omitempty"`
+	PRURL    string `json:"pr_url,omitempty"`
+}
 
 // SessionState persists the build session for `spec do` resume.
 type SessionState struct {
@@ -19,6 +43,106 @@ type SessionState struct {
 	WorkDir      string    `json:"work_dir"`
 	LastActivity time.Time `json:"last_activity"`
 	Steps        []PRStep  `json:"steps"`
+	// Nodes is the per-node status ledger keyed by PRStep.ID. It is the DAG
+	// source of truth for the orchestrated build; CurrentStep is retained only
+	// for the legacy sequential walk and is removed once the DAG engine lands.
+	Nodes map[string]*NodeState `json:"nodes,omitempty"`
+}
+
+// InitNodes populates the ledger from the session's steps when it is empty,
+// giving every node a pending record. Existing records are preserved so a
+// reload never clobbers progress.
+func (s *SessionState) InitNodes() {
+	if s.Nodes == nil {
+		s.Nodes = make(map[string]*NodeState, len(s.Steps))
+	}
+	for _, step := range s.Steps {
+		id := step.NodeID()
+		if _, ok := s.Nodes[id]; !ok {
+			s.Nodes[id] = &NodeState{ID: id, Status: NodePending, BaseRef: step.BaseRef, Branch: step.Branch}
+		}
+	}
+}
+
+// node returns the ledger entry for an id, creating a pending one on demand so
+// callers never have to nil-check.
+func (s *SessionState) node(id string) *NodeState {
+	if s.Nodes == nil {
+		s.Nodes = make(map[string]*NodeState)
+	}
+	n, ok := s.Nodes[id]
+	if !ok {
+		n = &NodeState{ID: id, Status: NodePending}
+		s.Nodes[id] = n
+	}
+	return n
+}
+
+// NodeStatus returns the status of a node, or "pending" if unknown.
+func (s *SessionState) NodeStatus(id string) string {
+	if n, ok := s.Nodes[id]; ok {
+		return n.Status
+	}
+	return NodePending
+}
+
+// SetNodeStatus updates a node's status in the ledger.
+func (s *SessionState) SetNodeStatus(id, status string) {
+	s.node(id).Status = status
+}
+
+// MarkNodeComplete records a node as complete and clears any failure reason.
+// It is idempotent: completing an already-complete node is a no-op.
+func (s *SessionState) MarkNodeComplete(id string) {
+	n := s.node(id)
+	n.Status = NodeComplete
+	n.Reason = ""
+}
+
+// MarkNodeFailed records a node as failed with a reason for resume/reporting.
+func (s *SessionState) MarkNodeFailed(id, reason string) {
+	n := s.node(id)
+	n.Status = NodeFailed
+	n.Reason = reason
+}
+
+// DoneSet returns the set of completed node IDs, the input to Graph.ReadySet.
+func (s *SessionState) DoneSet() map[string]bool {
+	done := make(map[string]bool, len(s.Nodes))
+	for id, n := range s.Nodes {
+		if n.Status == NodeComplete {
+			done[id] = true
+		}
+	}
+	return done
+}
+
+// NodesComplete reports whether every node in the ledger is complete. It
+// returns false for an empty ledger so an uninitialised session is never
+// mistaken for a finished one.
+func (s *SessionState) NodesComplete() bool {
+	if len(s.Nodes) == 0 {
+		return false
+	}
+	for _, n := range s.Nodes {
+		if n.Status != NodeComplete {
+			return false
+		}
+	}
+	return true
+}
+
+// FailedNodes returns the IDs of nodes recorded as failed, sorted for stable
+// reporting.
+func (s *SessionState) FailedNodes() []string {
+	var ids []string
+	for id, n := range s.Nodes {
+		if n.Status == NodeFailed {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // SessionDir returns the path to the session directory.
@@ -78,6 +202,7 @@ func CreateSession(db *store.DB, specID string, steps []PRStep, workDir string) 
 		session.Repo = steps[0].Repo
 		steps[0].Status = "in-progress"
 	}
+	session.InitNodes()
 
 	// Create session directory
 	if err := os.MkdirAll(SessionDir(specID), 0o755); err != nil {
@@ -90,16 +215,20 @@ func CreateSession(db *store.DB, specID string, steps []PRStep, workDir string) 
 	return session, nil
 }
 
-// AdvanceStep marks the current step as complete and moves to the next.
+// AdvanceStep marks the current step as complete and moves to the next. It also
+// mirrors the change into the node ledger so the DAG source of truth stays in
+// sync during the sequential-to-DAG transition.
 func AdvanceStep(db *store.DB, session *SessionState) error {
 	if session.CurrentStep > 0 && session.CurrentStep <= len(session.Steps) {
 		session.Steps[session.CurrentStep-1].Status = "complete"
+		session.MarkNodeComplete(session.Steps[session.CurrentStep-1].NodeID())
 	}
 
 	session.CurrentStep++
 	if session.CurrentStep <= len(session.Steps) {
 		session.Steps[session.CurrentStep-1].Status = "in-progress"
 		session.Repo = session.Steps[session.CurrentStep-1].Repo
+		session.SetNodeStatus(session.Steps[session.CurrentStep-1].NodeID(), NodeInProgress)
 	}
 
 	return SaveSession(db, session)

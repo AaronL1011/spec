@@ -36,6 +36,27 @@ type TeamConfig struct {
 
 	// FastTrack configures engineer self-service for small bug fixes.
 	FastTrack *FastTrackConfig `yaml:"fast_track,omitempty"`
+
+	// Build configures the agentic build orchestration (DAG fan-out).
+	Build BuildConfig `yaml:"build,omitempty"`
+}
+
+// BuildConfig tunes the build engine's DAG orchestration.
+type BuildConfig struct {
+	// MaxParallel bounds how many ready nodes the orchestrator fans out at
+	// once. Surfaced to the agent via the DAG resource. Defaults to 4.
+	MaxParallel int `yaml:"max_parallel,omitempty"`
+}
+
+// defaultMaxParallel is the fan-out bound when build.max_parallel is unset.
+const defaultMaxParallel = 4
+
+// GetMaxParallel returns the configured fan-out bound or the default.
+func (b BuildConfig) GetMaxParallel() int {
+	if b.MaxParallel <= 0 {
+		return defaultMaxParallel
+	}
+	return b.MaxParallel
 }
 
 // FastTrackConfig configures the `spec fix` fast-track workflow.

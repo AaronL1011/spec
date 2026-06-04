@@ -1,0 +1,26 @@
+[
+  {
+    "number": 1,
+    "id": "n1",
+    "repo": "nexl-ai-core-libs",
+    "description": "Proto Definitions",
+    "branch": "",
+    "status": "pending"
+  },
+  {
+    "number": 2,
+    "id": "n2",
+    "repo": "nexl-ai-core",
+    "description": "Full Implementation",
+    "branch": "",
+    "status": "pending"
+  },
+  {
+    "number": 3,
+    "id": "n3",
+    "repo": "nexl360",
+    "description": "Management Screen",
+    "branch": "",
+    "status": "pending"
+  }
+]

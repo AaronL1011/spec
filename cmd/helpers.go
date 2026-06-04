@@ -301,6 +301,9 @@ func buildEngineOptions(rc *config.ResolvedConfig, headless bool) build.Options 
 	if rc.User != nil && len(rc.User.Workspaces) > 0 {
 		opts.Workspaces = rc.User.Workspaces
 	}
+	if rc.Team != nil {
+		opts.MaxParallel = rc.Team.Build.GetMaxParallel()
+	}
 	return opts
 }
 

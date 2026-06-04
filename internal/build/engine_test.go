@@ -2,9 +2,10 @@ package build
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -14,19 +15,20 @@ import (
 )
 
 // fakeAgent is a test double for adapter.AgentAdapter. The during hook runs
-// inside Invoke to simulate agent behaviour (e.g. editing files, advancing the
-// step via MCP).
+// inside Invoke to simulate the orchestrator walking the DAG via MCP tools.
 type fakeAgent struct {
 	caps        adapter.Capabilities
 	result      adapter.InvokeResult
 	during      func(req adapter.InvokeRequest)
 	lastReq     adapter.InvokeRequest
 	invokedDirs []string
+	invocations int
 }
 
 func (f *fakeAgent) Invoke(_ context.Context, req adapter.InvokeRequest) (*adapter.InvokeResult, error) {
 	f.lastReq = req
 	f.invokedDirs = append(f.invokedDirs, req.WorkDir)
+	f.invocations++
 	if f.during != nil {
 		f.during(req)
 	}
@@ -48,7 +50,7 @@ func initRepoAt(t *testing.T, dir string) string {
 	}
 	ctx := context.Background()
 	for _, args := range [][]string{
-		{"init"},
+		{"init", "-b", "main"},
 		{"config", "user.email", "test@test.com"},
 		{"config", "user.name", "Test"},
 	} {
@@ -91,13 +93,104 @@ status: build
 	return path
 }
 
-// TestStartOrResume_MCPAdvanceAndDiff verifies that when an MCP agent advances
-// the step (simulated here by AdvanceStep during Invoke), the engine detects
-// the advance via session re-read, does not prompt, and captures the step diff.
-func TestStartOrResume_MCPAdvanceAndDiff(t *testing.T) {
+// driveDAG simulates the pi orchestrator: it walks ready nodes wave by wave,
+// calling spec_provision_node then spec_node_complete for each via the build
+// MCP server (which shares the session DB). It returns the set of node IDs it
+// provisioned so callers can assert that completed nodes are not re-run.
+func driveDAG(t *testing.T, db *store.DB, specID string, opts Options) map[string]int {
+	t.Helper()
+	provisioned := map[string]int{}
+	for {
+		session, err := LoadSession(db, specID)
+		if err != nil {
+			t.Fatalf("LoadSession: %v", err)
+		}
+		if session.NodesComplete() {
+			return provisioned
+		}
+		graph, err := BuildGraph(session.Steps)
+		if err != nil {
+			t.Fatalf("BuildGraph: %v", err)
+		}
+		ready := graph.ReadySet(session.DoneSet())
+		if len(ready) == 0 {
+			t.Fatalf("no ready nodes but session incomplete: done=%v", session.DoneSet())
+		}
+		srv := NewMCPServer(session, &BuildContext{SpecContent: "# spec"}, db, "", opts)
+		for _, n := range ready {
+			id := n.NodeID()
+			args := json.RawMessage(fmt.Sprintf(`{"node_id":%q}`, id))
+			if _, err := srv.CallTool("spec_provision_node", args); err != nil {
+				t.Fatalf("provision %s: %v", id, err)
+			}
+			provisioned[id]++
+			// Make a node-scoped change in the worktree so a diff is captured.
+			wt := srv.session.node(id).Worktree
+			_ = os.WriteFile(filepath.Join(wt, id+".txt"), []byte(id+"\n"), 0o644)
+			_ = gitpkg.Commit(context.Background(), wt, "work "+id)
+			if _, err := srv.CallTool("spec_node_complete", args); err != nil {
+				t.Fatalf("complete %s: %v", id, err)
+			}
+		}
+	}
+}
+
+// completeNodesVia provisions and completes the given nodes (in order) through
+// the build MCP server, creating their real git branches. Used to seed a
+// partially-built session for resume tests.
+func completeNodesVia(t *testing.T, db *store.DB, specID string, opts Options, ids []string) {
+	t.Helper()
+	session, err := LoadSession(db, specID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewMCPServer(session, &BuildContext{SpecContent: "# spec"}, db, "", opts)
+	for _, id := range ids {
+		args := json.RawMessage(fmt.Sprintf(`{"node_id":%q}`, id))
+		if _, err := srv.CallTool("spec_provision_node", args); err != nil {
+			t.Fatalf("seed provision %s: %v", id, err)
+		}
+		wt := srv.session.node(id).Worktree
+		_ = os.WriteFile(filepath.Join(wt, id+".txt"), []byte(id+"\n"), 0o644)
+		_ = gitpkg.Commit(context.Background(), wt, "seed "+id)
+		if _, err := srv.CallTool("spec_node_complete", args); err != nil {
+			t.Fatalf("seed complete %s: %v", id, err)
+		}
+	}
+}
+
+func writeDiamondSpec(t *testing.T, dir string) string {
+	const repo = "svc"
+	t.Helper()
+	content := `---
+id: SPEC-950
+title: Diamond
+status: build
+---
+
+# SPEC-950
+
+### 7.3 PR Stack Plan
+1. [` + repo + `] root
+2. [` + repo + `] left (after: 1)
+3. [` + repo + `] right (after: 1)
+4. [` + repo + `] merge (after: 2, 3)
+`
+	path := filepath.Join(dir, "SPEC-950.md")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestStartOrResume_DrivesDiamondInOneInvocation verifies the single-invocation
+// handoff: a fake orchestrator that provisions+completes every node drives a
+// 4-node diamond to completion in exactly one agent invocation.
+func TestStartOrResume_DrivesDiamondInOneInvocation(t *testing.T) {
 	t.Setenv("SPEC_HOME", t.TempDir())
-	workDir := initRepo(t)
-	specPath := writeSpec(t, workDir, filepath.Base(workDir))
+	parent := t.TempDir()
+	repo := initRepoAt(t, filepath.Join(parent, "svc"))
+	specPath := writeDiamondSpec(t, parent)
 
 	db, err := store.OpenMemory()
 	if err != nil {
@@ -105,48 +198,143 @@ func TestStartOrResume_MCPAdvanceAndDiff(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
+	opts := Options{Workspaces: map[string]string{"svc": repo}}
 	agent := &fakeAgent{
-		caps: adapter.Capabilities{MCP: true, SystemPrompt: true},
-		during: func(req adapter.InvokeRequest) {
-			// Agent edits a file and commits.
-			_ = os.WriteFile(filepath.Join(req.WorkDir, "feature.txt"), []byte("done\n"), 0o644)
-			_ = gitpkg.Commit(context.Background(), req.WorkDir, "implement")
-			// Simulate spec_step_complete via the MCP server (separate
-			// process) by advancing the persisted session.
-			s, _ := LoadSession(db, req.SpecID)
-			_ = AdvanceStep(db, s)
-		},
+		caps:   adapter.Capabilities{MCP: true, SystemPrompt: true},
+		during: func(req adapter.InvokeRequest) { driveDAG(t, db, req.SpecID, opts) },
 	}
 
-	engine := NewEngine(db, agent, Options{})
-	if err := engine.StartOrResume(context.Background(), "SPEC-900", specPath, workDir); err != nil {
+	engine := NewEngine(db, agent, opts)
+	if err := engine.StartOrResume(context.Background(), "SPEC-950", specPath, repo); err != nil {
 		t.Fatalf("StartOrResume: %v", err)
 	}
 
-	// The request must carry the generated MCP config and a system prompt.
-	if agent.lastReq.MCPConfigPath == "" {
-		t.Error("expected MCPConfigPath to be set")
+	if agent.invocations != 1 {
+		t.Errorf("agent invoked %d times, want exactly 1 (single-invocation handoff)", agent.invocations)
 	}
-	if agent.lastReq.SystemPrompt == "" {
-		t.Error("expected SystemPrompt to be set")
-	}
-
-	// Session advanced to completion.
-	s, _ := LoadSession(db, "SPEC-900")
-	if !s.IsComplete() {
-		t.Errorf("expected session complete, current step %d", s.CurrentStep)
+	if agent.lastReq.MCPConfigPath == "" || agent.lastReq.SystemPrompt == "" {
+		t.Error("request must carry MCP config + system prompt")
 	}
 
-	// Step-1 diff captured for cumulative context.
-	diffPath := filepath.Join(SessionDir("SPEC-900"), "step-1.diff")
-	if _, err := os.Stat(diffPath); err != nil {
-		t.Errorf("expected step-1.diff to be captured: %v", err)
+	session, _ := LoadSession(db, "SPEC-950")
+	if !session.NodesComplete() {
+		t.Fatalf("expected all nodes complete, ledger: %+v", session.Nodes)
+	}
+	// n4 bases on a merge of n2+n3 → its diff is captured.
+	if _, err := os.Stat(filepath.Join(SessionDir("SPEC-950"), "node-n4.diff")); err != nil {
+		t.Errorf("expected node-n4.diff captured: %v", err)
 	}
 }
 
-// TestProvision_SkillSeam verifies skills present under .spec/agent/skills/ are
-// resolved and passed to a skill-capable agent, and that the consolidated
-// context file includes the skill body.
+// TestStartOrResume_ResumesOnlySurvivors verifies a partial run resumes
+// correctly: with n1+n2 already complete, a fresh invocation provisions only
+// the remaining nodes and never re-runs the completed ones.
+func TestStartOrResume_ResumesOnlySurvivors(t *testing.T) {
+	t.Setenv("SPEC_HOME", t.TempDir())
+	parent := t.TempDir()
+	repo := initRepoAt(t, filepath.Join(parent, "svc"))
+	specPath := writeDiamondSpec(t, parent)
+
+	db, err := store.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	opts := Options{Workspaces: map[string]string{"svc": repo}}
+
+	// Seed a prior run: actually provision + complete n1 and n2 (creating their
+	// real branches), leaving n3 and n4 outstanding — exactly what a killed run
+	// would leave behind.
+	steps, err := ParsePRStackFromFile(specPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateSession(db, "SPEC-950", steps, repo); err != nil {
+		t.Fatal(err)
+	}
+	completeNodesVia(t, db, "SPEC-950", opts, []string{"n1", "n2"})
+
+	var provisioned map[string]int
+	agent := &fakeAgent{
+		caps:   adapter.Capabilities{MCP: true},
+		during: func(req adapter.InvokeRequest) { provisioned = driveDAG(t, db, req.SpecID, opts) },
+	}
+	engine := NewEngine(db, agent, opts)
+	if err := engine.StartOrResume(context.Background(), "SPEC-950", specPath, repo); err != nil {
+		t.Fatalf("StartOrResume: %v", err)
+	}
+
+	if provisioned["n1"] != 0 || provisioned["n2"] != 0 {
+		t.Errorf("completed nodes must not be re-provisioned, got %v", provisioned)
+	}
+	if provisioned["n3"] != 1 || provisioned["n4"] != 1 {
+		t.Errorf("survivors n3,n4 should each be provisioned once, got %v", provisioned)
+	}
+	final, _ := LoadSession(db, "SPEC-950")
+	if !final.NodesComplete() {
+		t.Error("expected completion after resume")
+	}
+}
+
+// TestStartOrResume_InvalidWorkspaceErrors verifies workspace validation runs
+// before the agent is invoked, with an actionable error.
+func TestStartOrResume_InvalidWorkspaceErrors(t *testing.T) {
+	t.Setenv("SPEC_HOME", t.TempDir())
+	parent := t.TempDir()
+	specPath := writeDiamondSpec(t, parent)
+
+	db, err := store.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// "svc" maps to a non-git directory.
+	notRepo := filepath.Join(parent, "not-a-repo")
+	if err := os.MkdirAll(notRepo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agent := &fakeAgent{caps: adapter.Capabilities{MCP: true}}
+	engine := NewEngine(db, agent, Options{Workspaces: map[string]string{"svc": notRepo}})
+
+	err = engine.StartOrResume(context.Background(), "SPEC-950", specPath, parent)
+	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("expected actionable workspace error, got %v", err)
+	}
+	if agent.invocations != 0 {
+		t.Error("agent must not be invoked when workspace validation fails")
+	}
+}
+
+// TestStartOrResume_MissingWorkspaceErrors verifies the Item 9 acceptance: a
+// node whose repo has no workspace mapping produces an actionable error naming
+// the repo and the config key, before the agent runs.
+func TestStartOrResume_MissingWorkspaceErrors(t *testing.T) {
+	t.Setenv("SPEC_HOME", t.TempDir())
+	parent := t.TempDir()
+	specPath := writeDiamondSpec(t, parent)
+
+	db, err := store.OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	agent := &fakeAgent{caps: adapter.Capabilities{MCP: true}}
+	engine := NewEngine(db, agent, Options{}) // no workspaces configured
+
+	err = engine.StartOrResume(context.Background(), "SPEC-950", specPath, parent)
+	if err == nil || !strings.Contains(err.Error(), "workspaces.svc") {
+		t.Fatalf("expected error naming repo + config key, got %v", err)
+	}
+	if agent.invocations != 0 {
+		t.Error("agent must not be invoked when a workspace is missing")
+	}
+}
+
+// TestProvision_SkillSeam verifies skills under .spec/agent/skills/ are resolved
+// and passed to a skill-capable agent, with the body also in the context file.
 func TestProvision_SkillSeam(t *testing.T) {
 	t.Setenv("SPEC_HOME", t.TempDir())
 	workDir := initRepo(t)
@@ -175,8 +363,6 @@ func TestProvision_SkillSeam(t *testing.T) {
 	if len(agent.lastReq.SkillPaths) != 1 {
 		t.Fatalf("expected 1 skill path, got %v", agent.lastReq.SkillPaths)
 	}
-
-	// Consolidated context file includes the skill body.
 	data, err := os.ReadFile(filepath.Join(SessionDir("SPEC-900"), "context.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +393,6 @@ func TestProvision_NonSkillAgentFoldsSkillIntoPrompt(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	// MCP:false, Skills:false → non-skill agent.
 	agent := &fakeAgent{caps: adapter.Capabilities{}}
 	engine := NewEngine(db, agent, Options{})
 	if err := engine.StartOrResume(context.Background(), "SPEC-900", specPath, workDir); err != nil {
@@ -221,134 +406,3 @@ func TestProvision_NonSkillAgentFoldsSkillIntoPrompt(t *testing.T) {
 		t.Error("non-skill agent system prompt should include the skill body")
 	}
 }
-
-func TestResolveStepDir(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	wsDir := filepath.Join(home, "code", "api-gateway")
-	if err := os.MkdirAll(wsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	e := &Engine{opts: Options{Workspaces: map[string]string{
-		"api-gateway": "~/code/api-gateway",
-		"ghost":       "/no/such/dir",
-	}}}
-
-	t.Run("no repo uses start dir", func(t *testing.T) {
-		got, err := e.resolveStepDir("SPEC-1", &PRStep{Number: 1}, "/start")
-		if err != nil || got != "/start" {
-			t.Fatalf("got %q, %v", got, err)
-		}
-	})
-	t.Run("matching basename uses start dir", func(t *testing.T) {
-		got, err := e.resolveStepDir("SPEC-1", &PRStep{Number: 1, Repo: "api-gateway"}, "/x/api-gateway")
-		if err != nil || got != "/x/api-gateway" {
-			t.Fatalf("got %q, %v", got, err)
-		}
-	})
-	t.Run("workspace mapping resolves and expands tilde", func(t *testing.T) {
-		got, err := e.resolveStepDir("SPEC-1", &PRStep{Number: 2, Repo: "api-gateway"}, "/elsewhere")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got != wsDir {
-			t.Errorf("got %q, want %q", got, wsDir)
-		}
-	})
-	t.Run("missing mapping is an actionable error", func(t *testing.T) {
-		_, err := e.resolveStepDir("SPEC-1", &PRStep{Number: 3, Repo: "frontend"}, "/elsewhere")
-		if err == nil {
-			t.Fatal("expected error for unmapped repo")
-		}
-		if !strings.Contains(err.Error(), "workspaces:") {
-			t.Errorf("error should guide the user to configure workspaces: %v", err)
-		}
-	})
-	t.Run("bad workspace path errors", func(t *testing.T) {
-		_, err := e.resolveStepDir("SPEC-1", &PRStep{Number: 4, Repo: "ghost"}, "/elsewhere")
-		if err == nil {
-			t.Fatal("expected error for non-existent workspace path")
-		}
-	})
-}
-
-// TestStartOrResume_MultiRepoWalksWorkspaces verifies the engine walks a
-// two-repo PR stack end-to-end, moving into each repo's workspace and capturing
-// a diff per step, without the user re-running the command per repo.
-func TestStartOrResume_MultiRepoWalksWorkspaces(t *testing.T) {
-	t.Setenv("SPEC_HOME", t.TempDir())
-
-	parent := t.TempDir()
-	apiDir := initRepoAt(t, filepath.Join(parent, "api-gateway"))
-	webDir := initRepoAt(t, filepath.Join(parent, "frontend"))
-
-	specContent := `---
-id: SPEC-901
-title: Multi-repo
-status: build
----
-
-# SPEC-901
-
-## 7. Technical Implementation
-
-### 7.3 PR Stack Plan
-1. [api-gateway] Backend change
-2. [frontend] Frontend change
-`
-	specPath := filepath.Join(parent, "SPEC-901.md")
-	if err := os.WriteFile(specPath, []byte(specContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	db, err := store.OpenMemory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-
-	agent := &fakeAgent{
-		caps: adapter.Capabilities{MCP: true},
-		during: func(req adapter.InvokeRequest) {
-			_ = os.WriteFile(filepath.Join(req.WorkDir, "change.txt"), []byte("x\n"), 0o644)
-			_ = gitpkg.Commit(context.Background(), req.WorkDir, "work")
-			s, _ := LoadSession(db, req.SpecID)
-			_ = AdvanceStep(db, s)
-		},
-	}
-
-	opts := Options{Workspaces: map[string]string{
-		"api-gateway": apiDir,
-		"frontend":    webDir,
-	}}
-	engine := NewEngine(db, agent, opts)
-
-	// Launch from the api-gateway dir; the engine must hop to frontend itself.
-	if err := engine.StartOrResume(context.Background(), "SPEC-901", specPath, apiDir); err != nil {
-		t.Fatalf("StartOrResume: %v", err)
-	}
-
-	if len(agent.invokedDirs) != 2 {
-		t.Fatalf("expected 2 step invocations, got %v", agent.invokedDirs)
-	}
-	if agent.invokedDirs[0] != apiDir {
-		t.Errorf("step 1 dir = %q, want %q", agent.invokedDirs[0], apiDir)
-	}
-	if agent.invokedDirs[1] != webDir {
-		t.Errorf("step 2 dir = %q, want %q (engine should auto-navigate)", agent.invokedDirs[1], webDir)
-	}
-
-	s, _ := LoadSession(db, "SPEC-901")
-	if !s.IsComplete() {
-		t.Errorf("expected all steps complete, current step %d", s.CurrentStep)
-	}
-	for _, n := range []int{1, 2} {
-		p := filepath.Join(SessionDir("SPEC-901"), "step-"+itoa(n)+".diff")
-		if _, err := os.Stat(p); err != nil {
-			t.Errorf("expected step-%d.diff: %v", n, err)
-		}
-	}
-}
-
-func itoa(n int) string { return strconv.Itoa(n) }

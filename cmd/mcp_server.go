@@ -149,7 +149,7 @@ func runBuildMCPServer(cmd *cobra.Command, specID string, rc *config.ResolvedCon
 		return fmt.Errorf("assembling build context: %w", err)
 	}
 
-	buildServer := build.NewMCPServer(session, buildCtx, db, specPath)
+	buildServer := build.NewMCPServer(session, buildCtx, db, specPath, buildEngineOptions(rc, false))
 	handler := &combinedHandler{
 		generic: mcp.NewGenericHandler(rc, filepath.Dir(specPath)),
 		build:   buildServer,
@@ -199,19 +199,51 @@ func (h *combinedHandler) ListTools() []mcp.Tool {
 	// Start with generic tools
 	tools := h.generic.ListTools()
 
-	// Add build-specific tools
-	tools = append(tools, mcp.Tool{
-		Name:        "spec_step_complete",
-		Description: "Mark the current PR stack step as complete and advance to the next",
-		InputSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
-	})
+	// Add build-specific (DAG) tools.
+	nodeIDProp := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"node_id": map[string]interface{}{"type": "string", "description": "DAG node id (e.g. 'n3')"},
+		},
+		"required": []string{"node_id"},
+	}
+	tools = append(tools,
+		mcp.Tool{
+			Name:        "spec_step_complete",
+			Description: "Mark the current PR stack step as complete and advance to the next (legacy sequential walk)",
+			InputSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+		},
+		mcp.Tool{
+			Name:        "spec_provision_node",
+			Description: "Provision a DAG node: compute its base ref, create its branch + worktree, and return { workDir, branch, baseRef, skillPaths }",
+			InputSchema: nodeIDProp,
+		},
+		mcp.Tool{
+			Name:        "spec_node_complete",
+			Description: "Mark a DAG node complete, capturing its diff. Idempotent.",
+			InputSchema: nodeIDProp,
+		},
+		mcp.Tool{
+			Name:        "spec_node_failed",
+			Description: "Record a DAG node failure with a reason so resume and reporting can surface it",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"node_id": map[string]interface{}{"type": "string", "description": "DAG node id"},
+					"reason":  map[string]interface{}{"type": "string", "description": "Why the node failed"},
+				},
+				"required": []string{"node_id"},
+			},
+		},
+	)
 
 	return tools
 }
 
 func (h *combinedHandler) CallTool(name string, args json.RawMessage) (*mcp.ToolResult, error) {
-	// Build-specific tools
-	if name == "spec_step_complete" {
+	// Build-specific (DAG) tools route to the build MCP server.
+	switch name {
+	case "spec_step_complete", "spec_provision_node", "spec_node_complete", "spec_node_failed":
 		r, err := h.build.CallTool(name, args)
 		if err != nil {
 			return nil, err

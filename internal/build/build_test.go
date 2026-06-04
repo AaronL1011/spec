@@ -169,7 +169,7 @@ func TestMCPServerResources(t *testing.T) {
 		Conventions: "Use conventional commits.",
 	}
 
-	server := NewMCPServer(session, buildCtx, nil, "")
+	server := NewMCPServer(session, buildCtx, nil, "", Options{})
 	resources := server.ListResources()
 
 	if len(resources) < 3 {
@@ -262,17 +262,11 @@ func TestParsePRStack_ListFormatStillWorks(t *testing.T) {
 }
 
 func TestBuildKickoffPrompt(t *testing.T) {
-	got := buildKickoffPrompt(&BuildContext{
-		CurrentStep: PRStep{Number: 2, Repo: "nexl-ai-core", Description: "Full Implementation"},
-	})
-	for _, want := range []string{"Begin step 2", "[nexl-ai-core]", "Full Implementation", "spec_step_complete"} {
+	got := buildKickoffPrompt(&BuildContext{})
+	// The kickoff hands the whole DAG to the orchestrator via the node tools.
+	for _, want := range []string{"spec://current/dag", "spec_provision_node", "spec_node_complete", "waves"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("kickoff %q missing %q", got, want)
 		}
-	}
-
-	// No current step still yields a non-empty kickoff.
-	if buildKickoffPrompt(&BuildContext{}) == "" {
-		t.Error("kickoff should never be empty")
 	}
 }

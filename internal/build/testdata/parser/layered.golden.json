@@ -1,0 +1,48 @@
+[
+  {
+    "number": 1,
+    "id": "n1",
+    "repo": "nexl-ai-core-libs",
+    "layer": "proto",
+    "description": "Proto definitions",
+    "branch": "",
+    "status": "pending"
+  },
+  {
+    "number": 2,
+    "id": "n2",
+    "repo": "nexl-ai-core",
+    "layer": "rails-api",
+    "description": "Service implementation",
+    "branch": "",
+    "status": "pending",
+    "depends_on": [
+      1
+    ]
+  },
+  {
+    "number": 3,
+    "id": "n3",
+    "repo": "nexl360",
+    "layer": "rails-api",
+    "description": "Management screen",
+    "branch": "",
+    "status": "pending",
+    "depends_on": [
+      1
+    ]
+  },
+  {
+    "number": 4,
+    "id": "n4",
+    "repo": "nexl360",
+    "layer": "react-web",
+    "description": "Wire up UI",
+    "branch": "",
+    "status": "pending",
+    "depends_on": [
+      2,
+      3
+    ]
+  }
+]

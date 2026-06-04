@@ -23,18 +23,37 @@ type BuildContext struct {
 	// Skills holds the resolved skill bodies (Agent Skills markdown). Empty
 	// when no skills are present under .spec/agent/skills/ or in config.
 	Skills []string
+	// SkillPaths is the deduplicated union of skill paths across all DAG nodes,
+	// passed to skill-capable agents as the set the orchestrator may dispatch.
+	SkillPaths []string
 }
 
-// PRStep represents one step in the PR stack plan.
+// PRStep represents one node in the §7.3 PR stack plan. A plan is a DAG: each
+// step has a stable ID, an optional repo and layer (which drive worktree
+// placement and skill routing), and zero or more dependencies on earlier steps.
 type PRStep struct {
 	Number      int    `yaml:"number" json:"number"`
+	ID          string `yaml:"id" json:"id"`
 	Repo        string `yaml:"repo" json:"repo"`
+	Layer       string `yaml:"layer" json:"layer,omitempty"`
 	Description string `yaml:"description" json:"description"`
 	Branch      string `yaml:"branch" json:"branch"`
-	Status      string `yaml:"status" json:"status"` // "pending", "in-progress", "complete"
+	Status      string `yaml:"status" json:"status"` // "pending", "in-progress", "complete", "failed"
+	// DependsOn holds the step numbers this node depends on (parsed from the
+	// `(after: 1,2)` edge annotation). Empty for a root node.
+	DependsOn []int `yaml:"depends_on" json:"depends_on,omitempty"`
 	// BaseRef is the commit the step branch was created from. Used to capture
 	// the step's diff for cumulative cross-step context.
 	BaseRef string `yaml:"base_ref" json:"base_ref,omitempty"`
+}
+
+// NodeID returns the stable node identifier, deriving it from the step number
+// when an explicit ID was not parsed (e.g. "n3").
+func (s PRStep) NodeID() string {
+	if s.ID != "" {
+		return s.ID
+	}
+	return fmt.Sprintf("n%d", s.Number)
 }
 
 // ParsePRStack extracts PR steps from the §7.3 PR Stack Plan section.
@@ -70,16 +89,66 @@ var repoLinePattern = regexp.MustCompile("(?i)^\\s*repo:\\s*`?([A-Za-z0-9._/-]+)
 // backtickToken extracts the first \x60backtick\x60-quoted token.
 var backtickToken = regexp.MustCompile("`([^`]+)`")
 
+// afterEdgePattern matches a trailing dependency annotation: `(after: 1,2)`.
+var afterEdgePattern = regexp.MustCompile(`(?i)\(\s*after:\s*([0-9,\s]+)\)`)
+
 // parsePRSteps extracts PR steps from the PR Stack Plan section. It supports two
-// authoring styles: the compact list (`1. [repo] desc`) and the prose form
-// (`**Part 1 — \x60repo\x60: title**` with optional `Repo: \x60repo\x60` lines).
+// authoring styles: the compact list (`1. [repo:layer] desc (after: 1,2)`) and
+// the prose form (`**Part 1 — \x60repo\x60: title**` with optional `Repo:` lines).
+// Stable node IDs are assigned after parsing so callers always get an ID.
 func parsePRSteps(content string) ([]PRStep, error) {
 	lines := strings.Split(content, "\n")
 
-	if steps := parseListSteps(lines); len(steps) > 0 {
-		return steps, nil
+	steps := parseListSteps(lines)
+	if len(steps) == 0 {
+		steps = parsePartSteps(lines)
 	}
-	return parsePartSteps(lines), nil
+	assignNodeIDs(steps)
+	return steps, nil
+}
+
+// assignNodeIDs gives every step a stable ID derived from its number when the
+// author did not provide one explicitly.
+func assignNodeIDs(steps []PRStep) {
+	for i := range steps {
+		if steps[i].ID == "" {
+			steps[i].ID = fmt.Sprintf("n%d", steps[i].Number)
+		}
+	}
+}
+
+// splitRepoLayer splits a bracket token `repo:layer` into its parts. Both sides
+// are optional: `[repo]`, `[:layer]`, and `[repo:layer]` all parse.
+func splitRepoLayer(token string) (repo, layer string) {
+	repo = strings.TrimSpace(token)
+	if i := strings.Index(token, ":"); i >= 0 {
+		repo = strings.TrimSpace(token[:i])
+		layer = strings.TrimSpace(token[i+1:])
+	}
+	return repo, layer
+}
+
+// extractAfterEdges pulls a trailing `(after: 1,2)` annotation out of a step
+// description, returning the cleaned description and the parsed dependency
+// step numbers (nil when there is no annotation).
+func extractAfterEdges(desc string) (string, []int) {
+	m := afterEdgePattern.FindStringSubmatch(desc)
+	if m == nil {
+		return strings.TrimSpace(desc), nil
+	}
+	var deps []int
+	for _, field := range strings.Split(m[1], ",") {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		n := 0
+		if _, err := fmt.Sscanf(field, "%d", &n); err == nil {
+			deps = append(deps, n)
+		}
+	}
+	cleaned := strings.TrimSpace(afterEdgePattern.ReplaceAllString(desc, ""))
+	return cleaned, deps
 }
 
 // parseListSteps handles the compact `1. [repo] description` form.
@@ -92,10 +161,14 @@ func parseListSteps(lines []string) []PRStep {
 		}
 		num := 0
 		_, _ = fmt.Sscanf(matches[1], "%d", &num)
+		repo, layer := splitRepoLayer(matches[2])
+		desc, deps := extractAfterEdges(matches[3])
 		steps = append(steps, PRStep{
 			Number:      num,
-			Repo:        strings.TrimSpace(matches[2]),
-			Description: strings.TrimSpace(matches[3]),
+			Repo:        repo,
+			Layer:       layer,
+			Description: desc,
+			DependsOn:   deps,
 			Status:      "pending",
 		})
 	}
@@ -156,15 +229,11 @@ func AssembleContext(specPath string, session *SessionState, conventions string)
 		ctx.CurrentStep = session.Steps[session.CurrentStep-1]
 	}
 
-	// Load prior diffs from session directory
+	// Load prior diffs for completed nodes. DAG builds key diffs by node id;
+	// the legacy sequential walk keyed them by step number, so fall back to
+	// that when no node diff is present.
 	if session != nil {
-		sessionDir := SessionDir(session.SpecID)
-		for i := 1; i < session.CurrentStep; i++ {
-			diffPath := filepath.Join(sessionDir, fmt.Sprintf("step-%d.diff", i))
-			if data, err := os.ReadFile(diffPath); err == nil {
-				ctx.PriorDiffs = append(ctx.PriorDiffs, string(data))
-			}
-		}
+		ctx.PriorDiffs = loadPriorDiffs(session)
 	}
 
 	ctx.SystemPrompt = buildSystemPrompt(ctx)
@@ -179,12 +248,9 @@ func WriteContextFile(ctx *BuildContext, outputPath string) error {
 
 	var sb strings.Builder
 	sb.WriteString("# Build Context\n\n")
-
-	// Current step
-	if ctx.CurrentStep.Number > 0 {
-		fmt.Fprintf(&sb, "## Current Step: %d. [%s] %s\n\n",
-			ctx.CurrentStep.Number, ctx.CurrentStep.Repo, ctx.CurrentStep.Description)
-	}
+	sb.WriteString("This spec is built as a DAG of nodes (see §7.3 PR Stack Plan). ")
+	sb.WriteString("MCP-capable agents should read spec://current/dag and drive it with the node tools; ")
+	sb.WriteString("the sections below are the consolidated fallback for agents without MCP.\n\n")
 
 	// Full spec
 	sb.WriteString("## Spec\n\n")
@@ -229,43 +295,53 @@ func WriteContextFile(ctx *BuildContext, outputPath string) error {
 	return os.WriteFile(outputPath, []byte(sb.String()), 0o644)
 }
 
-// buildKickoffPrompt is the initial user message that tells the agent to start
-// working on the current step. Without it an interactive agent opens an idle
-// session and waits for input; with it the agent begins immediately.
-func buildKickoffPrompt(ctx *BuildContext) string {
-	var sb strings.Builder
-	if ctx.CurrentStep.Number > 0 {
-		fmt.Fprintf(&sb, "Begin step %d", ctx.CurrentStep.Number)
-		if ctx.CurrentStep.Repo != "" {
-			fmt.Fprintf(&sb, " [%s]", ctx.CurrentStep.Repo)
+// loadPriorDiffs returns the captured diffs of completed nodes, preferring the
+// per-node diff (node-<id>.diff) and falling back to the legacy per-step diff.
+func loadPriorDiffs(session *SessionState) []string {
+	sessionDir := SessionDir(session.SpecID)
+	var diffs []string
+	for _, step := range session.Steps {
+		if session.NodeStatus(step.NodeID()) != NodeComplete {
+			continue
 		}
-		if ctx.CurrentStep.Description != "" {
-			fmt.Fprintf(&sb, ": %s", ctx.CurrentStep.Description)
+		nodePath := filepath.Join(sessionDir, fmt.Sprintf("node-%s.diff", step.NodeID()))
+		if data, err := os.ReadFile(nodePath); err == nil {
+			diffs = append(diffs, string(data))
+			continue
 		}
-		sb.WriteString(". ")
-	} else {
-		sb.WriteString("Begin implementing this spec. ")
+		legacyPath := filepath.Join(sessionDir, fmt.Sprintf("step-%d.diff", step.Number))
+		if data, err := os.ReadFile(legacyPath); err == nil {
+			diffs = append(diffs, string(data))
+		}
 	}
-	sb.WriteString("Read spec://current/full and spec://current/acceptance-criteria via the spec MCP server, ")
-	sb.WriteString("implement this step following the project conventions, record decisions with spec_decide, ")
-	sb.WriteString("and call spec_step_complete when the step is implemented and verified.")
+	return diffs
+}
+
+// buildKickoffPrompt is the initial user message that hands the whole DAG to the
+// orchestrator. Without it an interactive agent opens an idle session; with it
+// the agent reads the DAG and starts walking it immediately.
+func buildKickoffPrompt(_ *BuildContext) string {
+	var sb strings.Builder
+	sb.WriteString("Implement this spec by walking its build DAG. ")
+	sb.WriteString("Read spec://current/dag for the node graph and waves, and spec://current/full for the spec. ")
+	sb.WriteString("Process waves in order; nodes within a wave are independent and may run in parallel up to maxParallel. ")
+	sb.WriteString("For each ready node: call spec_provision_node(node_id) to get its workDir, branch, and skillPaths, ")
+	sb.WriteString("do the work in that workDir following the node's skills and the project conventions, ")
+	sb.WriteString("then call spec_node_complete(node_id) — or spec_node_failed(node_id, reason) if it cannot be finished. ")
+	sb.WriteString("Record decisions with spec_decide.")
 	return sb.String()
 }
 
-// buildSystemPrompt assembles the minimal base build instruction plus the
-// current-step scope. It stays intentionally thin: the behavioural playbook is
-// what a separately-authored skill provides via .spec/agent/skills/.
-func buildSystemPrompt(ctx *BuildContext) string {
+// buildSystemPrompt assembles the minimal base build instruction. It stays
+// intentionally thin: the orchestration playbook is a separately-authored skill
+// — spec-cli supplies the deterministic DAG + tools, not the reasoning.
+func buildSystemPrompt(_ *BuildContext) string {
 	var sb strings.Builder
-	sb.WriteString("You are implementing a feature based on the active spec. ")
-	sb.WriteString("The spec is available via the spec MCP server (spec://current/full) ")
-	sb.WriteString("and its sections, conventions, and prior-step diffs. ")
-	if ctx.CurrentStep.Number > 0 {
-		fmt.Fprintf(&sb, "You are on step %d: [%s] %s. ",
-			ctx.CurrentStep.Number, ctx.CurrentStep.Repo, ctx.CurrentStep.Description)
-	}
-	sb.WriteString("Follow the acceptance criteria in §6 and the project conventions. ")
-	sb.WriteString("Record any decisions using the spec_decide tool. ")
-	sb.WriteString("When the step is complete, use spec_step_complete to advance.")
+	sb.WriteString("You are the build orchestrator for the active spec. ")
+	sb.WriteString("spec-cli owns the DAG, node state, and all git/worktree/PR mechanics; you conduct the traversal. ")
+	sb.WriteString("The build DAG is at spec://current/dag and the spec at spec://current/full, with its sections, ")
+	sb.WriteString("conventions, and prior-node diffs. ")
+	sb.WriteString("Provision each node with spec_provision_node, checkpoint it with spec_node_complete/spec_node_failed, ")
+	sb.WriteString("follow the acceptance criteria in §6 and the project conventions, and record decisions with spec_decide.")
 	return sb.String()
 }
