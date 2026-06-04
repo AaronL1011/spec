@@ -42,6 +42,9 @@ type PRStep struct {
 	// DependsOn holds the step numbers this node depends on (parsed from the
 	// `(after: 1,2)` edge annotation). Empty for a root node.
 	DependsOn []int `yaml:"depends_on" json:"depends_on,omitempty"`
+	// PRURL is the draft PR recorded for this node in §7.3 via a trailing
+	// `<!-- pr: <url> -->` annotation. Empty until the finisher opens a PR.
+	PRURL string `yaml:"pr_url" json:"pr_url,omitempty"`
 	// BaseRef is the commit the step branch was created from. Used to capture
 	// the step's diff for cumulative cross-step context.
 	BaseRef string `yaml:"base_ref" json:"base_ref,omitempty"`
@@ -91,6 +94,9 @@ var backtickToken = regexp.MustCompile("`([^`]+)`")
 
 // afterEdgePattern matches a trailing dependency annotation: `(after: 1,2)`.
 var afterEdgePattern = regexp.MustCompile(`(?i)\(\s*after:\s*([0-9,\s]+)\)`)
+
+// prAnnotationPattern matches a recorded draft-PR annotation: `<!-- pr: <url> -->`.
+var prAnnotationPattern = regexp.MustCompile(`(?i)<!--\s*pr:\s*(\S+)\s*-->`)
 
 // parsePRSteps extracts PR steps from the PR Stack Plan section. It supports two
 // authoring styles: the compact list (`1. [repo:layer] desc (after: 1,2)`) and
@@ -162,17 +168,30 @@ func parseListSteps(lines []string) []PRStep {
 		num := 0
 		_, _ = fmt.Sscanf(matches[1], "%d", &num)
 		repo, layer := splitRepoLayer(matches[2])
-		desc, deps := extractAfterEdges(matches[3])
+		prURL, rest := extractPRAnnotation(matches[3])
+		desc, deps := extractAfterEdges(rest)
 		steps = append(steps, PRStep{
 			Number:      num,
 			Repo:        repo,
 			Layer:       layer,
 			Description: desc,
 			DependsOn:   deps,
+			PRURL:       prURL,
 			Status:      "pending",
 		})
 	}
 	return steps
+}
+
+// extractPRAnnotation pulls a trailing `<!-- pr: <url> -->` annotation out of a
+// step line, returning the URL (empty when absent) and the line with the
+// annotation removed so downstream parsing is unaffected.
+func extractPRAnnotation(line string) (url, rest string) {
+	m := prAnnotationPattern.FindStringSubmatch(line)
+	if m == nil {
+		return "", line
+	}
+	return strings.TrimSpace(m[1]), strings.TrimSpace(prAnnotationPattern.ReplaceAllString(line, ""))
 }
 
 // parsePartSteps handles the prose `**Part N — \x60repo\x60: title**` form, using a

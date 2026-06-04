@@ -76,6 +76,18 @@ func (g *Graph) Dependencies(id string) []string {
 	return append([]string(nil), g.deps[id]...)
 }
 
+// Leaves returns the nodes no other node depends on — the tips of the stack,
+// which are the PRs that must exist before review.
+func (g *Graph) Leaves() []PRStep {
+	var leaves []PRStep
+	for _, n := range g.Nodes {
+		if len(g.dependents[n.NodeID()]) == 0 {
+			leaves = append(leaves, n)
+		}
+	}
+	return leaves
+}
+
 // Waves returns a Kahn topological sort grouped into waves. Every node in a
 // wave has all of its dependencies satisfied by earlier waves, so a wave can be
 // fanned out in parallel. Plan order is preserved within each wave.

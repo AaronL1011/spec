@@ -27,8 +27,8 @@ type InvokeRequest struct {
 
 // InvokeResult reports what the agent did during the session.
 type InvokeResult struct {
-	// StepSignalled is true when the agent advanced the step via the MCP
-	// spec_step_complete tool during the session.
+	// StepSignalled is true when the agent signalled completion via the MCP
+	// spec_node_complete tool during the session.
 	StepSignalled bool
 }
 

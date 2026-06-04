@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aaronl1011/spec/internal/build"
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline/expr"
@@ -127,14 +128,27 @@ func evaluateGateWithContext(gate config.GateConfig, sections []markdown.Section
 	}
 
 	if gate.PRStackExists != nil && *gate.PRStackExists {
-		if hasPRStack {
-			return GateResult{Gate: "pr_stack_exists", Passed: true}
+		if !hasPRStack {
+			return GateResult{
+				Gate:   "pr_stack_exists",
+				Passed: false,
+				Reason: "PR stack plan (§7.3) is required — add the PR stack with 'spec edit' or 'spec draft --pr-stack'",
+			}
 		}
-		return GateResult{
-			Gate:   "pr_stack_exists",
-			Passed: false,
-			Reason: "PR stack plan (§7.3) is required — add the PR stack with 'spec edit' or 'spec draft --pr-stack'",
+		// Review may not begin until every leaf node has an open draft PR,
+		// recorded in §7.3 during finishing.
+		prContent := ""
+		if sec := markdown.FindSection(sections, "pr_stack_plan"); sec != nil {
+			prContent = sec.Content
 		}
+		if !build.AllLeavesHaveDraftPR(prContent) {
+			return GateResult{
+				Gate:   "pr_stack_exists",
+				Passed: false,
+				Reason: "every leaf of the PR stack needs an open draft PR — run the finisher (spec_open_pr) so each stack tip is recorded in §7.3",
+			}
+		}
+		return GateResult{Gate: "pr_stack_exists", Passed: true}
 	}
 
 	if gate.PRsApproved != nil && *gate.PRsApproved {

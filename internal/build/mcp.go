@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/store"
 )
@@ -20,6 +21,17 @@ type MCPServer struct {
 	specPath string
 	opts     Options
 	graph    *Graph
+	// repo is the GitHub (or noop) adapter used by the PR tools. It may be nil
+	// in contexts that never call them; the tools guard against that.
+	repo adapter.RepoAdapter
+}
+
+// WithRepo injects the repo adapter used by the draft-PR tools and returns the
+// server for chaining. Kept separate from the constructor so call sites that
+// never open PRs need not thread an adapter through.
+func (s *MCPServer) WithRepo(r adapter.RepoAdapter) *MCPServer {
+	s.repo = r
+	return s
 }
 
 // NewMCPServer creates a new MCP server for a build session. opts carries the
@@ -45,7 +57,10 @@ func NewMCPServer(session *SessionState, buildCtx *BuildContext, db *store.DB, s
 // NodeToolNames lists the build-session tools this server adds on top of the
 // generic spec tools. Exposed so the combined MCP handler can advertise them.
 func NodeToolNames() []string {
-	return []string{"spec_step_complete", "spec_provision_node", "spec_node_complete", "spec_node_failed"}
+	return []string{
+		"spec_provision_node", "spec_node_complete", "spec_node_failed",
+		"spec_push", "spec_open_pr", "spec_link_prs",
+	}
 }
 
 // MCPResource represents a resource served by the MCP server.
@@ -203,14 +218,18 @@ func (s *MCPServer) CallTool(name string, args json.RawMessage) (*MCPToolResult,
 		return s.toolDecide(args)
 	case "spec_decide_resolve":
 		return s.toolDecideResolve(args)
-	case "spec_step_complete":
-		return s.toolStepComplete()
 	case "spec_provision_node":
 		return s.toolProvisionNode(args)
 	case "spec_node_complete":
 		return s.toolNodeComplete(args)
 	case "spec_node_failed":
 		return s.toolNodeFailed(args)
+	case "spec_push":
+		return s.toolPush(args)
+	case "spec_open_pr":
+		return s.toolOpenPR(args)
+	case "spec_link_prs":
+		return s.toolLinkPRs(args)
 	case "spec_status":
 		return s.toolStatus()
 	case "spec_search":
@@ -261,33 +280,6 @@ func (s *MCPServer) toolDecideResolve(args json.RawMessage) (*MCPToolResult, err
 		Success: true,
 		Message: fmt.Sprintf("Decision #%03d resolved: %s", params.Number, params.Decision),
 	}, nil
-}
-
-func (s *MCPServer) toolStepComplete() (*MCPToolResult, error) {
-	if s.session == nil || s.db == nil {
-		return &MCPToolResult{Success: false, Message: "no active session"}, nil
-	}
-
-	step := s.session.CurrentPRStep()
-	if step == nil {
-		return &MCPToolResult{Success: false, Message: "no current step"}, nil
-	}
-
-	_ = LogActivity(s.session.SpecID, fmt.Sprintf("Step %d completed via MCP: %s", step.Number, step.Description))
-
-	if err := AdvanceStep(s.db, s.session); err != nil {
-		return &MCPToolResult{Success: false, Message: err.Error()}, nil
-	}
-
-	msg := fmt.Sprintf("Step %d completed.", step.Number)
-	if !s.session.IsComplete() {
-		next := s.session.CurrentPRStep()
-		msg += fmt.Sprintf(" Next: Step %d — [%s] %s", next.Number, next.Repo, next.Description)
-	} else {
-		msg += " All steps complete!"
-	}
-
-	return &MCPToolResult{Success: true, Message: msg}, nil
 }
 
 func (s *MCPServer) toolStatus() (*MCPToolResult, error) {

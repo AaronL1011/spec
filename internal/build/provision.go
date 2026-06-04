@@ -41,8 +41,8 @@ type agentProfile struct {
 
 // writeMCPConfig emits an ephemeral MCP config that points an agent at the
 // spec MCP server focused on the active spec. Agents launched with this config
-// can read spec://current/* resources and call spec_step_complete with no
-// manual .mcp.json setup.
+// can read spec://current/* resources and call the DAG node tools
+// (spec_provision_node / spec_node_complete / …) with no manual .mcp.json setup.
 func writeMCPConfig(specID, path string) error {
 	bin := "spec"
 	if exe, err := os.Executable(); err == nil && exe != "" {
