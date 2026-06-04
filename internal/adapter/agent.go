@@ -25,12 +25,11 @@ type InvokeRequest struct {
 	Headless      bool     // -p mode for `spec fix --auto` / CI
 }
 
-// InvokeResult reports what the agent did during the session.
-type InvokeResult struct {
-	// StepSignalled is true when the agent signalled completion via the MCP
-	// spec_node_complete tool during the session.
-	StepSignalled bool
-}
+// InvokeResult reports what the agent did during the session. spec-cli
+// reconciles real progress from the durable node ledger after the agent exits,
+// so the result carries no per-step signal; it exists for future structured
+// reporting and to keep the adapter contract uniform.
+type InvokeResult struct{}
 
 // Capabilities describes the features an agent harness supports.
 type Capabilities struct {

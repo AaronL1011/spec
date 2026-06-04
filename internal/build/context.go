@@ -255,7 +255,7 @@ func AssembleContext(specPath string, session *SessionState, conventions string)
 		ctx.PriorDiffs = loadPriorDiffs(session)
 	}
 
-	ctx.SystemPrompt = buildSystemPrompt(ctx)
+	ctx.SystemPrompt = soloSystemPrompt()
 	return ctx, nil
 }
 
@@ -336,31 +336,57 @@ func loadPriorDiffs(session *SessionState) []string {
 	return diffs
 }
 
-// buildKickoffPrompt is the initial user message that hands the whole DAG to the
-// orchestrator. Without it an interactive agent opens an idle session; with it
-// the agent reads the DAG and starts walking it immediately.
-func buildKickoffPrompt(_ *BuildContext) string {
+// conductorKickoff is the initial user message handed to an MCP-capable agent.
+// It frames the whole build as a traversal of the Build Integration Port: the
+// agent conducts, spec-cli owns the DAG, ledger, and git/PR mechanics. Per-node
+// worker skills are delivered through spec_provision_node, not this prompt.
+func conductorKickoff() string {
 	var sb strings.Builder
-	sb.WriteString("Implement this spec by walking its build DAG. ")
+	sb.WriteString("Conduct this spec's build via the Build Integration Port. ")
 	sb.WriteString("Read spec://current/dag for the node graph and waves, and spec://current/full for the spec. ")
 	sb.WriteString("Process waves in order; nodes within a wave are independent and may run in parallel up to maxParallel. ")
 	sb.WriteString("For each ready node: call spec_provision_node(node_id) to get its workDir, branch, and skillPaths, ")
-	sb.WriteString("do the work in that workDir following the node's skills and the project conventions, ")
-	sb.WriteString("then call spec_node_complete(node_id) — or spec_node_failed(node_id, reason) if it cannot be finished. ")
-	sb.WriteString("Record decisions with spec_decide.")
+	sb.WriteString("dispatch one worker into that workDir following the node's skillPaths and the project conventions, ")
+	sb.WriteString("then checkpoint with spec_node_complete(node_id) — or spec_node_failed(node_id, reason) if it cannot be finished. ")
+	sb.WriteString("When every node is complete, push and open stacked DRAFT PRs with spec_push, spec_open_pr, and spec_link_prs. ")
+	sb.WriteString("Record decisions with spec_decide. Do not mark PRs ready or merge — humans own that.")
 	return sb.String()
 }
 
-// buildSystemPrompt assembles the minimal base build instruction. It stays
-// intentionally thin: the orchestration playbook is a separately-authored skill
-// — spec-cli supplies the deterministic DAG + tools, not the reasoning.
-func buildSystemPrompt(_ *BuildContext) string {
+// conductorSystemPrompt is the base instruction for an MCP-capable agent. It
+// stays thin and names the contract rather than describing a do-it-yourself
+// loop: the orchestration playbook is a separately-authored skill, and spec-cli
+// supplies the deterministic DAG + tools, not the reasoning.
+func conductorSystemPrompt() string {
 	var sb strings.Builder
-	sb.WriteString("You are the build orchestrator for the active spec. ")
-	sb.WriteString("spec-cli owns the DAG, node state, and all git/worktree/PR mechanics; you conduct the traversal. ")
-	sb.WriteString("The build DAG is at spec://current/dag and the spec at spec://current/full, with its sections, ")
-	sb.WriteString("conventions, and prior-node diffs. ")
-	sb.WriteString("Provision each node with spec_provision_node, checkpoint it with spec_node_complete/spec_node_failed, ")
-	sb.WriteString("follow the acceptance criteria in §6 and the project conventions, and record decisions with spec_decide.")
+	sb.WriteString("You are the build conductor for the active spec, driving it through spec-cli's Build Integration Port over MCP. ")
+	sb.WriteString("spec-cli owns the dependency graph, the durable node ledger, and all git/worktree/PR mechanics; you conduct execution and never design. ")
+	sb.WriteString("Read spec://current/dag for the node graph and waves and spec://current/full for the spec, with its sections, conventions, and prior-node diffs. ")
+	sb.WriteString("Walk waves in order: provision each ready node with spec_provision_node, dispatch a worker into the returned workDir following its skillPaths, ")
+	sb.WriteString("and checkpoint it with spec_node_complete/spec_node_failed. When all nodes are complete, finish the stacked draft PRs with spec_push/spec_open_pr/spec_link_prs. ")
+	sb.WriteString("Follow the acceptance criteria in §6 and the project conventions, record decisions with spec_decide, and stop and report on any gap or spec/reality mismatch rather than improvising. ")
+	sb.WriteString("If a build-orchestrator skill is available, use it to conduct.")
+	return sb.String()
+}
+
+// soloKickoff is the initial user message for a non-MCP agent that implements
+// the whole spec itself from the consolidated context file.
+func soloKickoff(_ *BuildContext) string {
+	var sb strings.Builder
+	sb.WriteString("Implement this spec from the consolidated build context. ")
+	sb.WriteString("Work through the §7.3 PR stack in order, satisfy the acceptance criteria in §6, and follow the project conventions. ")
+	sb.WriteString("Keep changes scoped to the spec and stop and report on any gap rather than guessing.")
+	return sb.String()
+}
+
+// soloSystemPrompt assembles the base instruction for a non-MCP agent. Such an
+// agent has no node tools, so it implements the spec end to end from the
+// consolidated context (full spec, conventions, prior diffs, folded skills).
+func soloSystemPrompt() string {
+	var sb strings.Builder
+	sb.WriteString("You are implementing the active spec end to end from the consolidated build context below. ")
+	sb.WriteString("It contains the full spec, its acceptance criteria, project conventions, prior diffs, and any capability playbooks. ")
+	sb.WriteString("Implement each node of the §7.3 plan in order, follow the acceptance criteria in §6 and the project conventions, ")
+	sb.WriteString("keep commits compartmentalised and semver-conventional, and stop and report on any gap or spec/reality mismatch rather than guessing.")
 	return sb.String()
 }

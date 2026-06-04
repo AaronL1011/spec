@@ -122,18 +122,24 @@ type dagNode struct {
 	SkillPaths []string `json:"skillPaths"`
 }
 
+// DAGSchemaVersion identifies the wire schema of the spec://current/dag
+// resource. It is the versioned interface third-party build systems integrate
+// against; changes within a major version are additive only.
+const DAGSchemaVersion = "build-port/v1"
+
 // dagDocument is the top-level JSON shape of spec://current/dag.
 type dagDocument struct {
-	SpecID      string     `json:"specId"`
-	MaxParallel int        `json:"maxParallel"`
-	Nodes       []dagNode  `json:"nodes"`
-	Waves       [][]string `json:"waves"`
-	Error       string     `json:"error,omitempty"`
+	SchemaVersion string     `json:"schemaVersion"`
+	SpecID        string     `json:"specId"`
+	MaxParallel   int        `json:"maxParallel"`
+	Nodes         []dagNode  `json:"nodes"`
+	Waves         [][]string `json:"waves"`
+	Error         string     `json:"error,omitempty"`
 }
 
 // dagJSON renders the DAG resource the orchestrator reads once to plan its walk.
 func (s *MCPServer) dagJSON() string {
-	doc := dagDocument{SpecID: s.session.SpecID, MaxParallel: s.opts.MaxParallel, Nodes: []dagNode{}, Waves: [][]string{}}
+	doc := dagDocument{SchemaVersion: DAGSchemaVersion, SpecID: s.session.SpecID, MaxParallel: s.opts.MaxParallel, Nodes: []dagNode{}, Waves: [][]string{}}
 	if s.graph == nil {
 		doc.Error = "PR stack did not form a valid DAG — check §7.3 (after: ...) edges"
 		b, _ := json.MarshalIndent(doc, "", "  ")

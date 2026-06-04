@@ -4,12 +4,9 @@
 package pi
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 
@@ -38,8 +35,9 @@ func (a *Agent) Capabilities() adapter.Capabilities {
 }
 
 // Invoke spawns pi for a build session. Interactive (default) inherits stdio
-// and blocks until exit; headless runs `-p --mode json`, streams events, and
-// flags StepSignalled when spec_node_complete succeeds.
+// and blocks until exit; headless runs `-p --mode json` autonomously. Progress
+// is reconciled by spec-cli from the node ledger after pi exits, so the result
+// is empty either way.
 func (a *Agent) Invoke(ctx context.Context, req adapter.InvokeRequest) (*adapter.InvokeResult, error) {
 	if _, err := exec.LookPath(a.Command); err != nil {
 		return nil, fmt.Errorf("%s not found in PATH — install pi: https://pi.dev", a.Command)
@@ -96,8 +94,9 @@ func (a *Agent) invokeInteractive(ctx context.Context, req adapter.InvokeRequest
 	return &adapter.InvokeResult{}, nil
 }
 
-// invokeHeadless runs pi autonomously and parses its JSON event stream to
-// detect a successful spec_node_complete tool call.
+// invokeHeadless runs pi autonomously (`-p --mode json`) and streams its output
+// through. Completion is reconciled from the node ledger by the engine after pi
+// exits, so there is nothing to parse out of the stream here.
 func (a *Agent) invokeHeadless(ctx context.Context, req adapter.InvokeRequest) (*adapter.InvokeResult, error) {
 	args := append(a.args(req), "-p", "--mode", "json")
 	if req.Prompt != "" {
@@ -107,47 +106,11 @@ func (a *Agent) invokeHeadless(ctx context.Context, req adapter.InvokeRequest) (
 	cmd := exec.CommandContext(ctx, a.Command, args...)
 	cmd.Dir = req.WorkDir
 	cmd.Env = os.Environ()
+	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("pi stdout pipe: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("starting pi: %w", err)
-	}
-
-	signalled := scanForNodeComplete(stdout)
-
-	if err := cmd.Wait(); err != nil {
+	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("pi exited with error: %w", err)
 	}
-	return &adapter.InvokeResult{StepSignalled: signalled}, nil
-}
-
-// piEvent is the subset of pi's JSON event stream we care about.
-type piEvent struct {
-	Type     string `json:"type"`
-	ToolName string `json:"toolName"`
-	IsError  bool   `json:"isError"`
-}
-
-// scanForNodeComplete reads pi's event stream and returns true when a
-// successful spec_node_complete tool execution is observed. Unknown or
-// malformed lines are skipped (best-effort).
-func scanForNodeComplete(r io.Reader) bool {
-	signalled := false
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		var ev piEvent
-		if err := json.Unmarshal(line, &ev); err != nil {
-			continue
-		}
-		if ev.Type == "tool_execution_end" && ev.ToolName == "spec_node_complete" && !ev.IsError {
-			signalled = true
-		}
-	}
-	return signalled
+	return &adapter.InvokeResult{}, nil
 }

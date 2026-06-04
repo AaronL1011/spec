@@ -14,21 +14,33 @@ without touching engine code.
     .gitkeep     # ships empty; reserves the location
 ```
 
-## How discovery works
+## Two skill roles
 
-The engine resolves skills in priority order:
+The build seam distinguishes **conductor** skills from **node-worker** skills
+(see `docs/INTEGRATION-PORT.md`):
 
-1. Explicit config: `integrations.agent.settings.skill` (comma/newline list).
-2. `profile.yaml` `skill:` refs.
-3. Any non-hidden entry under `.spec/agent/skills/`.
+- **Conductor skills** drive the whole-DAG orchestration. For an MCP-capable
+  agent they are resolved from the **start dir only**, in priority order:
+  1. `integrations.agent.settings.conductor_skill` (comma/newline list),
+  2. `integrations.agent.settings.skill` (fallback),
+  3. `profile.yaml` `skill:` refs,
+  4. any non-hidden entry under `.spec/agent/skills/`.
+  They are passed to the agent as `--skill <path>` and are deliberately
+  **start-dir scoped** so cross-repo skills can never collide in the conductor.
+- **Node-worker skills** implement one node. They are routed per node by the
+  repo's `.spec/agent/skills/registry.yaml` (repo/layer tags) and reach workers
+  **only** through `spec_provision_node` (`skillPaths`) — never injected into the
+  conductor. `integrations.agent.settings.skill` is the per-node fallback used
+  when registry routing does not match.
 
 Missing or empty → no skills are injected and the build proceeds normally.
 
 ## How injection works
 
-- Skill-capable agents (e.g. pi) receive each resolved path as `--skill <path>`.
-- Non-skill agents (e.g. Claude Code) get the skill bodies folded into the
-  assembled system prompt and the consolidated `context.md`.
+- MCP + skill-capable agents (e.g. pi) receive the **conductor** skills as
+  `--skill <path>`; node-worker skills travel via `spec_provision_node`.
+- Non-MCP / non-skill agents (e.g. Claude Code in solo mode) get every resolved
+  skill body folded into the assembled system prompt and `context.md`.
 
 ## profile.yaml (all fields optional)
 

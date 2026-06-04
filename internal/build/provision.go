@@ -16,8 +16,14 @@ type Options struct {
 	Headless bool
 	// SkillRefs are explicit skill paths from config
 	// (integrations.agent.settings.skill). They take precedence over
-	// profile.yaml refs and the .spec/agent/skills/ directory.
+	// profile.yaml refs and the .spec/agent/skills/ directory. They are the
+	// per-node worker fallback used when registry routing does not match.
 	SkillRefs []string
+	// ConductorSkills are the orchestrator-level skills handed to an MCP-capable
+	// agent (integrations.agent.settings.conductor_skill). They are resolved
+	// from the start dir only and are kept distinct from per-node worker skills,
+	// which reach workers solely via spec_provision_node.
+	ConductorSkills []string
 	// TestCommand, when set, is run to populate FailingTests (best-effort).
 	TestCommand string
 	// Workspaces maps a PR-step repo name to a local directory. It is the

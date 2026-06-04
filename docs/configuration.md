@@ -603,9 +603,20 @@ Override the team's configured coding agent with your own preference.
 ```yaml
 agent:
   provider: pi              # claude | pi | none
+  conductor_skill: ~/.agents/skills/build-orchestrator,~/.agents/skills/pr-finisher
+  skill: ~/skills/spec-build   # per-node worker fallback (see below)
 ```
 
 This takes precedence over `integrations.agent` in `spec.config.yaml`.
+
+The build seam distinguishes two skill roles (see `docs/INTEGRATION-PORT.md`):
+
+- `conductor_skill` — orchestrator-level skills handed to an MCP-capable agent
+  to drive the whole-DAG build. Start-dir scoped, so cross-repo skills cannot
+  collide in the conductor.
+- `skill` — the per-node worker fallback, used only when a node does not match
+  the repo's `.spec/agent/skills/registry.yaml`. Routed node-worker skills reach
+  workers via `spec_provision_node`, never the conductor.
 
 ### `workspaces`
 

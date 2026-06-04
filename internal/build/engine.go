@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/adapter"
@@ -60,7 +61,7 @@ func (e *Engine) StartOrResume(ctx context.Context, specID, specPath, startDir s
 	}
 
 	if session.NodesComplete() {
-		fmt.Printf("✓ All %d nodes complete for %s.\n", len(session.Steps), specID)
+		e.reportComplete(specID, session, graph)
 		return nil
 	}
 
@@ -97,15 +98,15 @@ func (e *Engine) reconcile(specID string) error {
 		return nil
 	}
 
-	if session.NodesComplete() {
-		_ = LogActivity(specID, "All nodes complete")
-		fmt.Printf("✓ All %d nodes complete for %s.\n", len(session.Steps), specID)
-		return nil
-	}
-
 	graph, err := BuildGraph(session.Steps)
 	if err != nil {
 		return fmt.Errorf("reconciling DAG for %s: %w", specID, err)
+	}
+
+	if session.NodesComplete() {
+		_ = LogActivity(specID, "All nodes complete")
+		e.reportComplete(specID, session, graph)
+		return nil
 	}
 
 	done := session.DoneSet()
@@ -126,6 +127,139 @@ func (e *Engine) reconcile(specID string) error {
 	}
 	fmt.Printf("Resume with: spec do %s\n", specID)
 	return nil
+}
+
+// leafPRStatus reports the draft-PR coverage of the DAG's stack leaves (the
+// nodes nothing else depends on — the tips that must carry a PR for review).
+// applicable counts leaves that target a repo (and so can carry a PR); missing
+// names the applicable leaves with no recorded PR URL. A repo-less fallback node
+// is not PR-applicable and is ignored.
+func leafPRStatus(session *SessionState, graph *Graph) (applicable, withPR int, missing []string) {
+	for _, leaf := range graph.Leaves() {
+		if leaf.Repo == "" {
+			continue
+		}
+		applicable++
+		if session.node(leaf.NodeID()).PRURL != "" {
+			withPR++
+		} else {
+			missing = append(missing, leaf.NodeID())
+		}
+	}
+	return applicable, withPR, missing
+}
+
+// reportComplete prints the terminal build status. Completion is defined by the
+// pipeline artifact, not node status alone: a build whose nodes are all complete
+// is only reported as complete when every repo-bearing stack leaf has a recorded
+// draft PR. Otherwise it tells the engineer the PR finisher still has to run.
+func (e *Engine) reportComplete(specID string, session *SessionState, graph *Graph) {
+	n := len(session.Steps)
+	applicable, withPR, missing := leafPRStatus(session, graph)
+	switch {
+	case applicable == 0:
+		fmt.Printf("✓ All %d node(s) complete for %s.\n", n, specID)
+	case len(missing) == 0:
+		fmt.Printf("✓ Build complete for %s — %d node(s), %d draft PR(s) on stack leaves.\n", specID, n, withPR)
+	default:
+		fmt.Printf("Nodes complete for %s, but draft PRs are missing on stack leaves: %s\n", specID, strings.Join(missing, ", "))
+		fmt.Printf("Run the PR finisher to push and open them (spec_push / spec_open_pr), then: spec do %s\n", specID)
+	}
+}
+
+// Check runs a read-only preflight for a build without launching the agent or
+// touching any session: it validates the DAG, resolves each node's workspace and
+// routed skills, surfaces skill name collisions, and reports the agent's
+// capabilities and the completion definition. It returns an error when the build
+// is not launchable so callers (and CI) can gate on it.
+func (e *Engine) Check(ctx context.Context, specID, specPath, startDir string) error {
+	steps, err := ParsePRStackFromFile(specPath)
+	if err != nil {
+		return fmt.Errorf("parsing PR stack: %w", err)
+	}
+	if len(steps) == 0 {
+		steps = []PRStep{{Number: 1, ID: "n1", Description: "Build implementation", Status: NodePending}}
+	}
+	graph, err := BuildGraph(steps)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Build preflight for %s — %s\n", specID, specTitle(specPath))
+	caps := e.agent.Capabilities()
+	fmt.Printf("Agent capabilities: MCP=%t Skills=%t Headless=%t SystemPrompt=%t\n", caps.MCP, caps.Skills, caps.Headless, caps.SystemPrompt)
+
+	if err := e.validateWorkspaces(ctx, graph, startDir); err != nil {
+		fmt.Printf("✗ %v\n", err)
+		return err
+	}
+
+	collisions := e.printCheckWaves(graph, startDir)
+
+	if caps.MCP && caps.Skills {
+		cond := skillBasenames(e.conductorSkillPaths(startDir))
+		display := strings.Join(cond, ", ")
+		if display == "" {
+			display = "(none configured — relying on harness skill discovery)"
+		}
+		fmt.Printf("Conductor skills: %s\n", display)
+	}
+
+	for _, name := range collisions {
+		fmt.Printf("warning: skill %q is routed from more than one repo — keep per-repo skills in their own workspaces so workers load the right one\n", name)
+	}
+
+	fmt.Println("Completion: all nodes complete AND every repo-bearing stack leaf has a draft PR.")
+	fmt.Printf("✓ Launchable — run: spec build %s\n", specID)
+	return nil
+}
+
+// printCheckWaves prints the DAG wave-by-wave with each node's workspace and
+// routed skills, and returns the sorted set of skill names that resolve to more
+// than one path (a cross-repo collision risk).
+func (e *Engine) printCheckWaves(graph *Graph, startDir string) []string {
+	waves := graph.Waves()
+	fmt.Printf("DAG: %d node(s) in %d wave(s)\n", len(graph.Nodes), len(waves))
+	byName := make(map[string]map[string]bool)
+	for i, wave := range waves {
+		fmt.Printf("  Wave %d:\n", i+1)
+		for _, n := range wave {
+			skills := skillsForNode(startDir, n, e.opts)
+			for _, p := range skills {
+				name := filepath.Base(p)
+				if byName[name] == nil {
+					byName[name] = make(map[string]bool)
+				}
+				byName[name][p] = true
+			}
+			repoPath, _ := resolveRepoPath(n.Repo, startDir, e.opts.Workspaces)
+			fmt.Printf("    %s [%s] %s\n", n.NodeID(), repoLayer(n), n.Description)
+			fmt.Printf("      workDir: %s\n", repoPath)
+			if names := skillBasenames(skills); len(names) > 0 {
+				fmt.Printf("      skills:  %s\n", strings.Join(names, ", "))
+			} else {
+				fmt.Println("      skills:  (none routed — relying on conventions)")
+			}
+		}
+	}
+
+	var collided []string
+	for name, paths := range byName {
+		if len(paths) > 1 {
+			collided = append(collided, name)
+		}
+	}
+	sort.Strings(collided)
+	return collided
+}
+
+// skillBasenames maps skill paths to their directory/file names for display.
+func skillBasenames(paths []string) []string {
+	names := make([]string, len(paths))
+	for i, p := range paths {
+		names[i] = filepath.Base(p)
+	}
+	return names
 }
 
 // validateWorkspaces checks that every repo referenced by the DAG resolves to a
@@ -231,14 +365,27 @@ func (e *Engine) provision(specID string, buildCtx *BuildContext, workDir string
 	}
 
 	caps := e.agent.Capabilities()
-	systemPrompt := buildCtx.SystemPrompt
-	skillPaths := buildCtx.SkillPaths
-	if !caps.Skills {
-		// Non-skill agents get the playbooks inline in the system prompt.
+
+	var systemPrompt, prompt string
+	var skillPaths []string
+	if caps.MCP {
+		// Port/conductor model: spec-cli supplies the DAG, node ledger, and all
+		// git/PR mechanics; the agent conducts via the MCP port. Per-node worker
+		// skills are routed through spec_provision_node, never injected here, so the
+		// conductor's context stays clean and cross-repo skills cannot collide.
+		systemPrompt = conductorSystemPrompt()
+		prompt = conductorKickoff()
+		if caps.Skills {
+			skillPaths = e.conductorSkillPaths(workDir)
+		}
+	} else {
+		// Solo model: a single non-MCP agent implements the spec itself, so fold
+		// the consolidated context and every routed skill body into its prompt.
+		systemPrompt = soloSystemPrompt()
 		for _, body := range buildCtx.Skills {
 			systemPrompt += "\n\n" + strings.TrimSpace(body)
 		}
-		skillPaths = nil
+		prompt = soloKickoff(buildCtx)
 	}
 
 	return adapter.InvokeRequest{
@@ -248,9 +395,23 @@ func (e *Engine) provision(specID string, buildCtx *BuildContext, workDir string
 		MCPConfigPath: mcpConfigPath,
 		SystemPrompt:  systemPrompt,
 		SkillPaths:    skillPaths,
-		Prompt:        buildKickoffPrompt(buildCtx),
+		Prompt:        prompt,
 		Headless:      e.opts.Headless,
 	}, nil
+}
+
+// conductorSkillPaths resolves the skills handed to an MCP-capable conductor.
+// These are start-dir-scoped adapter skills (explicit conductor refs, the legacy
+// skill refs, or discovered .spec/agent/skills entries) — deliberately NOT the
+// per-node registry-routed worker skills, which reach workers only via
+// spec_provision_node. Resolving from the start dir alone keeps worker
+// capability skills out of the conductor and removes the cross-repo skill
+// name-collision class entirely.
+func (e *Engine) conductorSkillPaths(startDir string) []string {
+	refs := make([]string, 0, len(e.opts.ConductorSkills)+len(e.opts.SkillRefs))
+	refs = append(refs, e.opts.ConductorSkills...)
+	refs = append(refs, e.opts.SkillRefs...)
+	return resolveSkills(startDir, refs, readProfile(startDir))
 }
 
 // printStatus prints the resume banner, the DAG shape (waves), the MCP context
