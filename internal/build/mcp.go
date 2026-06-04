@@ -54,15 +54,6 @@ func NewMCPServer(session *SessionState, buildCtx *BuildContext, db *store.DB, s
 	return s
 }
 
-// NodeToolNames lists the build-session tools this server adds on top of the
-// generic spec tools. Exposed so the combined MCP handler can advertise them.
-func NodeToolNames() []string {
-	return []string{
-		"spec_provision_node", "spec_node_complete", "spec_node_failed",
-		"spec_push", "spec_open_pr", "spec_link_prs",
-	}
-}
-
 // MCPResource represents a resource served by the MCP server.
 type MCPResource struct {
 	URI     string `json:"uri"`
