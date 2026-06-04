@@ -57,12 +57,6 @@ func CreateBranch(ctx context.Context, dir, branch string) error {
 	return err
 }
 
-// CheckoutBranch checks out an existing branch.
-func CheckoutBranch(ctx context.Context, dir, branch string) error {
-	_, err := Run(ctx, dir, "checkout", branch)
-	return err
-}
-
 // BranchExists checks if a branch exists locally.
 func BranchExists(ctx context.Context, dir, branch string) bool {
 	_, err := Run(ctx, dir, "rev-parse", "--verify", branch)
