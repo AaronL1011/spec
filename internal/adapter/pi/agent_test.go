@@ -53,7 +53,7 @@ func TestArgsOmitsEmptyFlags(t *testing.T) {
 	}
 }
 
-func TestScanForStepComplete(t *testing.T) {
+func TestScanForNodeComplete(t *testing.T) {
 	tests := []struct {
 		name   string
 		stream string
@@ -61,12 +61,12 @@ func TestScanForStepComplete(t *testing.T) {
 	}{
 		{
 			name:   "success event",
-			stream: `{"type":"tool_execution_start","toolName":"spec_step_complete"}` + "\n" + `{"type":"tool_execution_end","toolName":"spec_step_complete","isError":false}`,
+			stream: `{"type":"tool_execution_start","toolName":"spec_node_complete"}` + "\n" + `{"type":"tool_execution_end","toolName":"spec_node_complete","isError":false}`,
 			want:   true,
 		},
 		{
 			name:   "error event ignored",
-			stream: `{"type":"tool_execution_end","toolName":"spec_step_complete","isError":true}`,
+			stream: `{"type":"tool_execution_end","toolName":"spec_node_complete","isError":true}`,
 			want:   false,
 		},
 		{
@@ -76,7 +76,7 @@ func TestScanForStepComplete(t *testing.T) {
 		},
 		{
 			name:   "malformed lines skipped",
-			stream: "not json\n{partial" + "\n" + `{"type":"tool_execution_end","toolName":"spec_step_complete","isError":false}`,
+			stream: "not json\n{partial" + "\n" + `{"type":"tool_execution_end","toolName":"spec_node_complete","isError":false}`,
 			want:   true,
 		},
 		{
@@ -88,8 +88,8 @@ func TestScanForStepComplete(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := scanForStepComplete(strings.NewReader(tt.stream)); got != tt.want {
-				t.Errorf("scanForStepComplete = %v, want %v", got, tt.want)
+			if got := scanForNodeComplete(strings.NewReader(tt.stream)); got != tt.want {
+				t.Errorf("scanForNodeComplete = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -1,14 +1,12 @@
 package build
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,9 +20,12 @@ type Options struct {
 	SkillRefs []string
 	// TestCommand, when set, is run to populate FailingTests (best-effort).
 	TestCommand string
-	// Workspaces maps a PR-step repo name to a local directory, letting the
-	// engine move into the right repo for each step of a multi-repo build.
+	// Workspaces maps a PR-step repo name to a local directory. It is the
+	// source-of-truth repo that worktrees are added to for each node.
 	Workspaces map[string]string
+	// MaxParallel bounds orchestrator fan-out across ready nodes. Surfaced to
+	// the agent via the DAG resource; 0 means "use the default".
+	MaxParallel int
 }
 
 // agentDir is the reserved location for the agent skill/profile seam.
@@ -40,8 +41,8 @@ type agentProfile struct {
 
 // writeMCPConfig emits an ephemeral MCP config that points an agent at the
 // spec MCP server focused on the active spec. Agents launched with this config
-// can read spec://current/* resources and call spec_step_complete with no
-// manual .mcp.json setup.
+// can read spec://current/* resources and call the DAG node tools
+// (spec_provision_node / spec_node_complete / …) with no manual .mcp.json setup.
 func writeMCPConfig(specID, path string) error {
 	bin := "spec"
 	if exe, err := os.Executable(); err == nil && exe != "" {
@@ -168,19 +169,4 @@ func readSkillBody(path string) string {
 		return ""
 	}
 	return string(data)
-}
-
-// captureStepDiff records the diff for a completed step so subsequent steps see
-// it as cumulative context (spec://current/prior-diffs). Best-effort: a failure
-// to capture the diff is non-fatal.
-func captureStepDiff(ctx context.Context, workDir, specID string, stepNum int, baseRef string) {
-	if baseRef == "" {
-		return
-	}
-	diff, err := gitpkg.Diff(ctx, workDir, baseRef)
-	if err != nil || strings.TrimSpace(diff) == "" {
-		return
-	}
-	path := filepath.Join(SessionDir(specID), fmt.Sprintf("step-%d.diff", stepNum))
-	_ = os.WriteFile(path, []byte(diff), 0o644)
 }

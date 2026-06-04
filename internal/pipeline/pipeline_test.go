@@ -133,16 +133,29 @@ func TestEvaluateGates(t *testing.T) {
 		t.Error("engineering gates should fail (empty acceptance_criteria)")
 	}
 
-	// pr-review gate: pr_stack_exists → should fail
+	// pr-review gate: pr_stack_exists → should fail (no PR stack at all)
 	results = EvaluateGates(p, "pr-review", sections, false, false, nil)
 	if AllGatesPassed(results) {
 		t.Error("pr-review gates should fail (no PR stack)")
 	}
 
-	// pr-review with PR stack → should pass
-	results = EvaluateGates(p, "pr-review", sections, true, false, nil)
+	// pr-review with a §7.3 plan but no recorded draft PRs → should still fail.
+	planOnly := append([]markdown.Section{}, sections...)
+	planOnly = append(planOnly, markdown.Section{Slug: "pr_stack_plan", Content: "1. [svc] root\n2. [svc] leaf (after: 1)\n"})
+	results = EvaluateGates(p, "pr-review", planOnly, true, false, nil)
+	if AllGatesPassed(results) {
+		t.Error("pr-review gates should fail when leaf nodes have no recorded draft PR")
+	}
+
+	// pr-review with every leaf carrying a recorded draft PR → should pass.
+	withPRs := append([]markdown.Section{}, sections...)
+	withPRs = append(withPRs, markdown.Section{
+		Slug:    "pr_stack_plan",
+		Content: "1. [svc] root\n2. [svc] leaf (after: 1) <!-- pr: https://github.com/o/svc/pull/9 -->\n",
+	})
+	results = EvaluateGates(p, "pr-review", withPRs, true, false, nil)
 	if !AllGatesPassed(results) {
-		t.Errorf("pr-review gates should pass with PR stack, failed: %v", FailedGates(results))
+		t.Errorf("pr-review gates should pass when all leaves have draft PRs, failed: %v", FailedGates(results))
 	}
 }
 

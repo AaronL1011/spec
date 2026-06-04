@@ -39,7 +39,7 @@ func (a *Agent) Capabilities() adapter.Capabilities {
 
 // Invoke spawns pi for a build session. Interactive (default) inherits stdio
 // and blocks until exit; headless runs `-p --mode json`, streams events, and
-// flags StepSignalled when spec_step_complete succeeds.
+// flags StepSignalled when spec_node_complete succeeds.
 func (a *Agent) Invoke(ctx context.Context, req adapter.InvokeRequest) (*adapter.InvokeResult, error) {
 	if _, err := exec.LookPath(a.Command); err != nil {
 		return nil, fmt.Errorf("%s not found in PATH — install pi: https://pi.dev", a.Command)
@@ -97,7 +97,7 @@ func (a *Agent) invokeInteractive(ctx context.Context, req adapter.InvokeRequest
 }
 
 // invokeHeadless runs pi autonomously and parses its JSON event stream to
-// detect a successful spec_step_complete tool call.
+// detect a successful spec_node_complete tool call.
 func (a *Agent) invokeHeadless(ctx context.Context, req adapter.InvokeRequest) (*adapter.InvokeResult, error) {
 	args := append(a.args(req), "-p", "--mode", "json")
 	if req.Prompt != "" {
@@ -117,7 +117,7 @@ func (a *Agent) invokeHeadless(ctx context.Context, req adapter.InvokeRequest) (
 		return nil, fmt.Errorf("starting pi: %w", err)
 	}
 
-	signalled := scanForStepComplete(stdout)
+	signalled := scanForNodeComplete(stdout)
 
 	if err := cmd.Wait(); err != nil {
 		return nil, fmt.Errorf("pi exited with error: %w", err)
@@ -132,10 +132,10 @@ type piEvent struct {
 	IsError  bool   `json:"isError"`
 }
 
-// scanForStepComplete reads pi's event stream and returns true when a
-// successful spec_step_complete tool execution is observed. Unknown or
+// scanForNodeComplete reads pi's event stream and returns true when a
+// successful spec_node_complete tool execution is observed. Unknown or
 // malformed lines are skipped (best-effort).
-func scanForStepComplete(r io.Reader) bool {
+func scanForNodeComplete(r io.Reader) bool {
 	signalled := false
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -145,7 +145,7 @@ func scanForStepComplete(r io.Reader) bool {
 		if err := json.Unmarshal(line, &ev); err != nil {
 			continue
 		}
-		if ev.Type == "tool_execution_end" && ev.ToolName == "spec_step_complete" && !ev.IsError {
+		if ev.Type == "tool_execution_end" && ev.ToolName == "spec_node_complete" && !ev.IsError {
 			signalled = true
 		}
 	}

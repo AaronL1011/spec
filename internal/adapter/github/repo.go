@@ -145,6 +145,37 @@ func (r *RepoClient) RequestedReviews(ctx context.Context, user string) ([]adapt
 	return prs, nil
 }
 
+// OpenDraftPR opens a draft pull request from head into base. It is draft-only:
+// no merge call is provided, so shipping stays a human action.
+func (r *RepoClient) OpenDraftPR(ctx context.Context, repo, head, base, title, body string) (int, string, error) {
+	draft := true
+	pr, _, err := r.client.PullRequests.Create(ctx, r.owner, repo, &gh.NewPullRequest{
+		Title: strPtr(title),
+		Head:  strPtr(head),
+		Base:  strPtr(base),
+		Body:  strPtr(body),
+		Draft: &draft,
+	})
+	if err != nil {
+		return 0, "", fmt.Errorf(
+			"opening draft PR %s → %s in %s/%s: %w — token needs Pull Requests write access and the head branch must be pushed",
+			head, base, r.owner, repo, err)
+	}
+	return pr.GetNumber(), pr.GetHTMLURL(), nil
+}
+
+// SetPRBase retargets an open PR's base branch (stack re-chaining).
+func (r *RepoClient) SetPRBase(ctx context.Context, repo string, prNumber int, base string) error {
+	_, _, err := r.client.PullRequests.Edit(ctx, r.owner, repo, prNumber, &gh.PullRequest{
+		Base: &gh.PullRequestBranch{Ref: strPtr(base)},
+	})
+	if err != nil {
+		return fmt.Errorf("retargeting PR #%d in %s/%s to %s: %w — token needs Pull Requests write access",
+			prNumber, r.owner, repo, base, err)
+	}
+	return nil
+}
+
 // specBranchPrefix returns the branch prefix for a spec ID.
 // SPEC-042 → "spec-042/", SPEC-1 → "spec-1/".
 func specBranchPrefix(specID string) string {

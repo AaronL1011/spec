@@ -44,10 +44,15 @@ TOOLS:
 
 BUILD MODE:
   If --spec is provided or there's an active build session, additional
-  build-specific tools become available:
-  
-  spec_step_complete   Mark current PR step as complete
-  
+  DAG build tools become available:
+
+  spec_provision_node  Provision a node (branch + worktree), returns workDir
+  spec_node_complete   Mark a node complete (captures its diff). Idempotent
+  spec_node_failed     Record a node failure with a reason
+  spec_push            Push a node's branch to origin
+  spec_open_pr         Open a DRAFT PR for a node (stacked on its base)
+  spec_link_prs        Re-chain the PR stack as parents merge
+
 Use --spec to focus on a specific spec during a build session.`,
 	RunE:          runMCPServer,
 	SilenceUsage:  true,
@@ -149,7 +154,8 @@ func runBuildMCPServer(cmd *cobra.Command, specID string, rc *config.ResolvedCon
 		return fmt.Errorf("assembling build context: %w", err)
 	}
 
-	buildServer := build.NewMCPServer(session, buildCtx, db, specPath)
+	buildServer := build.NewMCPServer(session, buildCtx, db, specPath, buildEngineOptions(rc, false)).
+		WithRepo(buildRegistry(rc).Repo())
 	handler := &combinedHandler{
 		generic: mcp.NewGenericHandler(rc, filepath.Dir(specPath)),
 		build:   buildServer,
@@ -199,19 +205,76 @@ func (h *combinedHandler) ListTools() []mcp.Tool {
 	// Start with generic tools
 	tools := h.generic.ListTools()
 
-	// Add build-specific tools
-	tools = append(tools, mcp.Tool{
-		Name:        "spec_step_complete",
-		Description: "Mark the current PR stack step as complete and advance to the next",
-		InputSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
-	})
+	// Add build-specific (DAG) tools.
+	nodeIDProp := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"node_id": map[string]interface{}{"type": "string", "description": "DAG node id (e.g. 'n3')"},
+		},
+		"required": []string{"node_id"},
+	}
+	tools = append(tools,
+		mcp.Tool{
+			Name:        "spec_provision_node",
+			Description: "Provision a DAG node: compute its base ref, create its branch + worktree, and return { workDir, branch, baseRef, skillPaths }",
+			InputSchema: nodeIDProp,
+		},
+		mcp.Tool{
+			Name:        "spec_node_complete",
+			Description: "Mark a DAG node complete, capturing its diff. Idempotent.",
+			InputSchema: nodeIDProp,
+		},
+		mcp.Tool{
+			Name:        "spec_node_failed",
+			Description: "Record a DAG node failure with a reason so resume and reporting can surface it",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"node_id": map[string]interface{}{"type": "string", "description": "DAG node id"},
+					"reason":  map[string]interface{}{"type": "string", "description": "Why the node failed"},
+				},
+				"required": []string{"node_id"},
+			},
+		},
+		mcp.Tool{
+			Name:        "spec_push",
+			Description: "Push a provisioned node's branch to origin (from its worktree)",
+			InputSchema: nodeIDProp,
+		},
+		mcp.Tool{
+			Name:        "spec_open_pr",
+			Description: "Open a DRAFT PR for a node (head=node branch, base=its stack base). Returns { number, url, base }. Idempotent.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"node_id": map[string]interface{}{"type": "string", "description": "DAG node id"},
+					"title":   map[string]interface{}{"type": "string", "description": "Optional PR title"},
+					"body":    map[string]interface{}{"type": "string", "description": "Optional PR body"},
+				},
+				"required": []string{"node_id"},
+			},
+		},
+		mcp.Tool{
+			Name:        "spec_link_prs",
+			Description: "Re-chain the PR stack by retargeting each node's PR to its stack base. With {node_id, base} retargets a single PR (e.g. to the default branch once a parent merges).",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"node_id": map[string]interface{}{"type": "string", "description": "Optional: retarget only this node's PR"},
+					"base":    map[string]interface{}{"type": "string", "description": "Optional: explicit base branch"},
+				},
+			},
+		},
+	)
 
 	return tools
 }
 
 func (h *combinedHandler) CallTool(name string, args json.RawMessage) (*mcp.ToolResult, error) {
-	// Build-specific tools
-	if name == "spec_step_complete" {
+	// Build-specific (DAG) tools route to the build MCP server.
+	switch name {
+	case "spec_provision_node", "spec_node_complete", "spec_node_failed",
+		"spec_push", "spec_open_pr", "spec_link_prs":
 		r, err := h.build.CallTool(name, args)
 		if err != nil {
 			return nil, err

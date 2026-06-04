@@ -52,6 +52,19 @@ updated: %s
 ### 7.2 Dependencies & Risks
 
 ### 7.3 PR Stack Plan
+<!--
+Parsed into a DAG and executed by 'spec build'. One line = one node:
+    N. [repo:layer] Description (after: A, B)
+  - [repo] must be listed in 'repos:' above and mapped in ~/.spec/config.yaml
+    under workspaces: (validated before the build starts).
+  - :layer is optional and routes skills (e.g. rails-api, go-grpc, react-web).
+  - (after: ...) are dependency edges to earlier node numbers; nodes with no
+    unmet dependency run in the same wave (in parallel). Omit for a root node.
+Draft-PR URLs are appended automatically by the finisher (do not author them);
+the pr-review gate passes only once every leaf node has one. Example:
+    1. [auth-service:rails-api] Add token-bucket limiter
+    2. [api-gateway:go-grpc] Add rate-limit middleware (after: 1)
+-->
 
 ## 8. Escape Hatch Log            <!-- auto: spec eject -->
 
