@@ -36,6 +36,10 @@ type Options struct {
 	// "none"/"discovery" to route nothing and let the harness discover skills.
 	// Empty means the default.
 	Router string
+	// Strategy selects the Tier-2 BuildStrategy: "stacked-draft-pr" (default), or
+	// "none"/"local" to keep work on local branches with no finishing tools.
+	// Empty means the default.
+	Strategy string
 }
 
 // agentDir is the reserved location for the agent skill/profile seam.

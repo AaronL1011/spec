@@ -21,6 +21,7 @@ type MCPServer struct {
 	specPath string
 	opts     Options
 	graph    *Graph
+	strategy BuildStrategy
 	// repo is the GitHub (or noop) adapter used by the PR tools. It may be nil
 	// in contexts that never call them; the tools guard against that.
 	repo adapter.RepoAdapter
@@ -45,6 +46,7 @@ func NewMCPServer(session *SessionState, buildCtx *BuildContext, db *store.DB, s
 		db:       db,
 		specPath: specPath,
 		opts:     opts,
+		strategy: newBuildStrategy(opts),
 	}
 	if session != nil {
 		if g, err := BuildGraph(session.Steps); err == nil {
@@ -107,7 +109,44 @@ func (s *MCPServer) ListResources() []MCPResource {
 		Content: s.dagJSON(),
 	})
 
+	resources = append(resources, MCPResource{
+		URI:     "spec://current/capabilities",
+		Name:    "Build capabilities",
+		Content: s.capabilitiesJSON(),
+	})
+
 	return resources
+}
+
+// buildCapabilities is the JSON shape of spec://current/capabilities. It tells a
+// harness which pluggable adapters are active and which finishing tools are
+// available, so a BYO consumer can adapt without probing or guessing.
+type buildCapabilities struct {
+	SchemaVersion  string   `json:"schemaVersion"`
+	Router         string   `json:"router"`
+	Strategy       string   `json:"strategy"`
+	FinishingTools []string `json:"finishingTools"`
+	Completion     string   `json:"completion"`
+}
+
+// capabilitiesJSON renders the capabilities resource for the active adapters.
+func (s *MCPServer) capabilitiesJSON() string {
+	tools := s.strategy.FinishingTools()
+	if tools == nil {
+		tools = []string{}
+	}
+	caps := buildCapabilities{
+		SchemaVersion:  DAGSchemaVersion,
+		Router:         routerName(s.opts.Router),
+		Strategy:       s.strategy.Name(),
+		FinishingTools: tools,
+		Completion:     fmt.Sprintf("defined by the %s strategy", s.strategy.Name()),
+	}
+	b, err := json.MarshalIndent(caps, "", "  ")
+	if err != nil {
+		return fmt.Sprintf(`{"error":"marshalling capabilities: %v"}`, err)
+	}
+	return string(b)
 }
 
 // dagNode is the JSON shape of a node in the spec://current/dag resource.
@@ -222,11 +261,11 @@ func (s *MCPServer) CallTool(name string, args json.RawMessage) (*MCPToolResult,
 	case "spec_node_failed":
 		return s.toolNodeFailed(args)
 	case "spec_push":
-		return s.toolPush(args)
+		return s.finishingTool(name, args, s.toolPush)
 	case "spec_open_pr":
-		return s.toolOpenPR(args)
+		return s.finishingTool(name, args, s.toolOpenPR)
 	case "spec_link_prs":
-		return s.toolLinkPRs(args)
+		return s.finishingTool(name, args, s.toolLinkPRs)
 	case "spec_status":
 		return s.toolStatus()
 	case "spec_search":
@@ -234,6 +273,94 @@ func (s *MCPServer) CallTool(name string, args json.RawMessage) (*MCPToolResult,
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)
 	}
+}
+
+// finishingTool dispatches a finishing tool only when the active BuildStrategy
+// exposes it; otherwise it returns an actionable error naming the strategy. This
+// keeps a non-PR strategy from silently accepting (and no-op'ing) PR calls.
+func (s *MCPServer) finishingTool(name string, args json.RawMessage, fn func(json.RawMessage) (*MCPToolResult, error)) (*MCPToolResult, error) {
+	if !exposesFinishingTool(s.strategy, name) {
+		return nil, fmt.Errorf("tool %q is not available under the %q build strategy", name, s.strategy.Name())
+	}
+	return fn(args)
+}
+
+// ToolSpec is a harness-neutral description of a build MCP tool. cmd maps these
+// onto the transport's tool type so the tool list and the dispatcher cannot
+// drift, and so strategy-gated tools are advertised consistently.
+type ToolSpec struct {
+	Name        string
+	Description string
+	InputSchema map[string]interface{}
+}
+
+// ToolSpecs returns the build (DAG) tools to advertise, given the active
+// strategy. Core traversal tools are always present; finishing tools appear only
+// when the strategy exposes them.
+func (s *MCPServer) ToolSpecs() []ToolSpec {
+	nodeID := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"node_id": map[string]interface{}{"type": "string", "description": "DAG node id (e.g. 'n3')"},
+		},
+		"required": []string{"node_id"},
+	}
+	specs := []ToolSpec{
+		{Name: "spec_provision_node", Description: "Provision a DAG node: compute its base ref, create its branch + worktree, and return { workDir, branch, baseRef, skillPaths }", InputSchema: nodeID},
+		{Name: "spec_node_complete", Description: "Mark a DAG node complete, capturing its diff. Idempotent.", InputSchema: nodeID},
+		{Name: "spec_node_failed", Description: "Record a DAG node failure with a reason so resume and reporting can surface it", InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"node_id": map[string]interface{}{"type": "string", "description": "DAG node id"},
+				"reason":  map[string]interface{}{"type": "string", "description": "Why the node failed"},
+			},
+			"required": []string{"node_id"},
+		}},
+	}
+	for _, t := range s.strategy.FinishingTools() {
+		if spec, ok := finishingToolSpecs[t]; ok {
+			specs = append(specs, spec)
+		}
+	}
+	return specs
+}
+
+// finishingToolSpecs are the static descriptions of the finishing tools, keyed
+// by name so a strategy's FinishingTools() selects exactly what is advertised.
+var finishingToolSpecs = map[string]ToolSpec{
+	"spec_push": {
+		Name:        "spec_push",
+		Description: "Push a provisioned node's branch to origin (from its worktree)",
+		InputSchema: map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{"node_id": map[string]interface{}{"type": "string", "description": "DAG node id"}},
+			"required":   []string{"node_id"},
+		},
+	},
+	"spec_open_pr": {
+		Name:        "spec_open_pr",
+		Description: "Open a DRAFT PR for a node (head=node branch, base=its stack base). Returns { number, url, base }. Idempotent.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"node_id": map[string]interface{}{"type": "string", "description": "DAG node id"},
+				"title":   map[string]interface{}{"type": "string", "description": "Optional PR title"},
+				"body":    map[string]interface{}{"type": "string", "description": "Optional PR body"},
+			},
+			"required": []string{"node_id"},
+		},
+	},
+	"spec_link_prs": {
+		Name:        "spec_link_prs",
+		Description: "Re-chain the PR stack by retargeting each node's PR to its stack base. With {node_id, base} retargets a single PR (e.g. to the default branch once a parent merges).",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"node_id": map[string]interface{}{"type": "string", "description": "Optional: retarget only this node's PR"},
+				"base":    map[string]interface{}{"type": "string", "description": "Optional: explicit base branch"},
+			},
+		},
+	},
 }
 
 func (s *MCPServer) toolDecide(args json.RawMessage) (*MCPToolResult, error) {

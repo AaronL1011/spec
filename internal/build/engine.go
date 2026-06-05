@@ -20,15 +20,16 @@ import (
 // node ledger, and all git/worktree/GitHub mechanics; the agent (pi) conducts
 // the traversal via MCP. One StartOrResume call = one whole-DAG invocation.
 type Engine struct {
-	db    *store.DB
-	agent adapter.AgentAdapter
-	opts  Options
+	db       *store.DB
+	agent    adapter.AgentAdapter
+	opts     Options
+	strategy BuildStrategy
 }
 
 // NewEngine creates a new build engine.
 func NewEngine(db *store.DB, agent adapter.AgentAdapter, opts Options) *Engine {
 	SetActivityDB(db)
-	return &Engine{db: db, agent: agent, opts: opts}
+	return &Engine{db: db, agent: agent, opts: opts, strategy: newBuildStrategy(opts)}
 }
 
 // StartOrResume begins or continues a build session for a spec. It ensures the
@@ -150,20 +151,18 @@ func leafPRStatus(session *SessionState, graph *Graph) (applicable, withPR int, 
 }
 
 // reportComplete prints the terminal build status. Completion is defined by the
-// pipeline artifact, not node status alone: a build whose nodes are all complete
-// is only reported as complete when every repo-bearing stack leaf has a recorded
-// draft PR. Otherwise it tells the engineer the PR finisher still has to run.
+// active BuildStrategy, not node status alone: e.g. the default stacked-draft-pr
+// strategy only reports done once every stack leaf carries a draft PR, while the
+// none strategy is done as soon as all nodes complete.
 func (e *Engine) reportComplete(specID string, session *SessionState, graph *Graph) {
-	n := len(session.Steps)
-	applicable, withPR, missing := leafPRStatus(session, graph)
-	switch {
-	case applicable == 0:
-		fmt.Printf("✓ All %d node(s) complete for %s.\n", n, specID)
-	case len(missing) == 0:
-		fmt.Printf("✓ Build complete for %s — %d node(s), %d draft PR(s) on stack leaves.\n", specID, n, withPR)
-	default:
-		fmt.Printf("Nodes complete for %s, but draft PRs are missing on stack leaves: %s\n", specID, strings.Join(missing, ", "))
-		fmt.Printf("Run the PR finisher to push and open them (spec_push / spec_open_pr), then: spec do %s\n", specID)
+	c := e.strategy.Complete(session, graph)
+	if c.Done {
+		fmt.Printf("✓ Build complete for %s — %s.\n", specID, c.Summary)
+		return
+	}
+	fmt.Printf("Build incomplete for %s — %s\n", specID, c.Summary)
+	if c.Hint != "" {
+		fmt.Printf("%s, then: spec do %s\n", c.Hint, specID)
 	}
 }
 
@@ -189,6 +188,7 @@ func (e *Engine) Check(ctx context.Context, specID, specPath, startDir string) e
 	caps := e.agent.Capabilities()
 	fmt.Printf("Agent capabilities: MCP=%t Skills=%t Headless=%t SystemPrompt=%t\n", caps.MCP, caps.Skills, caps.Headless, caps.SystemPrompt)
 	fmt.Printf("Skill router: %s\n", routerName(e.opts.Router))
+	fmt.Printf("Build strategy: %s (finishing tools: %s)\n", e.strategy.Name(), finishingToolsLabel(e.strategy))
 
 	if err := e.validateWorkspaces(ctx, graph, startDir); err != nil {
 		fmt.Printf("✗ %v\n", err)
@@ -210,7 +210,7 @@ func (e *Engine) Check(ctx context.Context, specID, specPath, startDir string) e
 		fmt.Printf("warning: skill %q is routed from more than one repo — keep per-repo skills in their own workspaces so workers load the right one\n", name)
 	}
 
-	fmt.Println("Completion: all nodes complete AND every repo-bearing stack leaf has a draft PR.")
+	fmt.Printf("Completion: defined by the %s strategy.\n", e.strategy.Name())
 	fmt.Printf("✓ Launchable — run: spec build %s\n", specID)
 	return nil
 }
@@ -222,6 +222,15 @@ func routerName(r string) string {
 		return "registry (default)"
 	}
 	return r
+}
+
+// finishingToolsLabel renders a strategy's finishing tools for display.
+func finishingToolsLabel(strategy BuildStrategy) string {
+	tools := strategy.FinishingTools()
+	if len(tools) == 0 {
+		return "none (local-only)"
+	}
+	return strings.Join(tools, ", ")
 }
 
 // printCheckWaves prints the DAG wave-by-wave with each node's workspace and

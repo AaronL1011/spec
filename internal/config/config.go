@@ -51,6 +51,11 @@ type BuildConfig struct {
 	// "registry" (default) routes per-node from .agents/skills/registry.yaml;
 	// "none" routes nothing and lets the harness discover skills. Empty = default.
 	Router string `yaml:"router,omitempty"`
+
+	// Strategy selects the VCS/review workflow: "stacked-draft-pr" (default)
+	// stacks a draft PR per node; "none" keeps work on local branches with no
+	// finishing tools. Empty = default.
+	Strategy string `yaml:"strategy,omitempty"`
 }
 
 // defaultMaxParallel is the fan-out bound when build.max_parallel is unset.
