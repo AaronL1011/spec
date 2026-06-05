@@ -9,6 +9,49 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// SkillRouter is the Tier-1 port: it maps a DAG node to the capability skill
+// paths its worker should load. Routing is opaque to the kernel — a router is
+// pluggable policy, and bringing none is a first-class choice. spec-cli ships a
+// registry router (the default) and a passthrough "none" router; teams may
+// provide their own by populating skill paths another way.
+type SkillRouter interface {
+	// Route returns absolute skill paths for a node, or nil when it does not
+	// route (the harness/model then discovers skills itself).
+	Route(node PRStep) []string
+}
+
+// newSkillRouter selects a router from Options. The default ("" or "registry")
+// is the registry router, which itself degrades to config/profile/discovery and
+// finally to nothing when no registry matches. "none"/"discovery" is an explicit
+// passthrough that leaves skill selection entirely to the harness.
+func newSkillRouter(baseDir string, opts Options) SkillRouter {
+	switch strings.ToLower(strings.TrimSpace(opts.Router)) {
+	case "none", "discovery", "passthrough":
+		return noneRouter{}
+	default:
+		return registryRouter{baseDir: baseDir, opts: opts}
+	}
+}
+
+// registryRouter is the default SkillRouter: registry.yaml routing with the
+// config-refs → profile → discovery fallback.
+type registryRouter struct {
+	baseDir string
+	opts    Options
+}
+
+// Route implements SkillRouter for the registry router.
+func (r registryRouter) Route(node PRStep) []string {
+	return skillsForNode(r.baseDir, node, r.opts)
+}
+
+// noneRouter is the passthrough SkillRouter: it routes nothing, leaving skill
+// discovery to the harness (e.g. pi/Claude scanning .agents/skills).
+type noneRouter struct{}
+
+// Route implements SkillRouter for the passthrough router.
+func (noneRouter) Route(PRStep) []string { return nil }
+
 // resolveRepoPath maps a node's repo to the local source repo its worktrees are
 // added to. Resolution is shared by the engine (workspace validation) and the
 // MCP server (provisioning) so they never diverge:
@@ -32,88 +75,199 @@ func resolveRepoPath(repo, baseDir string, workspaces map[string]string) (string
 	return ws, nil
 }
 
-// skillsForNode selects the skill paths for a node, identically for the engine
-// and the MCP server. Registry-driven routing takes precedence; the existing
-// precedence (config refs → profile → discovery) remains the fallback when no
-// registry is present or the node matches no registered skill.
+// skillsSubdirs lists the per-repo locations a registry/skills set may live in,
+// in priority order: the cross-harness Agent Skills location first, then the
+// legacy spec-cli location. Keeping both lets teams adopt the standard layout
+// without breaking existing checkouts.
+var skillsSubdirs = []string{
+	filepath.Join(".agents", "skills"),
+	filepath.Join(agentDir, "skills"), // .spec/agent/skills (legacy)
+}
+
+// skillsDirsFor returns the candidate skills directories for a repo root.
+func skillsDirsFor(repoPath string) []string {
+	dirs := make([]string, len(skillsSubdirs))
+	for i, sub := range skillsSubdirs {
+		dirs[i] = filepath.Join(repoPath, sub)
+	}
+	return dirs
+}
+
+// skillsForNode is the registry router's core: registry-driven routing takes
+// precedence; the config refs → profile → discovery chain is the fallback when
+// no registry is present or the node matches no registered skill.
 func skillsForNode(baseDir string, node PRStep, opts Options) []string {
 	repoPath, err := resolveRepoPath(node.Repo, baseDir, opts.Workspaces)
 	if err != nil || repoPath == "" {
 		repoPath = baseDir
 	}
-	if routed, ok := skillRegistryForNode(repoPath, node, opts); ok {
+	if routed, ok := skillRegistryForNode(repoPath, node); ok {
 		return routed
 	}
 	return resolveSkills(repoPath, opts.SkillRefs, readProfile(repoPath))
 }
 
-// skillRegistryEntry is one routable skill in registry.yaml. applies_to matches
-// a node by repo or layer; modifier entries are cross-cutting and always ride
-// along once at least one primary skill matches.
-type skillRegistryEntry struct {
-	Name      string `yaml:"name"`
-	Path      string `yaml:"path"`
-	Modifier  bool   `yaml:"modifier"`
-	AppliesTo struct {
-		Layers []string `yaml:"layers"`
-		Repos  []string `yaml:"repos"`
-	} `yaml:"applies_to"`
+// appliesTo is the routing match set for a skill. It accepts both the canonical
+// flat prefixed list form (`["repo", "layer:proto"]`) and the legacy nested
+// form (`{layers: [...], repos: [...]}`) so registries written to either shape
+// parse identically.
+type appliesTo struct {
+	Layers []string
+	Repos  []string
 }
 
-// skillRegistryFile is the parsed .spec/agent/skills/registry.yaml. modifiers
-// lists the names (or paths) of cross-cutting skills always appended to a match.
+// UnmarshalYAML accepts the flat-prefixed-sequence or nested-mapping form.
+func (a *appliesTo) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.SequenceNode {
+		var items []string
+		if err := value.Decode(&items); err != nil {
+			return err
+		}
+		for _, it := range items {
+			it = strings.TrimSpace(it)
+			if rest, ok := strings.CutPrefix(it, "layer:"); ok {
+				a.Layers = append(a.Layers, rest)
+			} else if it != "" {
+				a.Repos = append(a.Repos, it)
+			}
+		}
+		return nil
+	}
+	var nested struct {
+		Layers []string `yaml:"layers"`
+		Repos  []string `yaml:"repos"`
+	}
+	if err := value.Decode(&nested); err != nil {
+		return err
+	}
+	a.Layers, a.Repos = nested.Layers, nested.Repos
+	return nil
+}
+
+// skillRegistryEntry is one routable skill in registry.yaml. A skill is a
+// modifier (cross-cutting, always composed) when kind is "modifier" or the
+// legacy `modifier: true` flag is set; otherwise it is a layer skill matched by
+// applies_to.
+type skillRegistryEntry struct {
+	Name         string    `yaml:"name"`
+	Kind         string    `yaml:"kind"`
+	Path         string    `yaml:"path"`
+	ModifierFlag bool      `yaml:"modifier"`
+	AppliesTo    appliesTo `yaml:"applies_to"`
+	// QualityGates are verification commands a node satisfying this skill must
+	// pass (e.g. "qlty check"). Surfaced to the harness via spec_node_context.
+	QualityGates []string `yaml:"quality_gates"`
+}
+
+// isModifier reports whether the entry is a cross-cutting modifier.
+func (e skillRegistryEntry) isModifier() bool {
+	return e.ModifierFlag || strings.EqualFold(strings.TrimSpace(e.Kind), "modifier")
+}
+
+// skillRegistryFile is the parsed registry.yaml. modifiers lists the names (or
+// paths) of cross-cutting skills always appended once a layer skill matches.
 type skillRegistryFile struct {
+	Version   string               `yaml:"version"`
 	Skills    []skillRegistryEntry `yaml:"skills"`
 	Modifiers []string             `yaml:"modifiers"`
 }
 
 // skillRegistryForNode performs registry-driven, per-node skill routing. It
 // returns (paths, true) when a registry exists and the node matches at least
-// one primary skill; otherwise (nil, false) so the caller falls back to
+// one layer skill; otherwise (nil, false) so the caller falls back to
 // discovery. An unmatched layer therefore degrades gracefully without error.
-func skillRegistryForNode(repoPath string, node PRStep, _ Options) ([]string, bool) {
-	skillsDir := filepath.Join(repoPath, agentDir, "skills")
-	reg, ok := loadSkillRegistry(skillsDir)
+func skillRegistryForNode(repoPath string, node PRStep) ([]string, bool) {
+	c, ok := composeRegistry(repoPath, node)
 	if !ok {
 		return nil, false
 	}
+	return c.skills, true
+}
 
-	seen := make(map[string]bool)
-	var paths []string
-	add := func(ref string) {
-		p := resolveSkillRef(ref, skillsDir)
-		if p == "" || seen[p] {
+// qualityGatesForNode returns the verification commands a node must pass,
+// composed from the registry the same way skills are. Returns nil when no
+// registry matches the node.
+func qualityGatesForNode(repoPath string, node PRStep) []string {
+	c, ok := composeRegistry(repoPath, node)
+	if !ok {
+		return nil
+	}
+	return c.gates
+}
+
+// composition is the result of resolving a node against a registry: the routed
+// skill paths and the quality gates it must satisfy.
+type composition struct {
+	skills []string
+	gates  []string
+}
+
+// composeRegistry resolves a node against the repo's registry, collecting both
+// the routed skill paths and the quality gates from the matched layer skill plus
+// any auto-composed modifiers. It returns ok=false when no registry is present
+// or the node matches no layer skill (so the caller falls back to discovery).
+func composeRegistry(repoPath string, node PRStep) (composition, bool) {
+	reg, skillsDir, ok := loadSkillRegistry(repoPath)
+	if !ok {
+		return composition{}, false
+	}
+
+	var c composition
+	seenSkill := make(map[string]bool)
+	seenGate := make(map[string]bool)
+	addGates := func(gs []string) {
+		for _, g := range gs {
+			g = strings.TrimSpace(g)
+			if g != "" && !seenGate[g] {
+				seenGate[g] = true
+				c.gates = append(c.gates, g)
+			}
+		}
+	}
+	addSkill := func(ref string) {
+		p := resolveSkillRef(ref, repoPath, skillsDir)
+		if p == "" || seenSkill[p] {
 			return
 		}
-		seen[p] = true
-		paths = append(paths, p)
+		seenSkill[p] = true
+		c.skills = append(c.skills, p)
 	}
 
 	matched := false
 	for _, e := range reg.Skills {
-		if e.Modifier {
-			continue
+		if e.isModifier() {
+			continue // a modifier is never matched as a layer
 		}
 		if entryMatchesNode(e, node) {
 			matched = true
-			add(skillRef(e))
+			addSkill(skillRef(e))
+			addGates(e.QualityGates)
 		}
 	}
 	if !matched {
-		return nil, false
+		return composition{}, false
 	}
 
-	// Cross-cutting modifiers ride along once a primary skill matched.
+	// Auto-composed modifiers ride along once a layer skill matched. Only the
+	// top-level `modifiers:` list (and legacy `modifier: true` entries) are
+	// auto-on; a bare `kind: modifier` entry is declared-but-opt-in (e.g. a
+	// glossary a human invokes), so it is not composed automatically.
+	byName := make(map[string]skillRegistryEntry, len(reg.Skills))
 	for _, e := range reg.Skills {
-		if e.Modifier {
-			add(skillRef(e))
+		byName[e.Name] = e
+		if e.ModifierFlag {
+			addSkill(skillRef(e))
+			addGates(e.QualityGates)
 		}
 	}
 	for _, m := range reg.Modifiers {
-		add(m)
+		addSkill(m)
+		if e, ok := byName[m]; ok {
+			addGates(e.QualityGates)
+		}
 	}
 
-	return paths, true
+	return c, true
 }
 
 // entryMatchesNode reports whether a registry entry applies to a node by layer
@@ -138,22 +292,32 @@ func skillRef(e skillRegistryEntry) string {
 	return e.Name
 }
 
-// loadSkillRegistry reads registry.yaml from the skills dir. When absent, it
-// synthesises a registry from any SKILL.md frontmatter carrying applies_to, so
-// teams can route via either mechanism. Returns false when neither is present.
-func loadSkillRegistry(skillsDir string) (*skillRegistryFile, bool) {
-	data, err := os.ReadFile(filepath.Join(skillsDir, "registry.yaml"))
-	if err == nil {
+// loadSkillRegistry finds and parses a registry for a repo. It searches the
+// candidate skills dirs for a registry.yaml, then falls back to synthesising a
+// registry from per-skill SKILL.md frontmatter. It returns the registry and the
+// directory it was found in (used to resolve name-only refs). Returns false when
+// neither is present.
+func loadSkillRegistry(repoPath string) (*skillRegistryFile, string, bool) {
+	for _, dir := range skillsDirsFor(repoPath) {
+		data, err := os.ReadFile(filepath.Join(dir, "registry.yaml"))
+		if err != nil {
+			continue
+		}
 		var reg skillRegistryFile
 		if yaml.Unmarshal(data, &reg) == nil && len(reg.Skills) > 0 {
-			return &reg, true
+			return &reg, dir, true
 		}
 	}
-	return loadRegistryFromFrontmatter(skillsDir)
+	for _, dir := range skillsDirsFor(repoPath) {
+		if reg, ok := loadRegistryFromFrontmatter(dir); ok {
+			return reg, dir, true
+		}
+	}
+	return nil, "", false
 }
 
-// loadRegistryFromFrontmatter builds a registry from per-skill SKILL.md
-// frontmatter (applies_to). Returns false when no skill declares routing.
+// loadRegistryFromFrontmatter builds a registry from per-skill SKILL.md routing
+// frontmatter. Returns false when no skill declares routing.
 func loadRegistryFromFrontmatter(skillsDir string) (*skillRegistryFile, bool) {
 	entries, err := os.ReadDir(skillsDir)
 	if err != nil {
@@ -164,13 +328,11 @@ func loadRegistryFromFrontmatter(skillsDir string) (*skillRegistryFile, bool) {
 		if !ent.IsDir() {
 			continue
 		}
-		fm, ok := readSkillFrontmatter(filepath.Join(skillsDir, ent.Name()))
+		r, ok := readSkillFrontmatter(filepath.Join(skillsDir, ent.Name()))
 		if !ok {
 			continue
 		}
-		e := skillRegistryEntry{Name: ent.Name(), Path: ent.Name(), Modifier: fm.Modifier}
-		e.AppliesTo.Layers = fm.AppliesTo.Layers
-		e.AppliesTo.Repos = fm.AppliesTo.Repos
+		e := skillRegistryEntry{Name: ent.Name(), Path: ent.Name(), Kind: r.Kind, ModifierFlag: r.Modifier, AppliesTo: r.AppliesTo, QualityGates: r.QualityGates}
 		reg.Skills = append(reg.Skills, e)
 	}
 	if len(reg.Skills) == 0 {
@@ -179,34 +341,49 @@ func loadRegistryFromFrontmatter(skillsDir string) (*skillRegistryFile, bool) {
 	return &reg, true
 }
 
-// skillFrontmatter is the routing subset of a SKILL.md YAML frontmatter block.
-type skillFrontmatter struct {
-	Modifier  bool `yaml:"modifier"`
-	AppliesTo struct {
-		Layers []string `yaml:"layers"`
-		Repos  []string `yaml:"repos"`
-	} `yaml:"applies_to"`
+// skillRouting is the routing subset of a SKILL.md frontmatter, usable either at
+// the top level or under `metadata:` (the Agent Skills standard location).
+type skillRouting struct {
+	Kind         string    `yaml:"kind"`
+	Modifier     bool      `yaml:"modifier"`
+	AppliesTo    appliesTo `yaml:"applies_to"`
+	QualityGates []string  `yaml:"quality_gates"`
 }
 
-// readSkillFrontmatter parses the leading --- YAML block of a skill's SKILL.md.
-// Returns false when the skill has no frontmatter or no applies_to/modifier.
-func readSkillFrontmatter(skillDir string) (skillFrontmatter, bool) {
-	var fm skillFrontmatter
+// hasRouting reports whether the block carries any routing information.
+func (r skillRouting) hasRouting() bool {
+	return len(r.AppliesTo.Layers) > 0 || len(r.AppliesTo.Repos) > 0 || r.Modifier || strings.TrimSpace(r.Kind) != ""
+}
+
+// skillFrontmatter captures routing both at the top level and under metadata.
+type skillFrontmatter struct {
+	skillRouting `yaml:",inline"`
+	Metadata     skillRouting `yaml:"metadata"`
+}
+
+// readSkillFrontmatter parses the leading --- YAML block of a skill's SKILL.md,
+// preferring routing under `metadata:` and falling back to top-level keys.
+// Returns false when the skill has no frontmatter or no routing.
+func readSkillFrontmatter(skillDir string) (skillRouting, bool) {
 	data, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
 	if err != nil {
-		return fm, false
+		return skillRouting{}, false
 	}
 	block, ok := frontmatterBlock(string(data))
 	if !ok {
-		return fm, false
+		return skillRouting{}, false
 	}
+	var fm skillFrontmatter
 	if err := yaml.Unmarshal([]byte(block), &fm); err != nil {
-		return fm, false
+		return skillRouting{}, false
 	}
-	if len(fm.AppliesTo.Layers) == 0 && len(fm.AppliesTo.Repos) == 0 && !fm.Modifier {
-		return fm, false
+	if fm.Metadata.hasRouting() {
+		return fm.Metadata, true
 	}
-	return fm, true
+	if fm.hasRouting() {
+		return fm.skillRouting, true
+	}
+	return skillRouting{}, false
 }
 
 // containsFold reports whether values contains target, case-insensitively.
@@ -235,16 +412,25 @@ func frontmatterBlock(content string) (string, bool) {
 	return rest[:end], true
 }
 
-// resolveSkillRef turns a registry ref (path or name) into an absolute skill
-// path, expanding ~ and resolving relative refs against the skills dir. Returns
-// "" when the target does not exist.
-func resolveSkillRef(ref, skillsDir string) string {
+// resolveSkillRef turns a registry ref into an absolute skill path. An absolute
+// ref (or ~) is used as-is. A relative ref is resolved repo-root-relative first
+// (the canonical `path: .agents/skills/<name>` form), then against the registry
+// directory (a bare skill name). Returns "" when the target does not exist.
+func resolveSkillRef(ref, repoRoot, skillsDir string) string {
 	p := expandTilde(ref)
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(skillsDir, p)
+	if filepath.IsAbs(p) {
+		return statOrEmpty(p)
 	}
-	if _, err := os.Stat(p); err != nil {
+	if cand := statOrEmpty(filepath.Join(repoRoot, p)); cand != "" {
+		return cand
+	}
+	return statOrEmpty(filepath.Join(skillsDir, p))
+}
+
+// statOrEmpty returns path if it exists, else "".
+func statOrEmpty(path string) string {
+	if _, err := os.Stat(path); err != nil {
 		return ""
 	}
-	return p
+	return path
 }

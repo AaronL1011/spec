@@ -261,12 +261,21 @@ func TestParsePRStack_ListFormatStillWorks(t *testing.T) {
 	}
 }
 
-func TestBuildKickoffPrompt(t *testing.T) {
-	got := buildKickoffPrompt(&BuildContext{})
-	// The kickoff hands the whole DAG to the orchestrator via the node tools.
-	for _, want := range []string{"spec://current/dag", "spec_provision_node", "spec_node_complete", "waves"} {
+func TestConductorKickoff(t *testing.T) {
+	got := conductorKickoff()
+	// The kickoff hands the whole DAG to the conductor via the node + PR tools.
+	for _, want := range []string{"spec://current/dag", "spec_provision_node", "spec_node_complete", "spec_open_pr", "waves"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("kickoff %q missing %q", got, want)
+		}
+	}
+}
+
+func TestConductorSystemPrompt_DefersAndNoSelfDo(t *testing.T) {
+	got := conductorSystemPrompt()
+	for _, want := range []string{"conductor", "spec_provision_node", "spec_open_pr", "never design"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("system prompt %q missing %q", got, want)
 		}
 	}
 }

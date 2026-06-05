@@ -406,3 +406,55 @@ func TestProvision_NonSkillAgentFoldsSkillIntoPrompt(t *testing.T) {
 		t.Error("non-skill agent system prompt should include the skill body")
 	}
 }
+
+// TestConductorSkillPaths_StartDirScoped proves the conductor's skills are
+// resolved from the start dir alone — never the cross-repo per-node union — so
+// same-named skills in other workspaces can't collide in the conductor.
+func TestConductorSkillPaths_StartDirScoped(t *testing.T) {
+	start := t.TempDir()
+	other := t.TempDir()
+	for _, dir := range []string{start, other} {
+		sk := filepath.Join(dir, agentDir, "skills", "playbook")
+		if err := os.MkdirAll(sk, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sk, "SKILL.md"), []byte("# playbook"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	e := &Engine{opts: Options{Workspaces: map[string]string{"other": other}}}
+	got := e.conductorSkillPaths(start)
+	if len(got) != 1 {
+		t.Fatalf("expected exactly the start-dir skill, got %v", got)
+	}
+	if !strings.HasPrefix(got[0], start) {
+		t.Errorf("conductor skill %q must be start-dir scoped (never the cross-repo %q)", got[0], other)
+	}
+}
+
+// TestLeafPRStatus verifies artifact-defined completion accounting: a stack
+// leaf is only counted as done once it carries a recorded draft-PR URL.
+func TestLeafPRStatus(t *testing.T) {
+	steps := []PRStep{
+		{Number: 1, ID: "n1", Repo: "svc", Description: "root"},
+		{Number: 2, ID: "n2", Repo: "svc", Description: "leaf", DependsOn: []int{1}},
+	}
+	g, err := BuildGraph(steps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &SessionState{SpecID: "SPEC-1", Steps: steps}
+	s.InitNodes()
+
+	applicable, withPR, missing := leafPRStatus(s, g)
+	if applicable != 1 || withPR != 0 || len(missing) != 1 || missing[0] != "n2" {
+		t.Fatalf("before PR: applicable=%d withPR=%d missing=%v", applicable, withPR, missing)
+	}
+
+	s.node("n2").PRURL = "https://example/pr/2"
+	applicable, withPR, missing = leafPRStatus(s, g)
+	if applicable != 1 || withPR != 1 || len(missing) != 0 {
+		t.Fatalf("after PR: applicable=%d withPR=%d missing=%v", applicable, withPR, missing)
+	}
+}

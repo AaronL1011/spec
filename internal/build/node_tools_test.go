@@ -79,6 +79,9 @@ func TestDAGResource_Lists(t *testing.T) {
 	if len(doc.Nodes) != 2 || len(doc.Waves) != 2 {
 		t.Fatalf("dag = %d nodes / %d waves, want 2/2", len(doc.Nodes), len(doc.Waves))
 	}
+	if doc.SchemaVersion != DAGSchemaVersion {
+		t.Errorf("schemaVersion = %q, want %q", doc.SchemaVersion, DAGSchemaVersion)
+	}
 	if doc.MaxParallel != 3 {
 		t.Errorf("maxParallel = %d, want 3", doc.MaxParallel)
 	}

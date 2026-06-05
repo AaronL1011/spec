@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AaronL1011/spec-cli/docs/schemas/dag.v1.json",
+  "title": "spec build DAG resource (spec://current/dag)",
+  "description": "Wire schema of the spec://current/dag MCP resource. This is the versioned interface a build adapter integrates against. Changes within build-port/v1 are additive only.",
+  "type": "object",
+  "required": ["schemaVersion", "specId", "maxParallel", "nodes", "waves"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "build-port/v1",
+      "description": "Schema identifier. Adapters MUST check the major version (build-port/v1)."
+    },
+    "specId": { "type": "string", "description": "Active spec id, e.g. SPEC-042." },
+    "maxParallel": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Fan-out bound across ready nodes within a wave. 0 means use the harness default."
+    },
+    "nodes": {
+      "type": "array",
+      "description": "Every DAG node in plan order.",
+      "items": {
+        "type": "object",
+        "required": ["id", "number", "dependsOn", "status", "skillPaths"],
+        "properties": {
+          "id": { "type": "string", "description": "Stable node id (e.g. n3)." },
+          "number": { "type": "integer", "description": "1-based plan sequence number." },
+          "repo": { "type": "string", "description": "Target repo; empty for a repo-less fallback node." },
+          "layer": { "type": "string", "description": "Optional layer tag used for skill routing." },
+          "dependsOn": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Node ids this node depends on. Empty for a root."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "in-progress", "complete", "failed"]
+          },
+          "branch": { "type": "string", "description": "Branch once provisioned." },
+          "skillPaths": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Capability skill paths routed to this node's worker by the active SkillRouter. Delivered to workers via spec_provision_node; never loaded by the conductor itself. Empty under the 'none' router."
+          },
+          "acceptanceCriteria": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Resolved §6 acceptance-criteria text this node must satisfy, from its (ac: N) annotation. Omitted when the node maps to no criteria."
+          },
+          "qualityGates": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Verification commands the node must pass, composed from the registry. Omitted when none apply."
+          }
+        }
+      }
+    },
+    "waves": {
+      "type": "array",
+      "description": "Topologically ordered waves; each wave is an array of node ids whose dependencies are satisfied by earlier waves. Resolve ids against nodes[].",
+      "items": { "type": "array", "items": { "type": "string" } }
+    },
+    "error": {
+      "type": "string",
+      "description": "Present only when the PR stack did not form a valid DAG. When set, nodes/waves are empty and the build is not launchable."
+    }
+  }
+}

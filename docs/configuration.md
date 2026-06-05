@@ -321,6 +321,28 @@ Defines the lifecycle every spec moves through. See [Pipeline configuration](#pi
 
 ---
 
+### `build`
+
+Tunes `spec build`'s DAG orchestration and selects the pluggable build adapters.
+All keys are optional; the defaults reproduce the shipped behaviour.
+
+```yaml
+build:
+  max_parallel: 4              # Max ready nodes fanned out per wave (default: 4)
+  router: registry            # Skill routing: registry (default) | none
+  strategy: stacked-draft-pr  # VCS/review workflow: stacked-draft-pr (default) | none
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `max_parallel` | `4` | Bounds orchestrator fan-out across a wave's ready nodes. |
+| `router` | `registry` | Tier-1 `SkillRouter`. `registry` routes per-node from `.agents/skills/registry.yaml` (see `docs/schemas/registry.v1.json`); `none` routes nothing and lets the harness discover skills. |
+| `strategy` | `stacked-draft-pr` | Tier-2 `BuildStrategy`. `stacked-draft-pr` stacks a draft PR per node; `none` keeps work on local branches and exposes no finishing tools. |
+
+Both `router` and `strategy` can be overridden per-user under `agent` (below).
+
+---
+
 ### `fast_track`
 
 Enables `spec fix` — a shortened self-service pipeline for small bug fixes.
@@ -603,9 +625,22 @@ Override the team's configured coding agent with your own preference.
 ```yaml
 agent:
   provider: pi              # claude | pi | none
+  conductor_skill: ~/.agents/skills/build-orchestrator,~/.agents/skills/pr-finisher
+  skill: ~/skills/spec-build   # per-node worker fallback (see below)
+  router: registry           # optional: override build.router for your runs
+  strategy: stacked-draft-pr # optional: override build.strategy for your runs
 ```
 
 This takes precedence over `integrations.agent` in `spec.config.yaml`.
+
+The build seam distinguishes two skill roles (see `docs/INTEGRATION-PORT.md`):
+
+- `conductor_skill` — orchestrator-level skills handed to an MCP-capable agent
+  to drive the whole-DAG build. Start-dir scoped, so cross-repo skills cannot
+  collide in the conductor.
+- `skill` — the per-node worker fallback, used only when a node does not match
+  the repo's `.spec/agent/skills/registry.yaml`. Routed node-worker skills reach
+  workers via `spec_provision_node`, never the conductor.
 
 ### `workspaces`
 

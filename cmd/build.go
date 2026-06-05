@@ -23,6 +23,7 @@ or team repository state, and launches the build engine session.`,
 
 func init() {
 	buildCmd.Flags().Bool("restart", false, "discard the existing build session and re-derive steps from the spec's PR stack")
+	buildCmd.Flags().Bool("check", false, "preflight the build (DAG, workspaces, skill routing, capabilities) without launching the agent")
 	rootCmd.AddCommand(buildCmd)
 }
 
@@ -52,8 +53,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Validate spec is at build or engineering stage
-	if meta.Status != "build" && meta.Status != "engineering" {
+	check, _ := cmd.Flags().GetBool("check")
+
+	// Validate spec is at build or engineering stage. A preflight (--check) is
+	// allowed earlier so engineers can validate wiring before advancing.
+	if !check && meta.Status != "build" && meta.Status != "engineering" {
 		return fmt.Errorf("%s is at %q stage — advance to 'build' before starting: spec advance %s",
 			specID, meta.Status, specID)
 	}
@@ -64,13 +68,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	if restart, _ := cmd.Flags().GetBool("restart"); restart {
-		if err := db.SessionDelete(specID); err != nil {
-			return fmt.Errorf("clearing build session for %s: %w", specID, err)
-		}
-		fmt.Printf("Cleared existing build session for %s — re-deriving steps.\n", specID)
-	}
-
 	reg := buildRegistry(rc)
 	engine := build.NewEngine(db, reg.Agent(), buildEngineOptions(rc, false))
 
@@ -78,5 +75,17 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("could not determine working directory: %w", err)
 	}
+
+	if check {
+		return engine.Check(ctx(), specID, specPath, workDir)
+	}
+
+	if restart, _ := cmd.Flags().GetBool("restart"); restart {
+		if err := db.SessionDelete(specID); err != nil {
+			return fmt.Errorf("clearing build session for %s: %w", specID, err)
+		}
+		fmt.Printf("Cleared existing build session for %s — re-deriving steps.\n", specID)
+	}
+
 	return engine.StartOrResume(ctx(), specID, specPath, workDir)
 }

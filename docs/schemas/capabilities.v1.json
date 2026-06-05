@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AaronL1011/spec-cli/docs/schemas/capabilities.v1.json",
+  "title": "spec build capabilities resource (spec://current/capabilities)",
+  "description": "Wire schema of the spec://current/capabilities MCP resource. It advertises which pluggable adapters are active so a BYO harness can adapt without probing. Additive within build-port/v1.",
+  "type": "object",
+  "required": ["schemaVersion", "router", "strategy", "finishingTools", "completion"],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "build-port/v1" },
+    "router": {
+      "type": "string",
+      "description": "Active SkillRouter, e.g. 'registry (default)' or 'none'."
+    },
+    "strategy": {
+      "type": "string",
+      "description": "Active BuildStrategy, e.g. 'stacked-draft-pr' or 'none'."
+    },
+    "finishingTools": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Finishing tool names the active strategy exposes (subset of spec_push, spec_open_pr, spec_link_prs). Empty for a local-only strategy."
+    },
+    "completion": {
+      "type": "string",
+      "description": "Human-readable description of how the active strategy defines build completion."
+    }
+  }
+}

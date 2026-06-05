@@ -297,12 +297,27 @@ func buildEngineOptions(rc *config.ResolvedConfig, headless bool) build.Options 
 	if refs := agent.Get("skill"); refs != "" {
 		opts.SkillRefs = splitConfigList(refs)
 	}
+	// conductor_skill names the orchestrator-level skills for an MCP agent; it is
+	// kept distinct from `skill` (the per-node worker fallback) so conductor
+	// playbooks never leak into node routing.
+	if refs := agent.Get("conductor_skill"); refs != "" {
+		opts.ConductorSkills = splitConfigList(refs)
+	}
 	opts.TestCommand = agent.Get("test_command")
 	if rc.User != nil && len(rc.User.Workspaces) > 0 {
 		opts.Workspaces = rc.User.Workspaces
 	}
 	if rc.Team != nil {
 		opts.MaxParallel = rc.Team.Build.GetMaxParallel()
+		opts.Router = rc.Team.Build.Router
+		opts.Strategy = rc.Team.Build.Strategy
+	}
+	// Per-user agent settings override the team defaults.
+	if r := agent.Get("router"); r != "" {
+		opts.Router = r
+	}
+	if st := agent.Get("strategy"); st != "" {
+		opts.Strategy = st
 	}
 	return opts
 }

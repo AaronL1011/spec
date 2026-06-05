@@ -47,6 +47,7 @@ BUILD MODE:
   DAG build tools become available:
 
   spec_provision_node  Provision a node (branch + worktree), returns workDir
+  spec_node_context    Get a node's context (skills, acceptance criteria, gates)
   spec_node_complete   Mark a node complete (captures its diff). Idempotent
   spec_node_failed     Record a node failure with a reason
   spec_push            Push a node's branch to origin
@@ -202,79 +203,36 @@ func (h *combinedHandler) GetResource(uri string) (*mcp.Resource, error) {
 }
 
 func (h *combinedHandler) ListTools() []mcp.Tool {
-	// Start with generic tools
+	// Start with generic tools, then add the build (DAG) tools the active
+	// strategy advertises. Sourcing these from the build server keeps the tool
+	// list, the dispatcher, and the strategy's tool gating from drifting.
 	tools := h.generic.ListTools()
-
-	// Add build-specific (DAG) tools.
-	nodeIDProp := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"node_id": map[string]interface{}{"type": "string", "description": "DAG node id (e.g. 'n3')"},
-		},
-		"required": []string{"node_id"},
+	for _, spec := range h.build.ToolSpecs() {
+		tools = append(tools, mcp.Tool{
+			Name:        spec.Name,
+			Description: spec.Description,
+			InputSchema: spec.InputSchema,
+		})
 	}
-	tools = append(tools,
-		mcp.Tool{
-			Name:        "spec_provision_node",
-			Description: "Provision a DAG node: compute its base ref, create its branch + worktree, and return { workDir, branch, baseRef, skillPaths }",
-			InputSchema: nodeIDProp,
-		},
-		mcp.Tool{
-			Name:        "spec_node_complete",
-			Description: "Mark a DAG node complete, capturing its diff. Idempotent.",
-			InputSchema: nodeIDProp,
-		},
-		mcp.Tool{
-			Name:        "spec_node_failed",
-			Description: "Record a DAG node failure with a reason so resume and reporting can surface it",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"node_id": map[string]interface{}{"type": "string", "description": "DAG node id"},
-					"reason":  map[string]interface{}{"type": "string", "description": "Why the node failed"},
-				},
-				"required": []string{"node_id"},
-			},
-		},
-		mcp.Tool{
-			Name:        "spec_push",
-			Description: "Push a provisioned node's branch to origin (from its worktree)",
-			InputSchema: nodeIDProp,
-		},
-		mcp.Tool{
-			Name:        "spec_open_pr",
-			Description: "Open a DRAFT PR for a node (head=node branch, base=its stack base). Returns { number, url, base }. Idempotent.",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"node_id": map[string]interface{}{"type": "string", "description": "DAG node id"},
-					"title":   map[string]interface{}{"type": "string", "description": "Optional PR title"},
-					"body":    map[string]interface{}{"type": "string", "description": "Optional PR body"},
-				},
-				"required": []string{"node_id"},
-			},
-		},
-		mcp.Tool{
-			Name:        "spec_link_prs",
-			Description: "Re-chain the PR stack by retargeting each node's PR to its stack base. With {node_id, base} retargets a single PR (e.g. to the default branch once a parent merges).",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"node_id": map[string]interface{}{"type": "string", "description": "Optional: retarget only this node's PR"},
-					"base":    map[string]interface{}{"type": "string", "description": "Optional: explicit base branch"},
-				},
-			},
-		},
-	)
-
 	return tools
+}
+
+// buildToolNames is the full set of build (DAG) tool names that route to the
+// build MCP server. Gating by strategy happens inside the build server, which
+// returns an actionable error for a tool the active strategy does not expose.
+var buildToolNames = map[string]bool{
+	"spec_provision_node": true,
+	"spec_node_context":   true,
+	"spec_node_complete":  true,
+	"spec_node_failed":    true,
+	"spec_push":           true,
+	"spec_open_pr":        true,
+	"spec_link_prs":       true,
 }
 
 func (h *combinedHandler) CallTool(name string, args json.RawMessage) (*mcp.ToolResult, error) {
 	// Build-specific (DAG) tools route to the build MCP server.
-	switch name {
-	case "spec_provision_node", "spec_node_complete", "spec_node_failed",
-		"spec_push", "spec_open_pr", "spec_link_prs":
+	if buildToolNames[name] {
 		r, err := h.build.CallTool(name, args)
 		if err != nil {
 			return nil, err

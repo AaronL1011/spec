@@ -16,8 +16,14 @@ type Options struct {
 	Headless bool
 	// SkillRefs are explicit skill paths from config
 	// (integrations.agent.settings.skill). They take precedence over
-	// profile.yaml refs and the .spec/agent/skills/ directory.
+	// profile.yaml refs and the .spec/agent/skills/ directory. They are the
+	// per-node worker fallback used when registry routing does not match.
 	SkillRefs []string
+	// ConductorSkills are the orchestrator-level skills handed to an MCP-capable
+	// agent (integrations.agent.settings.conductor_skill). They are resolved
+	// from the start dir only and are kept distinct from per-node worker skills,
+	// which reach workers solely via spec_provision_node.
+	ConductorSkills []string
 	// TestCommand, when set, is run to populate FailingTests (best-effort).
 	TestCommand string
 	// Workspaces maps a PR-step repo name to a local directory. It is the
@@ -26,6 +32,14 @@ type Options struct {
 	// MaxParallel bounds orchestrator fan-out across ready nodes. Surfaced to
 	// the agent via the DAG resource; 0 means "use the default".
 	MaxParallel int
+	// Router selects the Tier-1 SkillRouter: "registry" (default), or
+	// "none"/"discovery" to route nothing and let the harness discover skills.
+	// Empty means the default.
+	Router string
+	// Strategy selects the Tier-2 BuildStrategy: "stacked-draft-pr" (default), or
+	// "none"/"local" to keep work on local branches with no finishing tools.
+	// Empty means the default.
+	Strategy string
 }
 
 // agentDir is the reserved location for the agent skill/profile seam.
@@ -119,21 +133,32 @@ func resolveSkills(workDir string, explicit []string, profile agentProfile) []st
 		add(strings.TrimSpace(ref))
 	}
 
-	// Fall back to discovering entries under .spec/agent/skills/.
+	// Fall back to discovering skill entries under the candidate skills dirs.
 	if len(paths) == 0 {
-		skillsDir := filepath.Join(workDir, agentDir, "skills")
-		entries, err := os.ReadDir(skillsDir)
-		if err == nil {
+		for _, skillsDir := range skillsDirsFor(workDir) {
+			entries, err := os.ReadDir(skillsDir)
+			if err != nil {
+				continue
+			}
 			for _, e := range entries {
-				if strings.HasPrefix(e.Name(), ".") {
-					continue
+				if isDiscoverableSkill(e) {
+					add(filepath.Join(skillsDir, e.Name()))
 				}
-				add(filepath.Join(skillsDir, e.Name()))
 			}
 		}
 	}
 
 	return paths
+}
+
+// isDiscoverableSkill reports whether a directory entry is an Agent Skill: a
+// non-hidden directory (containing SKILL.md) or a single .md file. This excludes
+// non-skill files such as registry.yaml from discovery.
+func isDiscoverableSkill(e os.DirEntry) bool {
+	if strings.HasPrefix(e.Name(), ".") {
+		return false
+	}
+	return e.IsDir() || strings.HasSuffix(e.Name(), ".md")
 }
 
 // expandTilde resolves a leading ~/ (or bare ~) to the user's home directory so

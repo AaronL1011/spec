@@ -26,9 +26,9 @@ func (s *MCPServer) repoPathForNode(node PRStep) (string, error) {
 	return resolveRepoPath(node.Repo, s.session.WorkDir, s.opts.Workspaces)
 }
 
-// skillsForNode selects the skill paths for a node via the shared router.
+// skillsForNode selects the skill paths for a node via the configured router.
 func (s *MCPServer) skillsForNode(node PRStep) []string {
-	return skillsForNode(s.session.WorkDir, node, s.opts)
+	return newSkillRouter(s.session.WorkDir, s.opts).Route(node)
 }
 
 // toolProvisionNode computes a node's base ref, creates its branch + worktree,
