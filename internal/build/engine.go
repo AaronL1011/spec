@@ -188,6 +188,7 @@ func (e *Engine) Check(ctx context.Context, specID, specPath, startDir string) e
 	fmt.Printf("Build preflight for %s — %s\n", specID, specTitle(specPath))
 	caps := e.agent.Capabilities()
 	fmt.Printf("Agent capabilities: MCP=%t Skills=%t Headless=%t SystemPrompt=%t\n", caps.MCP, caps.Skills, caps.Headless, caps.SystemPrompt)
+	fmt.Printf("Skill router: %s\n", routerName(e.opts.Router))
 
 	if err := e.validateWorkspaces(ctx, graph, startDir); err != nil {
 		fmt.Printf("✗ %v\n", err)
@@ -214,17 +215,27 @@ func (e *Engine) Check(ctx context.Context, specID, specPath, startDir string) e
 	return nil
 }
 
+// routerName renders the configured router for display, defaulting empty to the
+// shipped default.
+func routerName(r string) string {
+	if strings.TrimSpace(r) == "" {
+		return "registry (default)"
+	}
+	return r
+}
+
 // printCheckWaves prints the DAG wave-by-wave with each node's workspace and
 // routed skills, and returns the sorted set of skill names that resolve to more
 // than one path (a cross-repo collision risk).
 func (e *Engine) printCheckWaves(graph *Graph, startDir string) []string {
 	waves := graph.Waves()
 	fmt.Printf("DAG: %d node(s) in %d wave(s)\n", len(graph.Nodes), len(waves))
+	router := newSkillRouter(startDir, e.opts)
 	byName := make(map[string]map[string]bool)
 	for i, wave := range waves {
 		fmt.Printf("  Wave %d:\n", i+1)
 		for _, n := range wave {
-			skills := skillsForNode(startDir, n, e.opts)
+			skills := router.Route(n)
 			for _, p := range skills {
 				name := filepath.Base(p)
 				if byName[name] == nil {
@@ -337,10 +348,11 @@ func (e *Engine) assemble(ctx context.Context, specPath string, session *Session
 // unionSkills returns the deduplicated union of every node's routed skills, in
 // node order — the set the orchestrator may dispatch to its workers.
 func (e *Engine) unionSkills(graph *Graph, startDir string) []string {
+	router := newSkillRouter(startDir, e.opts)
 	seen := make(map[string]bool)
 	var paths []string
 	for _, n := range graph.Nodes {
-		for _, p := range skillsForNode(startDir, n, e.opts) {
+		for _, p := range router.Route(n) {
 			if !seen[p] {
 				seen[p] = true
 				paths = append(paths, p)

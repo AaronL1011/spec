@@ -309,6 +309,11 @@ func buildEngineOptions(rc *config.ResolvedConfig, headless bool) build.Options 
 	}
 	if rc.Team != nil {
 		opts.MaxParallel = rc.Team.Build.GetMaxParallel()
+		opts.Router = rc.Team.Build.Router
+	}
+	// A per-user agent `router` setting overrides the team default.
+	if r := agent.Get("router"); r != "" {
+		opts.Router = r
 	}
 	return opts
 }

@@ -32,6 +32,10 @@ type Options struct {
 	// MaxParallel bounds orchestrator fan-out across ready nodes. Surfaced to
 	// the agent via the DAG resource; 0 means "use the default".
 	MaxParallel int
+	// Router selects the Tier-1 SkillRouter: "registry" (default), or
+	// "none"/"discovery" to route nothing and let the harness discover skills.
+	// Empty means the default.
+	Router string
 }
 
 // agentDir is the reserved location for the agent skill/profile seam.
@@ -125,21 +129,32 @@ func resolveSkills(workDir string, explicit []string, profile agentProfile) []st
 		add(strings.TrimSpace(ref))
 	}
 
-	// Fall back to discovering entries under .spec/agent/skills/.
+	// Fall back to discovering skill entries under the candidate skills dirs.
 	if len(paths) == 0 {
-		skillsDir := filepath.Join(workDir, agentDir, "skills")
-		entries, err := os.ReadDir(skillsDir)
-		if err == nil {
+		for _, skillsDir := range skillsDirsFor(workDir) {
+			entries, err := os.ReadDir(skillsDir)
+			if err != nil {
+				continue
+			}
 			for _, e := range entries {
-				if strings.HasPrefix(e.Name(), ".") {
-					continue
+				if isDiscoverableSkill(e) {
+					add(filepath.Join(skillsDir, e.Name()))
 				}
-				add(filepath.Join(skillsDir, e.Name()))
 			}
 		}
 	}
 
 	return paths
+}
+
+// isDiscoverableSkill reports whether a directory entry is an Agent Skill: a
+// non-hidden directory (containing SKILL.md) or a single .md file. This excludes
+// non-skill files such as registry.yaml from discovery.
+func isDiscoverableSkill(e os.DirEntry) bool {
+	if strings.HasPrefix(e.Name(), ".") {
+		return false
+	}
+	return e.IsDir() || strings.HasSuffix(e.Name(), ".md")
 }
 
 // expandTilde resolves a leading ~/ (or bare ~) to the user's home directory so

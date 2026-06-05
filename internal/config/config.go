@@ -46,6 +46,11 @@ type BuildConfig struct {
 	// MaxParallel bounds how many ready nodes the orchestrator fans out at
 	// once. Surfaced to the agent via the DAG resource. Defaults to 4.
 	MaxParallel int `yaml:"max_parallel,omitempty"`
+
+	// Router selects the skill-routing model handed to the build engine:
+	// "registry" (default) routes per-node from .agents/skills/registry.yaml;
+	// "none" routes nothing and lets the harness discover skills. Empty = default.
+	Router string `yaml:"router,omitempty"`
 }
 
 // defaultMaxParallel is the fan-out bound when build.max_parallel is unset.

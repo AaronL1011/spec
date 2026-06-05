@@ -365,7 +365,7 @@ func conductorSystemPrompt() string {
 	sb.WriteString("Walk waves in order: provision each ready node with spec_provision_node, dispatch a worker into the returned workDir following its skillPaths, ")
 	sb.WriteString("and checkpoint it with spec_node_complete/spec_node_failed. When all nodes are complete, finish the stacked draft PRs with spec_push/spec_open_pr/spec_link_prs. ")
 	sb.WriteString("Follow the acceptance criteria in §6 and the project conventions, record decisions with spec_decide, and stop and report on any gap or spec/reality mismatch rather than improvising. ")
-	sb.WriteString("If a build-orchestrator skill is available, use it to conduct.")
+	sb.WriteString("If a conductor playbook skill is configured, follow it.")
 	return sb.String()
 }
 

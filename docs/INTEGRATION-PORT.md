@@ -69,6 +69,24 @@ Read these MCP resources (read-only):
 - A non-empty `error` field means the §7.3 PR stack is not a valid DAG; the
   build is not launchable.
 
+### Skill routing is pluggable (and optional)
+
+`skillPaths` on a node is **opaque to the kernel** — it is produced by a
+selectable *skill router* (`build.router` / per-user `agent.router`), so routing
+is policy, not a baked-in requirement:
+
+- **`registry` (default).** Per-node routing from a `registry.yaml` under the
+  repo's `.agents/skills/` (or legacy `.spec/agent/skills/`). Canonical
+  `registry/v1` shape: `kind: layer|modifier`, `applies_to: ["<repo>", "layer:<tag>"]`
+  (flat, prefixed), `path:` repo-root-relative, plus a top-level `modifiers:` list.
+  The legacy nested `applies_to`/`modifier: true` forms are still accepted.
+- **`none` / discovery.** Routes nothing; `skillPaths` is empty and the harness
+  discovers skills itself (e.g. pi/Claude scanning `.agents/skills/`). The BYO
+  "bring no routing model" path.
+
+A harness should treat `skillPaths` as given and hand them to the worker; it
+should not assume a routing model. `spec build --check` prints the active router.
+
 ## 3. Control plane — tools
 
 All tools are **idempotent** and keyed by `node_id`. spec-cli owns the git base
