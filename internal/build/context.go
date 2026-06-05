@@ -251,7 +251,7 @@ func parsePartSteps(lines []string) []PRStep {
 }
 
 // splitPartTitle pulls the repo (first backtick token) and a human description
-// out of a part header's text, e.g. "\x60nexl-ai-core\x60: Full Implementation".
+// out of a part header's text, e.g. "\x60payments-api\x60: Full Implementation".
 func splitPartTitle(s string) (repo, desc string) {
 	if m := backtickToken.FindStringSubmatch(s); m != nil {
 		repo = strings.TrimSpace(m[1])

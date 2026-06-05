@@ -45,6 +45,7 @@ Read these MCP resources (read-only):
 | `spec://current/conventions` | Project conventions (when present). |
 | `spec://current/prior-diffs` | Cumulative diffs of completed nodes; pass relevant slices to downstream workers. |
 | `spec://current/decisions` | Decision log. |
+| `spec://current/capabilities` | **Versioned JSON** (`docs/schemas/capabilities.v1.json`). Advertises the active router, strategy, finishing tools, and completion model so a BYO harness can adapt without probing. |
 
 ### The DAG document (`build-port/v1`)
 
@@ -87,6 +88,25 @@ is policy, not a baked-in requirement:
 A harness should treat `skillPaths` as given and hand them to the worker; it
 should not assume a routing model. `spec build --check` prints the active router.
 
+Nodes may also carry `acceptanceCriteria` (resolved §6 text the node satisfies,
+from an optional `(ac: N)` annotation in §7.3) and `qualityGates` (verification
+commands from the registry). Both are advisory metadata for the worker.
+
+### Build strategy is pluggable too
+
+The VCS/review workflow is a selectable *strategy* (`build.strategy` /
+`agent.strategy`), advertised at `spec://current/capabilities`:
+
+- **`stacked-draft-pr` (default).** Each node becomes a branch stacked on its
+  parent, finished as a draft PR; the finishing tools below are available and a
+  build is done when every stack leaf has a draft PR.
+- **`none` / local.** Work stays on local branches; **no finishing tools are
+  exposed** (calling one returns an error) and a build is done once all nodes
+  complete. The BYO "bring your own merge workflow" path.
+
+Read `finishingTools` from the capabilities resource rather than assuming the
+stacked workflow.
+
 ## 3. Control plane — tools
 
 All tools are **idempotent** and keyed by `node_id`. spec-cli owns the git base
@@ -95,11 +115,16 @@ ref, so you never compute or pass one.
 | Tool | Contract |
 |------|----------|
 | `spec_provision_node(node_id)` | Computes the base ref, creates the branch + worktree, sets status → in-progress, returns `{ nodeId, workDir, branch, baseRef, skillPaths }`. Provision a node before dispatching its worker. **Provision in wave order** — a same-repo child branches off its parent, so the parent must be provisioned first. |
+| `spec_node_context(node_id)` | Returns a node's deterministic build slice: `{ description, dependsOn, skillPaths, acceptanceCriteria, qualityGates }`. Hand this to the worker instead of having it re-read the whole spec. |
 | `spec_node_complete(node_id)` | Marks the node done and captures its diff into cumulative context. |
 | `spec_node_failed(node_id, reason)` | Records a failure for resume/reporting. Do not start downstream dependents of a failed node. |
 | `spec_push(node_id)` | Pushes the node's branch from its worktree. |
-| `spec_open_pr(node_id, title?, body?)` | Opens a **draft** PR (head = node branch, base = recorded base ref). Records `{number,url}` and annotates §7.3. |
-| `spec_link_prs()` / `spec_link_prs(node_id, base)` | Re-chains the stack, or retargets one node's base as parents merge. |
+| `spec_open_pr(node_id, title?, body?)` | Opens a **draft** PR (head = node branch, base = recorded base ref). Records `{number,url}` and annotates §7.3. *Finishing tool — gated by strategy.* |
+| `spec_link_prs()` / `spec_link_prs(node_id, base)` | Re-chains the stack, or retargets one node's base as parents merge. *Finishing tool — gated by strategy.* |
+
+Finishing tools (`spec_push`, `spec_open_pr`, `spec_link_prs`) are only present
+and callable when the active strategy exposes them — check
+`spec://current/capabilities.finishingTools`.
 | `spec_decide(question)` / `spec_decide_resolve(number, decision, rationale)` | Record/resolve decisions forced during the build. |
 
 ## 4. The conductor loop
@@ -137,11 +162,14 @@ ref, so you never compute or pass one.
 
 ## 5. Completion semantics
 
-A build is **complete** only when every node is `complete` **and** every
+Completion is **strategy-defined** — read it from
+`spec://current/capabilities.completion`. Under the default `stacked-draft-pr`
+strategy, a build is complete only when every node is `complete` **and** every
 repo-bearing stack *leaf* (a node nothing else depends on) has a recorded draft
-PR. spec-cli reports this distinction directly: nodes-complete-but-no-PRs is
-reported as unfinished with a pointer to run the finisher. The `pr_stack_exists`
-advance gate enforces the same definition (`AllLeavesHaveDraftPR`).
+PR; nodes-complete-but-no-PRs is reported as unfinished with a pointer to run the
+finisher, and the `pr_stack_exists` advance gate enforces the same definition
+(`AllLeavesHaveDraftPR`). Under the `none` strategy, a build is complete once all
+nodes are complete.
 
 ## 6. Resume & failure
 
@@ -163,6 +191,19 @@ advance gate enforces the same definition (`AllLeavesHaveDraftPR`).
 
 - **`ai-squad-skills`** (`build-orchestrator` + `pr-finisher` skills) is the
   reference conductor for pi and Claude Code.
-- A non-LLM conformance adapter (driving a fixture spec through the tools)
-  exercises this contract end-to-end and is the regression guard for changes to
-  the port.
+- A non-LLM conformance kit (`internal/build/conformance_test.go`) drives a
+  synthetic fixture spec through the whole port in two fully-different
+  configurations — the default stack and a BYO `router=none`/`strategy=none`
+  stack — proving a different consumer integrates with **zero kernel change**.
+  It is the regression guard for changes to the port.
+
+## 9. Pluggable adapters at a glance
+
+| Port | Config key | Default | Alternatives | Schema |
+|------|-----------|---------|--------------|--------|
+| Skill routing (Tier 1) | `build.router` | `registry` | `none` | `docs/schemas/registry.v1.json` |
+| Build strategy (Tier 2) | `build.strategy` | `stacked-draft-pr` | `none` | `docs/schemas/capabilities.v1.json` |
+
+The kernel (spec/DAG/ledger/git/MCP) is mandatory and carries no AI/agent
+concern. Routers and strategies are boundary adapters: bring your own, or bring
+none, without touching the kernel.

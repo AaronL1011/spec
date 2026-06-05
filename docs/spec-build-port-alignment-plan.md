@@ -178,6 +178,14 @@ first BYO consumer.
 
 ## 6. Workstreams
 
+> **Delivery status (spec-cli).** WS-1 ✅, WS-2 ✅ (registry + none routers;
+> `plan-ref` deferred), WS-3 ✅ (none strategy + capabilities + tool gating;
+> `single-branch` deferred), WS-4 ✅, WS-5 ✅ (synthetic conformance proves BYO
+> via the `none`/`none` stack; a `single-branch`/`plan-ref` second stack is the
+> remaining nice-to-have). WS-6 (ai-squad-skills consumer migration) in progress.
+> Deferred adapters need **zero kernel change** — they slot behind the shipped
+> `SkillRouter`/`BuildStrategy` interfaces.
+
 ### WS-1 — Extract the two ports (the keystone, enables everything)
 Define `SkillRouter` and `BuildStrategy` interfaces the engine depends on; move the
 current registry routing behind `registry` and the current PR mechanics behind
