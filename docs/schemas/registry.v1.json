@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AaronL1011/spec-cli/docs/schemas/registry.v1.json",
+  "title": "spec build skill registry (registry.yaml)",
+  "description": "Canonical shape of the registry.yaml consumed by spec-cli's default 'registry' SkillRouter. A registry lives at <repo>/.agents/skills/registry.yaml (legacy: <repo>/.spec/agent/skills/registry.yaml). The registry router is a pluggable adapter: a build with router=none ignores this file entirely. Within registry/v1, changes are additive only. Several legacy forms are still accepted for back-compat (noted per field).",
+  "type": "object",
+  "required": ["skills"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Registry schema version, e.g. \"1\"."
+    },
+    "skills": {
+      "type": "array",
+      "description": "Routable skills. A node is matched to layer skills by applies_to; modifiers are cross-cutting.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "description": "Skill name; also the directory name under the skills dir when path is omitted." },
+          "kind": {
+            "type": "string",
+            "enum": ["layer", "modifier"],
+            "description": "layer skills are matched by applies_to; modifier skills are cross-cutting. Legacy alternative: modifier: true."
+          },
+          "modifier": {
+            "type": "boolean",
+            "description": "Legacy flag equivalent to kind: modifier. A modifier:true entry is auto-composed; a bare kind:modifier entry not listed under top-level modifiers is declared-but-opt-in."
+          },
+          "path": {
+            "type": "string",
+            "description": "Skill location, resolved repo-root-relative first (e.g. .agents/skills/<name>), then relative to the registry dir, then as an absolute/~ path. Defaults to name."
+          },
+          "applies_to": {
+            "description": "Routing match set. Canonical: a flat list with 'layer:' prefixes for layers and bare strings for repos, e.g. [\"my-repo\", \"layer:rails-api\"]. Legacy: a mapping { layers: [...], repos: [...] }.",
+            "oneOf": [
+              {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "layers": { "type": "array", "items": { "type": "string" } },
+                  "repos": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            ]
+          },
+          "quality_gates": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Verification commands a node satisfying this skill must pass. Surfaced via spec_node_context.qualityGates."
+          }
+        }
+      }
+    },
+    "modifiers": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Names (or paths) of cross-cutting skills auto-composed onto every node that matches at least one layer skill. This is the auto-compose selector: a kind:modifier skill not listed here is available but not auto-applied."
+    }
+  }
+}

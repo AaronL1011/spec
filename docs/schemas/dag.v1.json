@@ -41,7 +41,17 @@
           "skillPaths": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Capability skill paths routed to this node's worker. Delivered to workers via spec_provision_node; never loaded by the conductor itself."
+            "description": "Capability skill paths routed to this node's worker by the active SkillRouter. Delivered to workers via spec_provision_node; never loaded by the conductor itself. Empty under the 'none' router."
+          },
+          "acceptanceCriteria": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Resolved §6 acceptance-criteria text this node must satisfy, from its (ac: N) annotation. Omitted when the node maps to no criteria."
+          },
+          "qualityGates": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Verification commands the node must pass, composed from the registry. Omitted when none apply."
           }
         }
       }
