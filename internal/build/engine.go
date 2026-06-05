@@ -210,9 +210,61 @@ func (e *Engine) Check(ctx context.Context, specID, specPath, startDir string) e
 		fmt.Printf("warning: skill %q is routed from more than one repo — keep per-repo skills in their own workspaces so workers load the right one\n", name)
 	}
 
+	reportACCoverage(specPath, graph)
+
 	fmt.Printf("Completion: defined by the %s strategy.\n", e.strategy.Name())
 	fmt.Printf("✓ Launchable — run: spec build %s\n", specID)
 	return nil
+}
+
+// reportACCoverage reports how the DAG's `(ac: …)` annotations map onto the
+// spec's acceptance criteria: which criteria no node claims, and any node
+// references that point past the end of §6. It is advisory — coverage gaps are a
+// warning, not a launch blocker — so authors can map criteria progressively.
+func reportACCoverage(specPath string, graph *Graph) {
+	items := acItems(acSectionContent(specPath))
+	if len(items) == 0 {
+		return
+	}
+	covered := make(map[int]bool)
+	mapped := false
+	for _, n := range graph.Nodes {
+		for _, idx := range n.ACs {
+			mapped = true
+			covered[idx] = true
+			if idx < 1 || idx > len(items) {
+				fmt.Printf("warning: node %s references ac %d but §6 has %d criteria\n", n.NodeID(), idx, len(items))
+			}
+		}
+	}
+	if !mapped {
+		fmt.Printf("Acceptance criteria: %d defined; no nodes map to them (optional — annotate §7.3 with (ac: N))\n", len(items))
+		return
+	}
+	var uncovered []string
+	for i := 1; i <= len(items); i++ {
+		if !covered[i] {
+			uncovered = append(uncovered, fmt.Sprintf("%d", i))
+		}
+	}
+	if len(uncovered) == 0 {
+		fmt.Printf("Acceptance criteria: all %d mapped to nodes.\n", len(items))
+		return
+	}
+	fmt.Printf("Acceptance criteria: %d/%d mapped; no node claims: %s\n", len(items)-len(uncovered), len(items), strings.Join(uncovered, ", "))
+}
+
+// acSectionContent reads the acceptance-criteria section body from a spec file.
+func acSectionContent(specPath string) string {
+	data, err := os.ReadFile(specPath)
+	if err != nil {
+		return ""
+	}
+	sections := markdown.ExtractSections(markdown.Body(string(data)))
+	if ac := markdown.FindSection(sections, "acceptance_criteria"); ac != nil {
+		return ac.Content
+	}
+	return ""
 }
 
 // routerName renders the configured router for display, defaulting empty to the

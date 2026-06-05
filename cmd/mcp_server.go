@@ -47,6 +47,7 @@ BUILD MODE:
   DAG build tools become available:
 
   spec_provision_node  Provision a node (branch + worktree), returns workDir
+  spec_node_context    Get a node's context (skills, acceptance criteria, gates)
   spec_node_complete   Mark a node complete (captures its diff). Idempotent
   spec_node_failed     Record a node failure with a reason
   spec_push            Push a node's branch to origin
@@ -221,6 +222,7 @@ func (h *combinedHandler) ListTools() []mcp.Tool {
 // returns an actionable error for a tool the active strategy does not expose.
 var buildToolNames = map[string]bool{
 	"spec_provision_node": true,
+	"spec_node_context":   true,
 	"spec_node_complete":  true,
 	"spec_node_failed":    true,
 	"spec_push":           true,

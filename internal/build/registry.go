@@ -154,6 +154,9 @@ type skillRegistryEntry struct {
 	Path         string    `yaml:"path"`
 	ModifierFlag bool      `yaml:"modifier"`
 	AppliesTo    appliesTo `yaml:"applies_to"`
+	// QualityGates are verification commands a node satisfying this skill must
+	// pass (e.g. "qlty check"). Surfaced to the harness via spec_node_context.
+	QualityGates []string `yaml:"quality_gates"`
 }
 
 // isModifier reports whether the entry is a cross-cutting modifier.
@@ -174,20 +177,60 @@ type skillRegistryFile struct {
 // one layer skill; otherwise (nil, false) so the caller falls back to
 // discovery. An unmatched layer therefore degrades gracefully without error.
 func skillRegistryForNode(repoPath string, node PRStep) ([]string, bool) {
-	reg, skillsDir, ok := loadSkillRegistry(repoPath)
+	c, ok := composeRegistry(repoPath, node)
 	if !ok {
 		return nil, false
 	}
+	return c.skills, true
+}
 
-	seen := make(map[string]bool)
-	var paths []string
-	add := func(ref string) {
+// qualityGatesForNode returns the verification commands a node must pass,
+// composed from the registry the same way skills are. Returns nil when no
+// registry matches the node.
+func qualityGatesForNode(repoPath string, node PRStep) []string {
+	c, ok := composeRegistry(repoPath, node)
+	if !ok {
+		return nil
+	}
+	return c.gates
+}
+
+// composition is the result of resolving a node against a registry: the routed
+// skill paths and the quality gates it must satisfy.
+type composition struct {
+	skills []string
+	gates  []string
+}
+
+// composeRegistry resolves a node against the repo's registry, collecting both
+// the routed skill paths and the quality gates from the matched layer skill plus
+// any auto-composed modifiers. It returns ok=false when no registry is present
+// or the node matches no layer skill (so the caller falls back to discovery).
+func composeRegistry(repoPath string, node PRStep) (composition, bool) {
+	reg, skillsDir, ok := loadSkillRegistry(repoPath)
+	if !ok {
+		return composition{}, false
+	}
+
+	var c composition
+	seenSkill := make(map[string]bool)
+	seenGate := make(map[string]bool)
+	addGates := func(gs []string) {
+		for _, g := range gs {
+			g = strings.TrimSpace(g)
+			if g != "" && !seenGate[g] {
+				seenGate[g] = true
+				c.gates = append(c.gates, g)
+			}
+		}
+	}
+	addSkill := func(ref string) {
 		p := resolveSkillRef(ref, repoPath, skillsDir)
-		if p == "" || seen[p] {
+		if p == "" || seenSkill[p] {
 			return
 		}
-		seen[p] = true
-		paths = append(paths, p)
+		seenSkill[p] = true
+		c.skills = append(c.skills, p)
 	}
 
 	matched := false
@@ -197,27 +240,34 @@ func skillRegistryForNode(repoPath string, node PRStep) ([]string, bool) {
 		}
 		if entryMatchesNode(e, node) {
 			matched = true
-			add(skillRef(e))
+			addSkill(skillRef(e))
+			addGates(e.QualityGates)
 		}
 	}
 	if !matched {
-		return nil, false
+		return composition{}, false
 	}
 
 	// Auto-composed modifiers ride along once a layer skill matched. Only the
 	// top-level `modifiers:` list (and legacy `modifier: true` entries) are
 	// auto-on; a bare `kind: modifier` entry is declared-but-opt-in (e.g. a
 	// glossary a human invokes), so it is not composed automatically.
+	byName := make(map[string]skillRegistryEntry, len(reg.Skills))
 	for _, e := range reg.Skills {
+		byName[e.Name] = e
 		if e.ModifierFlag {
-			add(skillRef(e))
+			addSkill(skillRef(e))
+			addGates(e.QualityGates)
 		}
 	}
 	for _, m := range reg.Modifiers {
-		add(m)
+		addSkill(m)
+		if e, ok := byName[m]; ok {
+			addGates(e.QualityGates)
+		}
 	}
 
-	return paths, true
+	return c, true
 }
 
 // entryMatchesNode reports whether a registry entry applies to a node by layer
@@ -282,7 +332,7 @@ func loadRegistryFromFrontmatter(skillsDir string) (*skillRegistryFile, bool) {
 		if !ok {
 			continue
 		}
-		e := skillRegistryEntry{Name: ent.Name(), Path: ent.Name(), Kind: r.Kind, ModifierFlag: r.Modifier, AppliesTo: r.AppliesTo}
+		e := skillRegistryEntry{Name: ent.Name(), Path: ent.Name(), Kind: r.Kind, ModifierFlag: r.Modifier, AppliesTo: r.AppliesTo, QualityGates: r.QualityGates}
 		reg.Skills = append(reg.Skills, e)
 	}
 	if len(reg.Skills) == 0 {
@@ -294,9 +344,10 @@ func loadRegistryFromFrontmatter(skillsDir string) (*skillRegistryFile, bool) {
 // skillRouting is the routing subset of a SKILL.md frontmatter, usable either at
 // the top level or under `metadata:` (the Agent Skills standard location).
 type skillRouting struct {
-	Kind      string    `yaml:"kind"`
-	Modifier  bool      `yaml:"modifier"`
-	AppliesTo appliesTo `yaml:"applies_to"`
+	Kind         string    `yaml:"kind"`
+	Modifier     bool      `yaml:"modifier"`
+	AppliesTo    appliesTo `yaml:"applies_to"`
+	QualityGates []string  `yaml:"quality_gates"`
 }
 
 // hasRouting reports whether the block carries any routing information.

@@ -42,6 +42,10 @@ type PRStep struct {
 	// DependsOn holds the step numbers this node depends on (parsed from the
 	// `(after: 1,2)` edge annotation). Empty for a root node.
 	DependsOn []int `yaml:"depends_on" json:"depends_on,omitempty"`
+	// ACs holds the 1-based acceptance-criteria indices this node satisfies,
+	// parsed from a trailing `(ac: 3,4)` annotation in §7.3. Empty when the
+	// author did not map the node to specific criteria.
+	ACs []int `yaml:"acs" json:"acs,omitempty"`
 	// PRURL is the draft PR recorded for this node in §7.3 via a trailing
 	// `<!-- pr: <url> -->` annotation. Empty until the finisher opens a PR.
 	PRURL string `yaml:"pr_url" json:"pr_url,omitempty"`
@@ -97,6 +101,9 @@ var afterEdgePattern = regexp.MustCompile(`(?i)\(\s*after:\s*([0-9,\s]+)\)`)
 
 // prAnnotationPattern matches a recorded draft-PR annotation: `<!-- pr: <url> -->`.
 var prAnnotationPattern = regexp.MustCompile(`(?i)<!--\s*pr:\s*(\S+)\s*-->`)
+
+// acEdgePattern matches a trailing acceptance-criteria annotation: `(ac: 3,4)`.
+var acEdgePattern = regexp.MustCompile(`(?i)\(\s*ac:\s*([0-9,\s]+)\)`)
 
 // parsePRSteps extracts PR steps from the PR Stack Plan section. It supports two
 // authoring styles: the compact list (`1. [repo:layer] desc (after: 1,2)`) and
@@ -157,6 +164,28 @@ func extractAfterEdges(desc string) (string, []int) {
 	return cleaned, deps
 }
 
+// extractTrailingRefs pulls a trailing comma-list annotation matched by pattern
+// (e.g. `(ac: 3,4)`) out of a string, returning the cleaned string and the
+// parsed integers (nil when absent).
+func extractTrailingRefs(s string, pattern *regexp.Regexp) (string, []int) {
+	m := pattern.FindStringSubmatch(s)
+	if m == nil {
+		return strings.TrimSpace(s), nil
+	}
+	var refs []int
+	for _, field := range strings.Split(m[1], ",") {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		n := 0
+		if _, err := fmt.Sscanf(field, "%d", &n); err == nil {
+			refs = append(refs, n)
+		}
+	}
+	return strings.TrimSpace(pattern.ReplaceAllString(s, "")), refs
+}
+
 // parseListSteps handles the compact `1. [repo] description` form.
 func parseListSteps(lines []string) []PRStep {
 	var steps []PRStep
@@ -169,6 +198,7 @@ func parseListSteps(lines []string) []PRStep {
 		_, _ = fmt.Sscanf(matches[1], "%d", &num)
 		repo, layer := splitRepoLayer(matches[2])
 		prURL, rest := extractPRAnnotation(matches[3])
+		rest, acs := extractTrailingRefs(rest, acEdgePattern)
 		desc, deps := extractAfterEdges(rest)
 		steps = append(steps, PRStep{
 			Number:      num,
@@ -176,6 +206,7 @@ func parseListSteps(lines []string) []PRStep {
 			Layer:       layer,
 			Description: desc,
 			DependsOn:   deps,
+			ACs:         acs,
 			PRURL:       prURL,
 			Status:      "pending",
 		})

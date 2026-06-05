@@ -151,14 +151,16 @@ func (s *MCPServer) capabilitiesJSON() string {
 
 // dagNode is the JSON shape of a node in the spec://current/dag resource.
 type dagNode struct {
-	ID         string   `json:"id"`
-	Number     int      `json:"number"`
-	Repo       string   `json:"repo,omitempty"`
-	Layer      string   `json:"layer,omitempty"`
-	DependsOn  []string `json:"dependsOn"`
-	Status     string   `json:"status"`
-	Branch     string   `json:"branch,omitempty"`
-	SkillPaths []string `json:"skillPaths"`
+	ID                 string   `json:"id"`
+	Number             int      `json:"number"`
+	Repo               string   `json:"repo,omitempty"`
+	Layer              string   `json:"layer,omitempty"`
+	DependsOn          []string `json:"dependsOn"`
+	Status             string   `json:"status"`
+	Branch             string   `json:"branch,omitempty"`
+	SkillPaths         []string `json:"skillPaths"`
+	AcceptanceCriteria []string `json:"acceptanceCriteria,omitempty"`
+	QualityGates       []string `json:"qualityGates,omitempty"`
 }
 
 // DAGSchemaVersion identifies the wire schema of the spec://current/dag
@@ -196,14 +198,16 @@ func (s *MCPServer) dagJSON() string {
 			skills = []string{}
 		}
 		doc.Nodes = append(doc.Nodes, dagNode{
-			ID:         id,
-			Number:     n.Number,
-			Repo:       n.Repo,
-			Layer:      n.Layer,
-			DependsOn:  deps,
-			Status:     s.session.NodeStatus(id),
-			Branch:     s.session.node(id).Branch,
-			SkillPaths: skills,
+			ID:                 id,
+			Number:             n.Number,
+			Repo:               n.Repo,
+			Layer:              n.Layer,
+			DependsOn:          deps,
+			Status:             s.session.NodeStatus(id),
+			Branch:             s.session.node(id).Branch,
+			SkillPaths:         skills,
+			AcceptanceCriteria: s.acTextForNode(n),
+			QualityGates:       s.gatesForNode(n),
 		})
 	}
 	for _, wave := range s.graph.Waves() {
@@ -258,6 +262,8 @@ func (s *MCPServer) CallTool(name string, args json.RawMessage) (*MCPToolResult,
 		return s.toolProvisionNode(args)
 	case "spec_node_complete":
 		return s.toolNodeComplete(args)
+	case "spec_node_context":
+		return s.toolNodeContext(args)
 	case "spec_node_failed":
 		return s.toolNodeFailed(args)
 	case "spec_push":
@@ -307,6 +313,7 @@ func (s *MCPServer) ToolSpecs() []ToolSpec {
 	}
 	specs := []ToolSpec{
 		{Name: "spec_provision_node", Description: "Provision a DAG node: compute its base ref, create its branch + worktree, and return { workDir, branch, baseRef, skillPaths }", InputSchema: nodeID},
+		{Name: "spec_node_context", Description: "Get a node's build context: description, dependsOn, skillPaths, the acceptance criteria it must satisfy, and the quality gates it must pass", InputSchema: nodeID},
 		{Name: "spec_node_complete", Description: "Mark a DAG node complete, capturing its diff. Idempotent.", InputSchema: nodeID},
 		{Name: "spec_node_failed", Description: "Record a DAG node failure with a reason so resume and reporting can surface it", InputSchema: map[string]interface{}{
 			"type": "object",
