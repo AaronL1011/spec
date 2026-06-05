@@ -346,12 +346,14 @@ var finishingToolSpecs = map[string]ToolSpec{
 	},
 	"spec_open_pr": {
 		Name:        "spec_open_pr",
-		Description: "Open a DRAFT PR for a node (head=node branch, base=its stack base). Returns { number, url, base }. Idempotent.",
+		Description: "Open a DRAFT PR for a node (head=node branch, base=its stack base). Returns { number, url, base }. Idempotent. Prefer passing 'type' (feat/fix/chore) + optional 'summary' and let spec-cli apply the repo's pr_title convention; pass 'title' only to override it.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"node_id": map[string]interface{}{"type": "string", "description": "DAG node id"},
-				"title":   map[string]interface{}{"type": "string", "description": "Optional PR title"},
+				"type":    map[string]interface{}{"type": "string", "description": "Change type for the {type} slot of the repo's pr_title convention (e.g. feat, fix, chore)"},
+				"summary": map[string]interface{}{"type": "string", "description": "Optional one-line description for the {desc} slot; defaults to the node description"},
+				"title":   map[string]interface{}{"type": "string", "description": "Optional explicit PR title; overrides the repo convention"},
 				"body":    map[string]interface{}{"type": "string", "description": "Optional PR body"},
 			},
 			"required": []string{"node_id"},

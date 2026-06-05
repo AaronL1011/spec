@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/markdown"
 )
 
 // prResult is the JSON payload returned by spec_open_pr.
@@ -14,6 +16,44 @@ type prResult struct {
 	Number int    `json:"number"`
 	URL    string `json:"url"`
 	Base   string `json:"base"`
+}
+
+// composePRTitle builds the PR title. An explicit title always wins (the escape
+// hatch). Otherwise, when the node's repo declares a pr_title template in its
+// registry, spec-cli fills {type}/{epic}/{desc} deterministically so per-repo
+// conventions hold regardless of what the agent remembers; with no template it
+// falls back to the generic default.
+func (s *MCPServer) composePRTitle(explicit, repo, prType, desc string) string {
+	if strings.TrimSpace(explicit) != "" {
+		return explicit
+	}
+	if format := prTitleFormatForRepo(s.repoPathFor(repo)); format != "" {
+		return fillPRTitle(format, prType, s.epicKey(), desc)
+	}
+	return fmt.Sprintf("%s: %s", s.session.SpecID, desc)
+}
+
+// epicKey reads the spec's epic_key from its frontmatter, or "" when absent.
+func (s *MCPServer) epicKey() string {
+	if s.specPath == "" {
+		return ""
+	}
+	meta, err := markdown.ReadMeta(s.specPath)
+	if err != nil {
+		return ""
+	}
+	return meta.EpicKey
+}
+
+// fillPRTitle substitutes {type}, {epic}, {desc} into a title template and tidies
+// artefacts left by empty placeholders (e.g. "[] ", a leading ": ", or doubled
+// spaces) so a missing optional value never yields a malformed title.
+func fillPRTitle(format, prType, epic, desc string) string {
+	t := strings.NewReplacer("{type}", prType, "{epic}", epic, "{desc}", desc).Replace(format)
+	t = strings.ReplaceAll(t, "[]", "")
+	t = strings.Join(strings.Fields(t), " ") // collapse whitespace runs
+	t = strings.TrimLeft(t, ": -")           // drop leading separators
+	return strings.TrimSpace(t)
 }
 
 // toolPush pushes a node's branch to origin from its worktree. Push stays in
@@ -44,9 +84,11 @@ func (s *MCPServer) toolPush(args json.RawMessage) (*MCPToolResult, error) {
 // the ledger. Idempotent: a node that already has a PR returns it unchanged.
 func (s *MCPServer) toolOpenPR(args json.RawMessage) (*MCPToolResult, error) {
 	var p struct {
-		NodeID string `json:"node_id"`
-		Title  string `json:"title"`
-		Body   string `json:"body"`
+		NodeID  string `json:"node_id"`
+		Title   string `json:"title"`
+		Body    string `json:"body"`
+		Type    string `json:"type"`
+		Summary string `json:"summary"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
 		return nil, err
@@ -71,10 +113,11 @@ func (s *MCPServer) toolOpenPR(args json.RawMessage) (*MCPToolResult, error) {
 		return &MCPToolResult{Success: true, Message: string(payload)}, nil
 	}
 
-	title := p.Title
-	if title == "" {
-		title = fmt.Sprintf("%s %s: %s", s.session.SpecID, p.NodeID, node.Description)
+	desc := p.Summary
+	if desc == "" {
+		desc = node.Description
 	}
+	title := s.composePRTitle(p.Title, node.Repo, p.Type, desc)
 	number, url, err := s.repo.OpenDraftPR(context.Background(), node.Repo, ledger.Branch, ledger.BaseRef, title, p.Body)
 	if err != nil {
 		return nil, fmt.Errorf("opening draft PR for node %s: %w", p.NodeID, err)

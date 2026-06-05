@@ -115,11 +115,11 @@ ref, so you never compute or pass one.
 | Tool | Contract |
 |------|----------|
 | `spec_provision_node(node_id)` | Computes the base ref, creates the branch + worktree, sets status → in-progress, returns `{ nodeId, workDir, branch, baseRef, skillPaths }`. Provision a node before dispatching its worker. **Provision in wave order** — a same-repo child branches off its parent, so the parent must be provisioned first. |
-| `spec_node_context(node_id)` | Returns a node's deterministic build slice: `{ description, dependsOn, skillPaths, acceptanceCriteria, qualityGates }`. Hand this to the worker instead of having it re-read the whole spec. |
+| `spec_node_context(node_id)` | Returns a node's deterministic build slice: `{ description, dependsOn, skillPaths, acceptanceCriteria, qualityGates, prTitleFormat }`. Hand this to the worker instead of having it re-read the whole spec. |
 | `spec_node_complete(node_id)` | Marks the node done and captures its diff into cumulative context. |
 | `spec_node_failed(node_id, reason)` | Records a failure for resume/reporting. Do not start downstream dependents of a failed node. |
 | `spec_push(node_id)` | Pushes the node's branch from its worktree. |
-| `spec_open_pr(node_id, title?, body?)` | Opens a **draft** PR (head = node branch, base = recorded base ref). Records `{number,url}` and annotates §7.3. *Finishing tool — gated by strategy.* |
+| `spec_open_pr(node_id, type?, summary?, title?, body?)` | Opens a **draft** PR (head = node branch, base = recorded base ref). Records `{number,url}` and annotates §7.3. **Pass `type` (feat/fix/chore) + optional `summary`** and spec-cli applies the repo's `pr_title` convention (filling `{type}`/`{epic}`/`{desc}`); pass `title` only to override. *Finishing tool — gated by strategy.* |
 | `spec_link_prs()` / `spec_link_prs(node_id, base)` | Re-chains the stack, or retargets one node's base as parents merge. *Finishing tool — gated by strategy.* |
 
 Finishing tools (`spec_push`, `spec_open_pr`, `spec_link_prs`) are only present

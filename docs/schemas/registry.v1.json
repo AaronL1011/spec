@@ -59,6 +59,16 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "Names (or paths) of cross-cutting skills auto-composed onto every node that matches at least one layer skill. This is the auto-compose selector: a kind:modifier skill not listed here is available but not auto-applied."
+    },
+    "conventions": {
+      "type": "object",
+      "description": "Repo-level conventions spec-cli applies deterministically, independent of skill routing.",
+      "properties": {
+        "pr_title": {
+          "type": "string",
+          "description": "PR title template with {type}, {epic}, and {desc} placeholders, e.g. \"[{epic}] {desc}\" or \"{type}: {epic} {desc}\". spec-cli fills it in spec_open_pr ({epic} from the spec's epic_key, {desc}/{type} from the agent) unless an explicit title is passed. Surfaced read-only via spec_node_context.prTitleFormat."
+        }
+      }
     }
   }
 }

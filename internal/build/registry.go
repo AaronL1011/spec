@@ -167,9 +167,30 @@ func (e skillRegistryEntry) isModifier() bool {
 // skillRegistryFile is the parsed registry.yaml. modifiers lists the names (or
 // paths) of cross-cutting skills always appended once a layer skill matches.
 type skillRegistryFile struct {
-	Version   string               `yaml:"version"`
-	Skills    []skillRegistryEntry `yaml:"skills"`
-	Modifiers []string             `yaml:"modifiers"`
+	Version     string               `yaml:"version"`
+	Skills      []skillRegistryEntry `yaml:"skills"`
+	Modifiers   []string             `yaml:"modifiers"`
+	Conventions registryConventions  `yaml:"conventions"`
+}
+
+// registryConventions holds repo-level conventions spec-cli applies
+// deterministically, independent of skill routing. pr_title is a template with
+// {type}, {epic}, and {desc} placeholders, e.g. "[{epic}] {desc}" or
+// "{type}: {epic} {desc}".
+type registryConventions struct {
+	PRTitle string `yaml:"pr_title"`
+}
+
+// prTitleFormatForRepo returns the repo-level PR title template from its
+// registry, or "" when no registry or no convention is declared. It is
+// independent of the active skill router — a convention is repo data, not
+// routing policy.
+func prTitleFormatForRepo(repoPath string) string {
+	reg, _, ok := loadSkillRegistry(repoPath)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(reg.Conventions.PRTitle)
 }
 
 // skillRegistryForNode performs registry-driven, per-node skill routing. It

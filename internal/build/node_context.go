@@ -24,6 +24,7 @@ type nodeContextDoc struct {
 	SkillPaths         []string `json:"skillPaths"`
 	AcceptanceCriteria []string `json:"acceptanceCriteria"`
 	QualityGates       []string `json:"qualityGates"`
+	PRTitleFormat      string   `json:"prTitleFormat,omitempty"`
 }
 
 // toolNodeContext returns the deterministic per-node context document. An
@@ -86,6 +87,7 @@ func (s *MCPServer) nodeContextJSON(nodeID string) (string, bool) {
 		SkillPaths:         skills,
 		AcceptanceCriteria: emptyIfNil(s.acTextForNode(node)),
 		QualityGates:       emptyIfNil(s.gatesForNode(node)),
+		PRTitleFormat:      prTitleFormatForRepo(s.repoPathFor(node.Repo)),
 	}
 	b, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
@@ -116,11 +118,17 @@ func (s *MCPServer) acTextForNode(node PRStep) []string {
 // gatesForNode resolves the registry quality gates for a node via the node's
 // resolved repo, mirroring how skills are routed.
 func (s *MCPServer) gatesForNode(node PRStep) []string {
-	repoPath, err := resolveRepoPath(node.Repo, s.session.WorkDir, s.opts.Workspaces)
+	return qualityGatesForNode(s.repoPathFor(node.Repo), node)
+}
+
+// repoPathFor resolves a node's repo to its local source path, falling back to
+// the session work dir when the repo is unset or unresolved.
+func (s *MCPServer) repoPathFor(repo string) string {
+	repoPath, err := resolveRepoPath(repo, s.session.WorkDir, s.opts.Workspaces)
 	if err != nil || repoPath == "" {
-		repoPath = s.session.WorkDir
+		return s.session.WorkDir
 	}
-	return qualityGatesForNode(repoPath, node)
+	return repoPath
 }
 
 // acItems extracts the ordered acceptance-criteria items from an AC section,
