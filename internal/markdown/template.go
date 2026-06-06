@@ -25,9 +25,13 @@ updated: %s
 
 # %s - %s
 
-## Decision Log
-| # | Question / Decision | Options Considered | Decision Made | Rationale | Decided By | Date |
-|---|---|---|---|---|---|---|
+## Overview                          <!-- owner: pm -->
+
+### What
+
+### Why
+
+### How
 
 ## 1. Problem Statement           <!-- owner: pm -->
 
@@ -73,6 +77,10 @@ the pr-review gate passes only once every leaf node has one. Example:
 ## 10. Deployment Notes           <!-- owner: engineer -->
 
 ## 11. Retrospective              <!-- auto: spec retro -->
+
+## Decision Log
+| # | Question / Decision | Options Considered | Decision Made | Rationale | Decided By | Date |
+|---|---|---|---|---|---|---|
 `, id, title, author, cycle, source, date, date, id, title)
 }
 

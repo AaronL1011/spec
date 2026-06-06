@@ -574,3 +574,64 @@ func TestSpecDetail_SectionAtClick_OverviewMisses(t *testing.T) {
 		t.Error("overview mode has no sidebar; click should miss")
 	}
 }
+
+func TestSpecDetail_OverviewBlockShown(t *testing.T) {
+	m := testSpecDetailModel()
+	m.meta = &markdown.SpecMeta{ID: "SPEC-050", Title: "Feature X", Status: "draft"}
+	m.sections = []markdown.Section{
+		{Slug: "overview", Heading: "## Overview", Level: 2, Owner: "pm", Content: "Build a widget that solves Y."},
+		{Slug: "problem_statement", Heading: "## 1. Problem Statement", Level: 2, Owner: "pm", Content: "Users struggle."},
+	}
+	m.contentLines = m.estimateContentLines()
+
+	got := m.view()
+	if !strings.Contains(got, "Overview") {
+		t.Error("overview block header should appear in detail view")
+	}
+	if !strings.Contains(got, "Build a widget") {
+		t.Error("overview content should appear in detail view")
+	}
+}
+
+func TestSpecDetail_OverviewBlockHiddenWhenAbsent(t *testing.T) {
+	m := testSpecDetailModel()
+	m.meta = &markdown.SpecMeta{ID: "SPEC-050", Title: "Legacy Spec", Status: "draft"}
+	m.sections = []markdown.Section{
+		{Slug: "problem_statement", Heading: "## 1. Problem Statement", Level: 2, Owner: "pm", Content: "Users struggle."},
+	}
+	m.contentLines = m.estimateContentLines()
+
+	got := m.view()
+	lines := strings.Split(got, "\n")
+	overviewHeaderFound := false
+	for _, line := range lines {
+		if strings.Contains(line, "Overview") && !strings.Contains(line, "SPEC-") {
+			overviewHeaderFound = true
+		}
+	}
+	if overviewHeaderFound {
+		t.Error("overview block should not appear when no overview section exists")
+	}
+}
+
+func TestSpecDetail_OverviewBlockHiddenWhenEmpty(t *testing.T) {
+	m := testSpecDetailModel()
+	m.meta = &markdown.SpecMeta{ID: "SPEC-050", Title: "New Spec", Status: "draft"}
+	m.sections = []markdown.Section{
+		{Slug: "overview", Heading: "## Overview", Level: 2, Owner: "pm", Content: "  \n\n  "},
+		{Slug: "problem_statement", Heading: "## 1. Problem Statement", Level: 2, Owner: "pm", Content: ""},
+	}
+	m.contentLines = m.estimateContentLines()
+
+	got := m.view()
+	lines := strings.Split(got, "\n")
+	overviewHeaderFound := false
+	for _, line := range lines {
+		if strings.Contains(line, "Overview") && !strings.Contains(line, "SPEC-") && !strings.Contains(line, "concept") {
+			overviewHeaderFound = true
+		}
+	}
+	if overviewHeaderFound {
+		t.Error("overview block should not appear when overview section is blank")
+	}
+}
