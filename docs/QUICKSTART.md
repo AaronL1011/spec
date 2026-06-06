@@ -4,6 +4,11 @@ This is the practical guide to `spec`: how to install it, configure your identit
 join (or set up) a team, shape your pipeline, and use it every day. It assumes
 nothing beyond a terminal and Git.
 
+Day to day, you'll drive `spec` from its interactive dashboard — that's the primary
+interface and where this guide steers you first. The individual commands sit
+underneath it as a scriptable layer for automation, CI, and muscle memory; they're
+documented in full so nothing is hidden.
+
 For a high-level overview and contribution guide, see the [README](README.md).
 
 **Contents**
@@ -13,8 +18,8 @@ For a high-level overview and contribution guide, see the [README](README.md).
 3. [Join or create a team (team config)](#3-join-or-create-a-team-team-config)
 4. [Configure your pipeline](#4-configure-your-pipeline)
 5. [Connect integrations (optional)](#5-connect-integrations-optional)
-6. [Day-to-day workflow](#6-day-to-day-workflow)
-7. [The interactive dashboard (TUI)](#7-the-interactive-dashboard-tui)
+6. [Your daily driver: the dashboard (TUI)](#6-your-daily-driver-the-dashboard-tui)
+7. [The command layer](#7-the-command-layer)
 8. [Building with a coding agent](#8-building-with-a-coding-agent)
 9. [Command reference](#9-command-reference)
 10. [Configuration reference](#10-configuration-reference)
@@ -245,17 +250,108 @@ spec config test
 
 ---
 
-## 6. Day-to-day workflow
+## 6. Your daily driver: the dashboard (TUI)
+
+Running `spec` with no arguments opens the interactive dashboard — a persistent,
+auto-refreshing terminal app that is the primary way to use `spec`. Start your day
+here and you can read, triage, advance, review, and build without ever assembling a
+command by hand.
+
+```bash
+spec                  # open the dashboard — everything awaiting you
+```
+
+In pipes/CI it falls back to a static render; force the static view anywhere with
+`spec --static`. Every non-dashboard command also prints a one-line awareness hint
+when items are pending (e.g. `⚠ 1 pending · run 'spec' for details`) to nudge you
+back to it.
+
+### Tabs
+
+Press `1`–`6` to jump to a tab, or `tab` / `shift+tab` to cycle. Press `enter` on a
+spec to drill into a readable detail view; `esc` goes back.
+
+| Key | Tab | Shows |
+|---|---|---|
+| `1` | **Dashboard** | Your prioritised DO / REVIEW / INCOMING / BLOCKED items |
+| `2` | **Pipeline** | Every spec grouped by stage |
+| `3` | **Specs** | Searchable list of active (and archived) specs |
+| `4` | **Triage** | Open triage items |
+| `5` | **Reviews** | PRs and plan reviews awaiting you |
+| `6` | **Settings** | Edit name, role, theme, refresh interval live |
+
+### Spec actions
+
+Select a spec in any list and drive its whole lifecycle inline — no command
+required:
+
+| Key | Action | Notes |
+|---|---|---|
+| `a` | advance | validates gates · confirm modal |
+| `v` | revert | |
+| `e` | edit in `$EDITOR` | |
+| `b` | start/resume build | hands context to the coding agent |
+| `x` | toggle block | confirm modal |
+| `u` | unblock | confirm modal |
+| `f` | toggle focus (★) | single key, toggles on/off |
+| `c` | record a decision | |
+| `p` | push local edits | |
+| `s` | sync with docs | |
+| `y` | copy spec ID | |
+| `o` | open in browser | Reviews tab only |
+| `g a` | archive | confirm modal |
+| `g r` | restore | confirm modal |
+
+**Creation:** `n` new spec · `i` new triage item · `g s` standup
+
+### Triage in the dashboard
+
+The **Triage** tab is a complete intake workflow. Press `enter` (or `space`) on an
+item to open its detail view — title, severity, source, history, and notes — then
+act on it inline. Actions are gated on your role so the surface stays clean:
+
+| Key | Action | Who |
+|---|---|---|
+| `enter` / `space` | open detail view | everyone |
+| `n` | add a note | everyone |
+| `e` | edit (title, priority, source, body) | pm · engineer |
+| `c` | close | pm · engineer |
+| `x` | escalate / de-escalate | pm · engineer |
+| `p` | promote to a full spec | pm |
+
+The edit form is a real inline editor: `tab` moves between fields, the arrow keys
+move the cursor, `enter` cycles priority, `ctrl+s` saves, `esc` cancels.
+
+### Global keys
+
+`?` help (context-aware) · `/` search · `r` refresh · `esc` back / arm exit ·
+`esc esc` quit · `ctrl+c` hard quit
+
+> Destructive actions (`a` advance, `x` block, `c` close, `g a` archive, `g r`
+> restore) show a confirm modal — press `enter` to confirm or `esc` to cancel. `esc`
+> always goes back one level; pressing it twice at a top-level tab quits the app.
+
+The focused spec is marked with a ★ across list views and persists between sessions.
+Settings you change in the **Settings** tab (name, role, theme, refresh interval)
+apply live and are written straight to your user config.
+
+---
+
+## 7. The command layer
+
+Everything you do in the dashboard is also a plain command. Reach for these when you
+want to script a step, wire `spec` into CI or a git hook, or simply move faster from
+muscle memory. They share the dashboard's state, so a `spec focus` set here shows up
+there and vice versa.
+
+`spec focus` a spec once and you can drop the ID from almost every command below.
 
 ### Start your day
 
 ```bash
-spec                  # open the dashboard — everything awaiting you
+spec                  # open the dashboard (the default — see §6)
 spec list --mine      # specs you own
 ```
-
-Every non-dashboard command also prints a one-line awareness hint when items are
-pending (e.g. `⚠ 1 pending · run 'spec' for details`).
 
 ### Pick up a spec
 
@@ -264,8 +360,6 @@ spec focus SPEC-042   # set working context (persists across sessions)
 spec status           # pipeline position + section completion
 spec pull             # fetch the spec into the current service repo's .spec/
 ```
-
-With a focused spec, you can drop the ID from almost every command below.
 
 ### Plan the work (engineer)
 
@@ -340,61 +434,6 @@ spec focus --clear              # clear focus when you're done
 
 ---
 
-## 7. The interactive dashboard (TUI)
-
-Running `spec` in an interactive terminal launches a persistent, auto-refreshing
-TUI. In pipes/CI it falls back to a static render; force the static view with
-`spec --static`.
-
-### Tabs
-
-| Key | Tab | Shows |
-|---|---|---|
-| `1` | **Dashboard** | Your prioritised DO / REVIEW / INCOMING / BLOCKED items |
-| `2` | **Pipeline** | Every spec grouped by stage |
-| `3` | **Specs** | Searchable list of active (and archived) specs |
-| `4` | **Triage** | Open triage items |
-| `5` | **Reviews** | PRs and plan reviews awaiting you |
-| `6` | **Settings** | Edit name, role, theme, refresh interval live |
-
-`tab` / `shift+tab` cycle tabs. Press `enter` on a spec to drill into a readable
-detail view; `esc` goes back.
-
-### Keybindings
-
-**Navigation:** `↑/k` `↓/j` move · `enter` open · `esc` back · `pgup/pgdn` page
-
-**Spec actions** (on the selected spec):
-
-| Key | Action | Notes |
-|---|---|---|
-| `a` | advance | confirm modal |
-| `v` | revert | |
-| `e` | edit in `$EDITOR` | |
-| `b` | build | |
-| `x` | toggle block | confirm modal |
-| `u` | unblock | confirm modal |
-| `f` | toggle focus (★) | single key, toggles on/off |
-| `c` | record a decision | |
-| `p` | push local edits | |
-| `s` | sync with docs | |
-| `y` | copy spec ID | |
-| `o` | open in browser | Reviews tab only |
-| `g a` | archive | confirm modal |
-| `g r` | restore | confirm modal |
-
-**Creation:** `n` new spec · `i` new triage item · `g s` standup
-
-**Global:** `?` help · `/` search · `r` refresh · `esc esc` quit · `ctrl+c` hard quit
-
-> Destructive actions (`x` block, `g a` archive, `g r` restore, `a` advance) show a
-> confirm modal — press `enter` to confirm or `esc` to cancel. `esc` always goes back
-> one level; pressing it twice at a top-level tab quits the app.
-
-The focused spec is marked with a ★ across list views and persists between sessions.
-
----
-
 ## 8. Building with a coding agent
 
 `spec build` and `spec do` hand a coding agent (Claude Code, Cursor, Copilot, …)
@@ -435,6 +474,9 @@ spec draft --pr
 ---
 
 ## 9. Command reference
+
+The full surface, for when you're scripting or want the exact flags. Most of these
+have a one-key equivalent in the dashboard (§6) — that's the faster path day to day.
 
 `[id]` means the command uses the focused spec when the ID is omitted.
 

@@ -1,4 +1,4 @@
-# spec Build Integration Port
+# spec Agent Build Integration Port
 
 > The single document required to integrate any agent build system with
 > `spec build`. If your harness speaks MCP and can dispatch a unit of work into

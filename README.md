@@ -4,18 +4,25 @@
 project-management software — free to solve problems in peace and serenity.
 
 It unifies spec management, pipeline orchestration, build context, and team
-coordination into a single, fast, local-first CLI. Run `spec` with no arguments
-and you get an interactive terminal dashboard of everything awaiting your attention.
+coordination into a single, fast, local-first tool. Run `spec` with no arguments
+and you land in an interactive terminal dashboard — your home base for everything
+awaiting your attention. From there you triage, advance, review, and build without
+leaving the keyboard. Every action is also a plain command, so the same workflow
+scripts cleanly in CI and automation.
 
 ![Demonstration of a spec review](docs/demos/demo.gif)
 
-> **New here?** Jump straight to the **[QUICKSTART guide →](QUICKSTART.md)** to go from
+> **New here?** Jump straight to the **[QUICKSTART guide →](docs/QUICKSTART.md)** to go from
 > zero to productive in about 15 minutes.
 
 ---
 
 ## Why spec?
 
+- **A dashboard you actually live in.** The interactive TUI is the primary surface:
+  six tabs, full keyboard navigation, drill-down spec reading, and inline actions
+  for everything from triage to advance to build. The raw commands are there too,
+  for scripting and CI.
 - **One place for the work.** Specs, pipeline state, decisions, reviews, and build
   context live together.
 - **A pipeline that fits your team.** Stages, gates, and automated effects are
@@ -79,17 +86,28 @@ make install-man          # install man pages (spec(1), spec-advance(1), …)
 
 ## The 30-second tour
 
+Set up once, then open the dashboard and work from there:
+
 ```bash
 spec config init --user        # set up your identity (once)
 spec join acme/specs           # join your team's specs repo
-spec                           # open the interactive dashboard
+spec                           # open the interactive dashboard — your home base
+```
+
+Inside the dashboard you navigate with the keyboard and act inline: press `enter`
+to read a spec, `a` to advance, `b` to build, `f` to focus, `n` to draft a new spec.
+Every one of those actions also has a command behind it, so the same workflow drops
+straight into scripts and CI:
+
+```bash
 spec new --title "Auth fix"    # scaffold a spec
 spec focus SPEC-042            # set your working context
+spec advance                   # advance through the pipeline
 spec do                        # resume where you left off
 ```
 
 Once you `spec focus` a spec, most commands infer the ID automatically — no need to
-repeat it. The full walkthrough lives in the **[QUICKSTART guide →](QUICKSTART.md)**.
+repeat it. The full walkthrough lives in the **[QUICKSTART guide →](docs/QUICKSTART.md)**.
 
 ---
 
@@ -117,16 +135,26 @@ and it persists across terminal sessions, so `spec status`, `spec advance`,
 `spec build`, and friends all just work. Pass an explicit ID to override for one
 command.
 
-### The TUI
+### The interface
 
-Running `spec` in an interactive terminal launches a persistent dashboard with six
-tabs — **Dashboard, Pipeline, Specs, Triage, Reviews, Settings** — full keyboard
-navigation, drill-down spec reading, and inline actions (advance, block, focus,
-build, decide, …). In non-interactive contexts (pipes, CI) it falls back to a
-static render; force it with `--static`.
+`spec` gives you the same workflow through two surfaces, and the dashboard is the
+one you'll reach for daily.
+
+**The dashboard (TUI)** — running `spec` in an interactive terminal launches a
+persistent, auto-refreshing dashboard with six tabs: **Dashboard, Pipeline, Specs,
+Triage, Reviews, Settings**. It has full keyboard navigation, drill-down spec
+reading, and inline actions for the whole lifecycle — advance, revert, block,
+focus, build, decide, push, sync, archive — plus a complete role-gated triage flow
+(open a detail view, add notes, edit, close, escalate, promote to a spec). Settings
+are editable live. Destructive actions confirm before they run.
+
+**The command layer** — every dashboard action is also a first-class command, so
+the workflow composes cleanly in scripts, hooks, and CI. In non-interactive
+contexts (pipes, CI) the dashboard falls back to a static render; force it anywhere
+with `--static`.
 
 For the complete command reference, configuration schema, and keybindings, see the
-**[QUICKSTART guide →](QUICKSTART.md)**.
+**[QUICKSTART guide →](docs/QUICKSTART.md)**.
 
 ## Development
 
@@ -172,7 +200,7 @@ The full product specification and PR stack plan live in [`SPEC.md`](SPEC.md).
 
 | Document | Purpose |
 |---|---|
-| **[QUICKSTART.md](QUICKSTART.md)** | Setup, configuration, and day-to-day usage |
+| **[QUICKSTART.md](docs/QUICKSTART.md)** | Setup, configuration, and day-to-day usage |
 | [SPEC.md](SPEC.md) | Full product specification and PR stack plan |
 | [AGENTS.md](AGENTS.md) | Coding standards for contributors and AI agents |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
