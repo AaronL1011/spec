@@ -880,6 +880,14 @@ func (m specDetailModel) viewOverview() string {
 		b.WriteString("\n")
 	}
 
+	// ── Overview block ────────────────────────────────────────────────────────
+	if preview := m.overviewPreview(contentWidth); preview != "" {
+		b.WriteString("\n")
+		b.WriteString(m.styles.SectionTitle.Render(Indent(1)+"Overview") + "\n")
+		b.WriteString(preview)
+		b.WriteString("\n")
+	}
+
 	// ── Decisions block ───────────────────────────────────────────────────────
 	if len(m.decisions) > 0 {
 		b.WriteString("\n")
@@ -948,6 +956,35 @@ func (m specDetailModel) viewOverview() string {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// overviewPreview renders the overview section content through the Glamour
+// markdown renderer so it displays with full formatting (bold, lists, etc.)
+// on the detail screen. Returns empty string when absent or blank.
+func (m specDetailModel) overviewPreview(width int) string {
+	sec := markdown.FindSection(m.sections, "overview")
+	if sec == nil {
+		return ""
+	}
+	text := strings.TrimSpace(sec.Content)
+	if text == "" {
+		return ""
+	}
+	renderWidth := width - 2*Gutter
+	if renderWidth < 30 {
+		renderWidth = 30
+	}
+	rendered, err := m.renderer.Render(context.Background(), text, renderWidth)
+	if err != nil || strings.TrimSpace(rendered) == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, line := range splitLines(rendered) {
+		b.WriteString(Indent(1))
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func (m specDetailModel) readableSections() []markdown.Section {
 	var out []markdown.Section
 	for _, sec := range m.sections {
@@ -959,8 +996,9 @@ func (m specDetailModel) readableSections() []markdown.Section {
 }
 
 func (m specDetailModel) firstReadableSectionIndex() int {
-	for i, sec := range m.sections {
-		if sec.Level == 2 {
+	sections := m.readableSections()
+	for i, sec := range sections {
+		if sec.Slug == "problem_statement" {
 			return i
 		}
 	}
@@ -1038,6 +1076,14 @@ func (m specDetailModel) estimateContentLines() int {
 	// Review block: blank + 1 line
 	if m.meta.Review != nil {
 		lines += 2
+	}
+
+	// Overview block: blank + header + rendered content lines
+	if sec := markdown.FindSection(m.sections, "overview"); sec != nil {
+		if text := strings.TrimSpace(sec.Content); text != "" {
+			n := len(strings.Split(text, "\n"))
+			lines += 2 + n + 2 // raw lines + padding from renderer
+		}
 	}
 
 	// Decisions block: blank + header + one line per entry (resolved gets an extra line)

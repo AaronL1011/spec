@@ -18,12 +18,19 @@ updated: YYYY-MM-DD
 
 ---
 
-## Decision Log
+## Overview                          <!-- owner: pm -->
 
-> *Record all significant decisions, questions and changes here for asynchronous reference.*
+### What
 
-| # | Question / Decision | Options Considered | Decision Made | Rationale | Decided By | Date |
-|---|---|---|---|---|---|---|
+*What is being built or changed?*
+
+### Why
+
+*Why is this needed? What problem does it solve?*
+
+### How
+
+*At a high level, how will this work?*
 
 ---
 
@@ -116,3 +123,10 @@ Example (n1 is the root; n2 and n3 fan out from it; n4 merges both):
 *No escapes logged.*
 
 ---
+
+## Decision Log
+
+> *Record all significant decisions, questions and changes here for asynchronous reference.*
+
+| # | Question / Decision | Options Considered | Decision Made | Rationale | Decided By | Date |
+|---|---|---|---|---|---|---|

@@ -26,11 +26,6 @@ updated: "2026-04-21"
 
 # SPEC-042 - Auth refactor
 
-## Decision Log
-| # | Question / Decision | Options Considered | Decision Made | Rationale | Decided By | Date |
-|---|---|---|---|---|---|---|
-| 001 | REST vs gRPC? | REST, gRPC | **gRPC** | Lower latency | Aaron | 2026-04-10 |
-
 ## 1. Problem Statement           <!-- owner: pm -->
 Auth tokens are expiring prematurely for EU users.
 
@@ -77,6 +72,11 @@ Redis dependency.
 ## 10. Deployment Notes           <!-- owner: engineer -->
 
 ## 11. Retrospective              <!-- auto: spec retro -->
+
+## Decision Log
+| # | Question / Decision | Options Considered | Decision Made | Rationale | Decided By | Date |
+|---|---|---|---|---|---|---|
+| 001 | REST vs gRPC? | REST, gRPC | **gRPC** | Lower latency | Aaron | 2026-04-10 |
 `
 
 func TestParseMeta(t *testing.T) {
@@ -161,6 +161,7 @@ func TestSlugify(t *testing.T) {
 		input string
 		want  string
 	}{
+		{"## Overview                          <!-- owner: pm -->", "overview"},
 		{"## 1. Problem Statement           <!-- owner: pm -->", "problem_statement"},
 		{"### 7.3 PR Stack Plan", "pr_stack_plan"},
 		{"## Decision Log", "decision_log"},
@@ -342,7 +343,7 @@ func TestScaffoldSpec(t *testing.T) {
 
 	sections := ExtractSections(Body(content))
 	requiredSlugs := []string{
-		"decision_log", "problem_statement", "goals_non_goals",
+		"overview", "decision_log", "problem_statement", "goals_non_goals",
 		"acceptance_criteria", "technical_implementation", "pr_stack_plan",
 	}
 	for _, slug := range requiredSlugs {

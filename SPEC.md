@@ -610,9 +610,10 @@ updated: [date]
 
 # SPEC-<id> - [Feature/Enhancement Title]
 
-## Decision Log
-| # | Question / Decision | Options Considered | Decision Made | Rationale | Decided By | Date |
-
+## Overview                        <!-- owner: pm -->
+  ### What
+  ### Why
+  ### How
 ## 1. Problem Statement           <!-- owner: pm -->
 ## 2. Goals & Non-Goals           <!-- owner: pm -->
 ## 3. User Stories                <!-- owner: pm -->
@@ -629,6 +630,8 @@ updated: [date]
 ## 9. QA Validation Notes         <!-- owner: qa -->
 ## 10. Deployment Notes           <!-- owner: engineer -->
 ## 11. Retrospective              <!-- auto: spec retro -->
+## Decision Log
+| # | Question / Decision | Options Considered | Decision Made | Rationale | Decided By | Date |
 ```
 
 **Triage template** (`templates/triage.md`) - intentionally minimal:
