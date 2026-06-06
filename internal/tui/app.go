@@ -99,6 +99,14 @@ type App struct {
 	intake  intakeFormState
 	revert  revertOverlay
 
+	// Triage detail pane and action overlays.
+	showTriageDetail      bool
+	triageDetail          *triageDetailPane
+	triageDetailRehydrate string // triage ID to rehydrate after next list refresh
+	triageEdit            triageEditOverlay
+	triageClose           triageCloseOverlay
+	triageNote            triageNoteOverlay
+
 	// Exit escalation — double-esc-to-quit state.
 	exitArmed   bool
 	exitArmedAt time.Time
@@ -324,6 +332,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.triage, cmd = a.triage.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.triage.loaded)
 		a.markDataFresh(msg.Err)
+		a.rehydrateTriageDetail()
 		return a, cmd
 
 	case reviewDataMsg:
@@ -425,6 +434,33 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case navigateBackMsg:
 		return a, a.closeDetail()
 
+	case triageDetailOpenMsg:
+		a.showTriageDetail = true
+		a.triageDetail = newTriageDetailPane(msg.Item, a.width, a.contentHeight())
+		return a, nil
+
+	case triageDetailCloseMsg:
+		a.showTriageDetail = false
+		a.triageDetail = nil
+		return a, nil
+
+	case triagePromoteResultMsg:
+		a.actionInFlight = false
+		a.actionLabel = ""
+		a.syncBusyState()
+		if msg.Err != nil {
+			a.statusBar.SetStatusError("promote failed", msg.Err.Error())
+			return a, nil
+		}
+		a.showTriageDetail = false
+		a.triageDetail = nil
+		a.statusBar.SetStatusSuccess("promoted "+msg.TriageID+" → "+msg.SpecID, 5*time.Second)
+		// Navigate to the new spec detail and refresh triage list.
+		return a, tea.Batch(
+			a.openDetail(msg.SpecID),
+			a.scheduleRefresh(refreshKeyTriage, a.triage.refresh()),
+		)
+
 	// Action results — show toast and refresh.
 	case actionResultMsg:
 		a.actionInFlight = false
@@ -450,6 +486,24 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh focused spec after focus/unfocus actions.
 		if msg.Action == "focus" || msg.Action == "unfocus" {
 			a.focusedSpecID = loadFocusedSpec(a.db)
+		}
+		// After a successful triage mutation, refresh the list and manage the
+		// detail pane: close hides it (archived); edit/comment/escalate
+		// rehydrate the item from the refreshed list so the pane stays current.
+		if msg.Err == nil && isTriggerTriage(msg.Action) {
+			switch msg.Action {
+			case "triage/close":
+				a.showTriageDetail = false
+				a.triageDetail = nil
+				a.triageDetailRehydrate = ""
+			default:
+				if a.showTriageDetail && a.triageDetail != nil {
+					a.triageDetailRehydrate = a.triageDetail.item.ID
+				}
+			}
+			return a, tea.Batch(
+				a.scheduleRefresh(refreshKeyTriage, a.triage.refresh()),
+			)
 		}
 		return a, a.refreshActiveView()
 
@@ -478,6 +532,15 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if a.revert.active {
 		return a.updateRevert(msg)
+	}
+	if a.triageEdit.active {
+		return a.updateTriageEdit(msg)
+	}
+	if a.triageClose.active {
+		return a.updateTriageClose(msg)
+	}
+	if a.triageNote.active {
+		return a.updateTriageNote(msg)
 	}
 	if a.help.visible {
 		a.help, _ = a.help.update(msg)
@@ -511,6 +574,14 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if a.showDetail {
 		return a.updateDetail(msg)
+	}
+
+	// ── Layer 4.5: Triage detail pane (focused mode) ─────────────────
+	// When the triage detail pane is open it captures keys, including esc to
+	// close. This must run before the global esc escalation below so esc does
+	// not get swallowed by the exit-arm logic.
+	if a.showTriageDetail {
+		return a.updateTriageDetail(msg)
 	}
 
 	// ── Layer 5: Global keys (work on every top-level view) ─────────
@@ -607,11 +678,13 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.modal.SetSize(a.width, a.contentHeight())
 		return a, nil
 
-	// Enter: open PR in browser for review rows; drill into spec detail otherwise.
+	// Enter / Space: open detail for the selected item.
 	case key.Matches(msg, a.keys.Enter):
 		if cmd := a.activateSelection(); cmd != nil {
 			return a, cmd
 		}
+	case msg.Type == tea.KeySpace && a.activeView == ViewTriage:
+		return a, a.openTriageDetailForSelected()
 	}
 
 	// ── Layer 6: Spec action hotkeys ─────────────────────────────────
@@ -670,10 +743,18 @@ func (a App) View() string {
 		content = a.renderIntakeForm()
 	case a.revert.active:
 		content = renderRevert(a.revert, a.styles)
+	case a.triageEdit.active:
+		content = renderTriageEdit(a.triageEdit, a.styles)
+	case a.triageClose.active:
+		content = renderTriageClose(a.triageClose, a.styles)
+	case a.triageNote.active:
+		content = renderTriageNote(a.triageNote, a.styles)
 	case a.modal.Visible:
 		content = a.modal.View()
 	case a.showDetail:
 		content = a.detail.view()
+	case a.showTriageDetail && a.triageDetail != nil:
+		content = a.triageDetail.view(a.styles, a.rc)
 	default:
 		content = a.activeViewContent()
 	}
@@ -830,6 +911,7 @@ func (a *App) switchView(v View) tea.Cmd {
 		a.stopWatch()
 	}
 	a.showDetail = false
+	a.closeTriageDetailPane()
 	a.activeView = v
 	a.tabs.SetActive(int(v))
 	a.statusBar.SetView(v.Label())
@@ -992,6 +1074,9 @@ func (a *App) activateSelection() tea.Cmd {
 		if url := a.reviews.selectedURL(); url != "" {
 			return openInBrowser(url)
 		}
+	case ViewTriage:
+		// Enter on the triage list opens the inline detail pane.
+		return a.openTriageDetailForSelected()
 	}
 	if specID := a.selectedSpecID(); isSpecID(specID) {
 		return a.openDetail(specID)
@@ -1364,6 +1449,14 @@ func (a *App) executeActionWithInput(input string) tea.Cmd {
 			return nil
 		}
 		return a.startAction("creating spec", createSpec(a.rc, input))
+	case "promote-triage":
+		// Promote a triage item to a formal SPEC-NNN.
+		if a.triageDetail == nil {
+			return nil
+		}
+		item := a.triageDetail.item
+		a.closeTriageDetailPane()
+		return a.startAction("promoting "+item.ID, promoteTriageItem(a.rc, item))
 	default:
 		return nil
 	}
@@ -1503,7 +1596,7 @@ func (a App) renderIntakeForm() string {
 
 	b.WriteString("\n")
 	b.WriteString(HintStrip(a.styles,
-		Hint("tab", "next field"), Hint("enter", "submit/cycle"), Hint("esc", "cancel")))
+		Hint("tab/shift+tab", "next/prev field"), Hint("enter", "submit/cycle"), Hint("esc", "cancel")))
 
 	return b.String()
 }
@@ -1537,6 +1630,9 @@ func (a *App) propagateSize() {
 	a.pipeline.setSize(a.width, ch)
 	a.specs.setSize(a.width, ch)
 	a.triage.setSize(a.width, ch)
+	if a.showTriageDetail && a.triageDetail != nil {
+		a.triageDetail.setSize(a.width, ch)
+	}
 	a.reviews.setSize(a.width, ch)
 	a.settings.setSize(a.width, ch)
 	if a.showDetail {
@@ -1545,6 +1641,9 @@ func (a *App) propagateSize() {
 	a.modal.SetSize(a.width, ch)
 	a.help.setSize(a.width, a.height)
 	a.standup.setSize(a.width, ch)
+	if a.triageEdit.active {
+		a.triageEdit.setSize(a.width, ch)
+	}
 }
 
 // applySettingsField applies immediate UI effects after a settings field is
@@ -1786,4 +1885,262 @@ func splitLines(s string) []string {
 		lines = append(lines, s[start:])
 	}
 	return lines
+}
+
+// isTriggerTriage reports whether an action trigger belongs to the triage subsystem.
+func isTriggerTriage(action string) bool {
+	return len(action) > 7 && action[:7] == "triage/"
+}
+
+// openTriageDetailForSelected opens the triage detail pane for the selected item.
+func (a *App) openTriageDetailForSelected() tea.Cmd {
+	if a.activeView != ViewTriage {
+		return nil
+	}
+	item := a.triage.selectedItem()
+	if item == nil {
+		return nil
+	}
+	a.showTriageDetail = true
+	a.triageDetail = newTriageDetailPane(*item, a.width, a.contentHeight())
+	return nil
+}
+
+// closeTriageDetailPane closes the triage detail pane.
+func (a *App) closeTriageDetailPane() {
+	a.showTriageDetail = false
+	a.triageDetail = nil
+	a.triageDetailRehydrate = ""
+}
+
+// rehydrateTriageDetail refreshes the open detail pane from the canonical list
+// data after a triage list refresh. If the item no longer exists (e.g. deleted
+// by promotion), the detail pane closes gracefully.
+func (a *App) rehydrateTriageDetail() {
+	if a.triageDetailRehydrate == "" {
+		return
+	}
+	id := a.triageDetailRehydrate
+	a.triageDetailRehydrate = ""
+
+	item := a.triage.findItemByID(id)
+	if item == nil {
+		a.closeTriageDetailPane()
+		return
+	}
+	if a.triageDetail != nil {
+		a.triageDetail.updateItem(*item)
+	}
+}
+
+// updateTriageDetail handles all keys while the triage detail pane is the
+// focused mode. It mirrors updateDetail: global keys (quit, help, view switch)
+// are honoured first, esc closes the pane, and the remaining keys drive triage
+// actions and scrolling. Unrecognised keys are absorbed so they cannot leak
+// into the list beneath the pane.
+func (a App) updateTriageDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyCtrlC {
+		return a, tea.Quit
+	}
+
+	if key.Matches(msg, a.keys.Help) {
+		a.help.setContext(a.activeView.Label())
+		a.help.toggle()
+		return a, nil
+	}
+
+	// View switching closes the pane (via switchView) and switches.
+	switch {
+	case key.Matches(msg, a.keys.Tab1):
+		return a, a.switchView(ViewDashboard)
+	case key.Matches(msg, a.keys.Tab2):
+		return a, a.switchView(ViewPipeline)
+	case key.Matches(msg, a.keys.Tab3):
+		return a, a.switchView(ViewSpecs)
+	case key.Matches(msg, a.keys.Tab4):
+		return a, a.switchView(ViewTriage)
+	case key.Matches(msg, a.keys.Tab5):
+		return a, a.switchView(ViewReviews)
+	case key.Matches(msg, a.keys.Tab6):
+		return a, a.switchView(ViewSettings)
+	case key.Matches(msg, a.keys.NextTab):
+		return a, a.switchView(a.activeView.Next())
+	case key.Matches(msg, a.keys.PrevTab):
+		return a, a.switchView(a.activeView.Prev())
+	}
+
+	// esc, triage actions (e/c/x/n/p), and scrolling. Any other key is absorbed.
+	return a, a.handleTriageDetailKey(msg)
+}
+
+// handleTriageDetailKey resolves a key press into a triage-detail action while
+// the pane is open: esc closes it, e/c/x/n/p drive role-gated actions, and j/k
+// scroll. It returns a command to run, or nil when the key has no effect.
+func (a *App) handleTriageDetailKey(msg tea.KeyMsg) tea.Cmd {
+	if !a.showTriageDetail || a.triageDetail == nil {
+		return nil
+	}
+	item := a.triageDetail.item
+
+	switch {
+	case msg.Type == tea.KeyEscape:
+		a.closeTriageDetailPane()
+		return nil
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "e":
+		if !roleAllowed(actionTriageEdit, a.rc) {
+			return nil
+		}
+		a.triageEdit.openEdit(item, a.width, a.contentHeight())
+		return nil
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "c":
+		if !roleAllowed(actionTriageClose, a.rc) {
+			return nil
+		}
+		a.triageClose.openClose(item.ID)
+		return nil
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "x":
+		if !roleAllowed(actionTriageEscalate, a.rc) {
+			return nil
+		}
+		return a.startAction("escalating "+item.ID, escalateTriageItem(a.rc, item.ID, item.isUrgent(), a.rc.UserName()))
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "n":
+		if !roleAllowed(actionTriageComment, a.rc) {
+			return nil
+		}
+		a.triageNote.openNote(item.ID)
+		return nil
+
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "p":
+		if !roleAllowed(actionTriagePromote, a.rc) {
+			return nil
+		}
+		// Show a confirmation modal before promoting.
+		a.pendingAction = "promote-triage"
+		a.pendingSpecID = item.ID
+		a.modal.ShowConfirm(
+			"Promote "+item.ID,
+			"Create a new spec from this triage item? The triage entry will be deleted.",
+		)
+		a.modal.SetSize(a.width, a.contentHeight())
+		return nil
+
+	case msg.Type == tea.KeyUp || (msg.Type == tea.KeyRunes && string(msg.Runes) == "k"):
+		a.triageDetail.scrollUp()
+		return nil
+
+	case msg.Type == tea.KeyDown || (msg.Type == tea.KeyRunes && string(msg.Runes) == "j"):
+		a.triageDetail.scrollDown()
+		return nil
+	}
+	return nil
+}
+
+// updateTriageEdit handles keys within the inline triage edit form. Global form
+// keys (cancel, save, field navigation, priority cycle) are handled first; every
+// other key is delegated to the focused input component so cursor movement and
+// text entry work natively.
+func (a App) updateTriageEdit(msg tea.KeyMsg) (App, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		a.triageEdit.close()
+		return a, nil
+	case tea.KeyCtrlS:
+		if !a.triageEdit.valid() {
+			return a, nil
+		}
+		id := a.triageEdit.triageID
+		title := a.triageEdit.title.Value()
+		priority := a.triageEdit.priority
+		source := a.triageEdit.source.Value()
+		body := a.triageEdit.body.Value()
+		a.triageEdit.close()
+		return a, a.startAction("editing "+id, editTriageItem(a.rc, id, title, priority, source, body))
+	case tea.KeyTab:
+		a.triageEdit.nextField()
+		return a, nil
+	case tea.KeyShiftTab:
+		a.triageEdit.prevField()
+		return a, nil
+	case tea.KeyEnter:
+		switch a.triageEdit.field {
+		case triageEditFieldPriority:
+			a.triageEdit.cyclePriority()
+			return a, nil
+		case triageEditFieldTitle, triageEditFieldSource:
+			a.triageEdit.nextField()
+			return a, nil
+		}
+		// Body field: fall through so the textarea inserts a newline.
+	}
+
+	// Delegate to the focused input (arrows, home/end, backspace, runes, etc.).
+	return a, a.triageEdit.update(msg)
+}
+
+// updateTriageClose handles keys within the inline triage close dialog.
+func (a App) updateTriageClose(msg tea.KeyMsg) (App, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		a.triageClose.close()
+	case tea.KeyTab:
+		a.triageClose.nextField()
+	case tea.KeyShiftTab:
+		a.triageClose.prevField()
+	case tea.KeyEnter:
+		switch a.triageClose.field {
+		case triageCloseFieldReason:
+			a.triageClose.nextField()
+		case triageCloseFieldNote:
+			id := a.triageClose.triageID
+			reason := a.triageClose.selectedReason()
+			note := a.triageClose.note
+			actor := a.rc.UserName()
+			a.triageClose.close()
+			return a, a.startAction("closing "+id, closeTriageItem(a.rc, id, reason, note, actor))
+		}
+	case tea.KeyBackspace:
+		if a.triageClose.field == triageCloseFieldNote {
+			a.triageClose.backspaceNote()
+		} else {
+			a.triageClose.cycleReason()
+		}
+	case tea.KeySpace:
+		if a.triageClose.field == triageCloseFieldNote {
+			a.triageClose.appendNote(" ")
+		}
+	case tea.KeyRunes:
+		if a.triageClose.field == triageCloseFieldNote {
+			a.triageClose.appendNote(string(msg.Runes))
+		} else {
+			a.triageClose.cycleReason()
+		}
+	}
+	return a, nil
+}
+
+// updateTriageNote handles keys within the inline triage note prompt.
+func (a App) updateTriageNote(msg tea.KeyMsg) (App, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		a.triageNote.close()
+	case tea.KeyEnter:
+		if a.triageNote.valid() {
+			id := a.triageNote.triageID
+			note := a.triageNote.note
+			actor := a.rc.UserName()
+			a.triageNote.close()
+			return a, a.startAction("commenting on "+id, commentTriageItem(a.rc, id, note, actor))
+		}
+	case tea.KeyBackspace:
+		a.triageNote.backspace()
+	case tea.KeySpace:
+		a.triageNote.append(" ")
+	case tea.KeyRunes:
+		a.triageNote.append(string(msg.Runes))
+	}
+	return a, nil
 }

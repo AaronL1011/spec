@@ -606,3 +606,293 @@ fast_track: true
 		t.Error("FastTrack should be true")
 	}
 }
+
+func TestParseTriageMeta_NewFields(t *testing.T) {
+	content := `---
+id: TRIAGE-007
+title: Severity test
+status: open
+priority: high
+severity: urgent
+linked_spec: SPEC-009
+reported_by: alice
+created: "2026-06-01"
+resolved_at: ""
+comments:
+  - actor: bob
+    message: reproduced on staging
+    at: "2026-06-01T10:00:00Z"
+---
+
+Body text here.
+`
+	meta, err := ParseTriageMeta(content)
+	if err != nil {
+		t.Fatalf("ParseTriageMeta: %v", err)
+	}
+	if meta.Severity != "urgent" {
+		t.Errorf("Severity = %q, want urgent", meta.Severity)
+	}
+	if meta.LinkedSpec != "SPEC-009" {
+		t.Errorf("LinkedSpec = %q, want SPEC-009", meta.LinkedSpec)
+	}
+	if len(meta.Comments) != 1 {
+		t.Fatalf("Comments len = %d, want 1", len(meta.Comments))
+	}
+	if meta.Comments[0].Actor != "bob" {
+		t.Errorf("Comments[0].Actor = %q, want bob", meta.Comments[0].Actor)
+	}
+}
+
+func TestWriteTriageMeta_PreservesBody(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/TRIAGE-001.md"
+	content := `---
+id: TRIAGE-001
+title: Original title
+status: open
+priority: medium
+created: "2026-06-01"
+---
+
+Body content preserved here.
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	meta, err := ReadTriageMeta(path)
+	if err != nil {
+		t.Fatalf("ReadTriageMeta: %v", err)
+	}
+	meta.Severity = "urgent"
+	if err := WriteTriageMeta(path, meta); err != nil {
+		t.Fatalf("WriteTriageMeta: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	updated := string(data)
+	if !strings.Contains(updated, "severity: urgent") {
+		t.Error("severity field should be written")
+	}
+	if !strings.Contains(updated, "Body content preserved here.") {
+		t.Error("body should be preserved after WriteTriageMeta")
+	}
+}
+
+func TestAppendTriageComment(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/TRIAGE-002.md"
+	content := `---
+id: TRIAGE-002
+title: Comment test
+status: open
+priority: low
+created: "2026-06-01"
+---
+
+Body.
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := AppendTriageComment(path, "alice", "first note"); err != nil {
+		t.Fatalf("AppendTriageComment: %v", err)
+	}
+	if err := AppendTriageComment(path, "bob", "second note"); err != nil {
+		t.Fatalf("AppendTriageComment: %v", err)
+	}
+	meta, err := ReadTriageMeta(path)
+	if err != nil {
+		t.Fatalf("ReadTriageMeta after append: %v", err)
+	}
+	if len(meta.Comments) != 2 {
+		t.Fatalf("Comments len = %d, want 2", len(meta.Comments))
+	}
+	if meta.Comments[0].Actor != "alice" || meta.Comments[0].Message != "first note" {
+		t.Errorf("first comment = %+v, want alice/first note", meta.Comments[0])
+	}
+	if meta.Comments[1].Actor != "bob" {
+		t.Errorf("second comment actor = %q, want bob", meta.Comments[1].Actor)
+	}
+}
+
+func TestUpdateTriageFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "TRIAGE-010.md")
+	content := `---
+id: TRIAGE-010
+title: Original
+status: open
+priority: low
+source: email
+created: "2026-06-01"
+---
+
+Original body here.
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateTriageFields(path, "Updated Title", "high", "slack", "New body text"); err != nil {
+		t.Fatalf("UpdateTriageFields: %v", err)
+	}
+	meta, err := ReadTriageMeta(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Title != "Updated Title" {
+		t.Errorf("Title = %q, want Updated Title", meta.Title)
+	}
+	if meta.Priority != "high" {
+		t.Errorf("Priority = %q, want high", meta.Priority)
+	}
+	if meta.Source != "slack" {
+		t.Errorf("Source = %q, want slack", meta.Source)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "New body text") {
+		t.Error("body should be updated")
+	}
+	if strings.Contains(string(data), "Original body here") {
+		t.Error("old body should be replaced")
+	}
+}
+
+func TestArchiveTriageItem(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "TRIAGE-011.md")
+	content := `---
+id: TRIAGE-011
+title: To be closed
+status: open
+priority: medium
+created: "2026-06-01"
+---
+
+Body.
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ArchiveTriageItem(path, "resolved", "fixed in v2", "alice"); err != nil {
+		t.Fatalf("ArchiveTriageItem: %v", err)
+	}
+	meta, err := ReadTriageMeta(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Status != "archived" {
+		t.Errorf("Status = %q, want archived", meta.Status)
+	}
+	if meta.ResolvedAt == "" {
+		t.Error("ResolvedAt should be set")
+	}
+	if len(meta.Comments) != 1 {
+		t.Fatalf("Comments = %d, want 1", len(meta.Comments))
+	}
+	if meta.Comments[0].Actor != "alice" {
+		t.Errorf("Comment actor = %q, want alice", meta.Comments[0].Actor)
+	}
+	if !strings.Contains(meta.Comments[0].Message, "resolved") {
+		t.Error("comment should contain the reason")
+	}
+	if !strings.Contains(meta.Comments[0].Message, "fixed in v2") {
+		t.Error("comment should contain the note")
+	}
+}
+
+func TestEscalateTriageItem(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "TRIAGE-012.md")
+	content := `---
+id: TRIAGE-012
+title: Escalation test
+status: open
+priority: high
+created: "2026-06-01"
+---
+
+Body.
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := EscalateTriageItem(path, false, "bob"); err != nil {
+		t.Fatalf("EscalateTriageItem (escalate): %v", err)
+	}
+	meta, err := ReadTriageMeta(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Severity != "urgent" {
+		t.Errorf("Severity after escalate = %q, want urgent", meta.Severity)
+	}
+	if len(meta.Comments) != 1 {
+		t.Fatalf("Comments = %d, want 1", len(meta.Comments))
+	}
+	if !strings.Contains(meta.Comments[0].Message, "escalated to urgent") {
+		t.Errorf("escalation comment = %q, want 'escalated to urgent'", meta.Comments[0].Message)
+	}
+
+	if err := EscalateTriageItem(path, true, "charlie"); err != nil {
+		t.Fatalf("EscalateTriageItem (de-escalate): %v", err)
+	}
+	meta, _ = ReadTriageMeta(path)
+	if meta.Severity != "" {
+		t.Errorf("Severity after de-escalate = %q, want empty", meta.Severity)
+	}
+	if len(meta.Comments) != 2 {
+		t.Fatalf("Comments = %d, want 2", len(meta.Comments))
+	}
+	if !strings.Contains(meta.Comments[1].Message, "de-escalated") {
+		t.Errorf("de-escalation comment = %q", meta.Comments[1].Message)
+	}
+}
+
+func TestExtractFrontmatterBlock(t *testing.T) {
+	content := "---\nid: TRIAGE-001\ntitle: Test\n---\n\nBody here."
+	block := extractFrontmatterBlock(content)
+	if !strings.HasPrefix(block, "---") {
+		t.Error("block should start with ---")
+	}
+	if !strings.Contains(block, "TRIAGE-001") {
+		t.Error("block should contain frontmatter content")
+	}
+	if strings.Contains(block, "Body here") {
+		t.Error("block should not contain the body")
+	}
+}
+
+func TestUpdateTriageFields_PreservesComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "TRIAGE-013.md")
+	content := `---
+id: TRIAGE-013
+title: Has history
+status: open
+priority: low
+created: "2026-06-01"
+comments:
+    - actor: alice
+      message: initial note
+      at: "2026-06-01T10:00:00Z"
+---
+
+Original body.
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateTriageFields(path, "Edited", "high", "", "New body"); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := ReadTriageMeta(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(meta.Comments) != 1 {
+		t.Fatalf("existing comments should be preserved, got %d", len(meta.Comments))
+	}
+	if meta.Comments[0].Actor != "alice" {
+		t.Errorf("preserved comment actor = %q, want alice", meta.Comments[0].Actor)
+	}
+}

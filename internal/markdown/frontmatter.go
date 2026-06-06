@@ -145,14 +145,25 @@ func (m *SpecMeta) IsReviewChangesRequested() bool {
 
 // TriageMeta represents the YAML frontmatter of a TRIAGE.md file.
 type TriageMeta struct {
-	ID         string `yaml:"id"`
-	Title      string `yaml:"title"`
-	Status     string `yaml:"status"`
-	Priority   string `yaml:"priority"`
-	Source     string `yaml:"source,omitempty"`
-	SourceRef  string `yaml:"source_ref,omitempty"`
-	ReportedBy string `yaml:"reported_by,omitempty"`
-	Created    string `yaml:"created"`
+	ID         string          `yaml:"id"`
+	Title      string          `yaml:"title"`
+	Status     string          `yaml:"status"`
+	Priority   string          `yaml:"priority"`
+	Severity   string          `yaml:"severity,omitempty"`    // "urgent" or "normal" (default normal)
+	LinkedSpec string          `yaml:"linked_spec,omitempty"` // SPEC-NNN if manually linked
+	Source     string          `yaml:"source,omitempty"`
+	SourceRef  string          `yaml:"source_ref,omitempty"`
+	ReportedBy string          `yaml:"reported_by,omitempty"`
+	Created    string          `yaml:"created"`
+	ResolvedAt string          `yaml:"resolved_at,omitempty"` // set when closed/archived
+	Comments   []TriageComment `yaml:"comments,omitempty"`    // append-only history log
+}
+
+// TriageComment is a single immutable entry in a triage item's history log.
+type TriageComment struct {
+	Actor   string `yaml:"actor"`
+	Message string `yaml:"message"`
+	At      string `yaml:"at"` // RFC3339 timestamp
 }
 
 // ReadMeta reads and parses the YAML frontmatter from a markdown file.
@@ -197,6 +208,125 @@ func ParseTriageMeta(content string) (*TriageMeta, error) {
 		return nil, fmt.Errorf("parsing triage frontmatter: %w", err)
 	}
 	return &meta, nil
+}
+
+// WriteTriageMeta updates triage frontmatter in a file, preserving the body.
+func WriteTriageMeta(path string, meta *TriageMeta) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	newContent, err := replaceFrontmatter(string(data), meta)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(newContent), 0o644)
+}
+
+// AppendTriageComment appends a new comment to a triage file's history log and
+// persists it in place. It is additive-only; existing entries are never touched.
+func AppendTriageComment(path, actor, message string) error {
+	meta, err := ReadTriageMeta(path)
+	if err != nil {
+		return fmt.Errorf("reading triage meta: %w", err)
+	}
+	meta.Comments = append(meta.Comments, TriageComment{
+		Actor:   actor,
+		Message: message,
+		At:      time.Now().UTC().Format(time.RFC3339),
+	})
+	return WriteTriageMeta(path, meta)
+}
+
+// UpdateTriageFields updates the mutable fields of a triage file and replaces
+// the body, while preserving existing comments and immutable metadata.
+func UpdateTriageFields(path, title, priority, source, body string) error {
+	meta, err := ReadTriageMeta(path)
+	if err != nil {
+		return fmt.Errorf("reading triage: %w", err)
+	}
+	meta.Title = title
+	meta.Priority = priority
+	meta.Source = source
+	if err := WriteTriageMeta(path, meta); err != nil {
+		return fmt.Errorf("writing triage meta: %w", err)
+	}
+	return replaceTriageBody(path, body)
+}
+
+// ArchiveTriageItem sets a triage item's status to "archived", records the
+// resolution timestamp, and appends a closing history entry.
+func ArchiveTriageItem(path, reason, note, actor string) error {
+	meta, err := ReadTriageMeta(path)
+	if err != nil {
+		return fmt.Errorf("reading triage: %w", err)
+	}
+	meta.Status = "archived"
+	meta.ResolvedAt = time.Now().UTC().Format(time.RFC3339)
+	msg := reason
+	if note != "" {
+		msg += ": " + note
+	}
+	meta.Comments = append(meta.Comments, TriageComment{
+		Actor:   actor,
+		Message: msg,
+		At:      meta.ResolvedAt,
+	})
+	if err := WriteTriageMeta(path, meta); err != nil {
+		return fmt.Errorf("writing triage meta: %w", err)
+	}
+	return nil
+}
+
+// EscalateTriageItem toggles severity between "urgent" and "" (normal) and
+// appends a history entry recording the escalation event.
+func EscalateTriageItem(path string, currentlyUrgent bool, actor string) error {
+	meta, err := ReadTriageMeta(path)
+	if err != nil {
+		return fmt.Errorf("reading triage: %w", err)
+	}
+	verb := "escalated to urgent"
+	if currentlyUrgent {
+		meta.Severity = ""
+		verb = "de-escalated to normal"
+	} else {
+		meta.Severity = "urgent"
+	}
+	meta.Comments = append(meta.Comments, TriageComment{
+		Actor:   actor,
+		Message: verb,
+		At:      time.Now().UTC().Format(time.RFC3339),
+	})
+	if err := WriteTriageMeta(path, meta); err != nil {
+		return fmt.Errorf("writing triage meta: %w", err)
+	}
+	return nil
+}
+
+// replaceTriageBody replaces the markdown body of a file (everything after the
+// frontmatter) while preserving the frontmatter block intact.
+func replaceTriageBody(path, body string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	content := string(data)
+	fmBlock := extractFrontmatterBlock(content)
+	newContent := fmBlock + "\n" + strings.TrimSpace(body) + "\n"
+	return os.WriteFile(path, []byte(newContent), 0o644)
+}
+
+// extractFrontmatterBlock returns the raw "---\n...\n---\n" block from content.
+func extractFrontmatterBlock(content string) string {
+	if !strings.HasPrefix(content, "---") {
+		return ""
+	}
+	rest := content[3:]
+	idx := strings.Index(rest, "\n---")
+	if idx < 0 {
+		return content
+	}
+	return "---" + rest[:idx] + "\n---\n"
 }
 
 // WriteMeta updates the frontmatter in a file, preserving the body content.

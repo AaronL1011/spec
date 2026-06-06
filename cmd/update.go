@@ -42,7 +42,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	updater := update.NewUpdater(githubUpdateToken())
 	plan, err := updater.Plan(ctx(), update.Options{
-		CurrentVersion: Version,
+		CurrentVersion: resolveVersion(),
 		ExecPath:       execPath,
 		TargetVersion:  mustString(cmd, "version"),
 		Force:          mustBool(cmd, "force"),

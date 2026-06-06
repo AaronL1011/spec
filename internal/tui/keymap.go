@@ -274,6 +274,19 @@ func (k KeyMap) GlobalBindings() []key.Binding {
 	return []key.Binding{k.Help, k.Search, k.Refresh, k.ExpandError, k.Quit}
 }
 
+// TriageBindings returns keybindings shown when the triage view is active.
+func (k KeyMap) TriageBindings() []key.Binding {
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter/space", "open detail")),
+		key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "add note")),
+		key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit (pm/eng)")),
+		key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "close (pm/eng)")),
+		key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "escalate/de-escalate (pm/eng)")),
+		key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "promote to spec (pm)")),
+		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close detail")),
+	}
+}
+
 // SettingsBindings returns keybindings for the Settings tab edit flow.
 func (k KeyMap) SettingsBindings() []key.Binding {
 	return []key.Binding{

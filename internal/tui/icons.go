@@ -25,6 +25,7 @@ const (
 	IconCursor = glyph.Cursor
 	IconCaret  = glyph.Caret
 	IconClock  = glyph.Clock
+	IconUrgent = glyph.Urgent // urgent triage item marker
 
 	IconToastOK   = glyph.ToastOK
 	IconToastErr  = glyph.ToastErr
