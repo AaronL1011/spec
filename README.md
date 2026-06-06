@@ -1,40 +1,41 @@
-# spec — A Unified Developer Control Plane
+# spec — Work _flow_ in the Terminal
 
-`spec` was built for flow. Born from a desire for liberation from tangled webs of
-project-management software — free to solve problems in peace and serenity.
+`spec` was built for flow. Born out of desire to escape the tangled webs of
+development lifecycle software — free to solve problems in peace and serenity.
 
-It unifies spec management, pipeline orchestration, build context, and team
-coordination into a single, fast, local-first tool. Run `spec` with no arguments
-and you land in an interactive terminal dashboard — your home base for everything
-awaiting your attention. From there you triage, advance, review, and build without
-leaving the keyboard. Every action is also a plain command, so the same workflow
-scripts cleanly in CI and automation.
+It keeps spec documents, pipeline state, decisions, review context, and build
+context in one workflow.
+
+Run `spec` with no arguments to open the interactive terminal dashboard. The
+dashboard is the primary interface for day-to-day work: triage incoming items,
+read specs, advance stages, review work, and start builds from one keyboard-driven
+view. The same actions are also available as commands for scripts, CI, and
+automation.
 
 ![Demonstration of a spec review](docs/demos/demo.gif)
 
-> **New here?** Jump straight to the **[QUICKSTART guide →](docs/QUICKSTART.md)** to go from
-> zero to productive in about 15 minutes.
+> **New here?** Start with the **[QUICKSTART guide →](docs/QUICKSTART.md)**.
 
 ---
 
 ## Why spec?
 
-- **A dashboard you actually live in.** The interactive TUI is the primary surface:
-  six tabs, full keyboard navigation, drill-down spec reading, and inline actions
-  for everything from triage to advance to build. The raw commands are there too,
+- **A terminal-first workflow.** A streamlined TUI is the primary surface:
+  six tabs, keyboard navigation, drill-down spec reading and inline actions for
+  triage, stage changes, reviews, and builds. Commands provide the same operations
   for scripting and CI.
 - **One place for the work.** Specs, pipeline state, decisions, reviews, and build
   context live together.
-- **A pipeline that fits your team.** Stages, gates, and automated effects are
-  config-driven. Start from a preset, customise as you grow.
-- **Markdown in git is the source of truth.** No proprietary database, no lock-in.
+- **Configurable pipeline state.** Stages, gates, and automated effects are
+  config-driven. Start from a preset and adjust it as your process changes.
+- **Markdown in git as the source of truth.** No proprietary database, no lock-in.
   A spec is a structured `SPEC-NNN.md` you can read, diff, and review.
 - **Local-first and resilient.** Every integration is optional. Unconfigured tools
   use noop adapters. `spec` works fully offline.
-- **Agent-ready.** `spec build` assembles structured context for coding agents
+- **Agent build context.** `spec build` assembles structured context for coding agents
   (Pi, Claude Code, Cursor, Copilot) over an MCP server or a context file.
-- **AI is a bonus, never a requirement.** Drafting features enhance the flow when
-  configured and quietly step aside when they aren't.
+- **AI is optional.** Drafting features are available when configured; the core
+  workflow works without them.
 
 ---
 
@@ -86,18 +87,17 @@ make install-man          # install man pages (spec(1), spec-advance(1), …)
 
 ## The 30-second tour
 
-Set up once, then open the dashboard and work from there:
+Set up once, then open the dashboard:
 
 ```bash
 spec config init --user        # set up your identity (once)
 spec join acme/specs           # join your team's specs repo
-spec                           # open the interactive dashboard — your home base
+spec                           # open the interactive dashboard
 ```
 
-Inside the dashboard you navigate with the keyboard and act inline: press `enter`
-to read a spec, `a` to advance, `b` to build, `f` to focus, `n` to draft a new spec.
-Every one of those actions also has a command behind it, so the same workflow drops
-straight into scripts and CI:
+Inside the dashboard, use the keyboard to read and act on work: `enter` opens a
+spec, `a` advances it, `b` starts or resumes a build, `f` toggles focus, and `n`
+creates a new spec. The same operations are available as commands:
 
 ```bash
 spec new --title "Auth fix"    # scaffold a spec
@@ -131,25 +131,24 @@ to docs, log a decision). Start from a preset (`minimal`, `startup`, `product`,
 ### Focus mode
 
 Most commands operate on a single spec. Set a focused spec once with `spec focus`
-and it persists across terminal sessions, so `spec status`, `spec advance`,
-`spec build`, and friends all just work. Pass an explicit ID to override for one
-command.
+and it persists across terminal sessions. Commands such as `spec status`,
+`spec advance`, and `spec build` use the focused spec unless you pass an explicit
+ID.
 
-### The interface
+### Interfaces
 
-`spec` gives you the same workflow through two surfaces, and the dashboard is the
-one you'll reach for daily.
+`spec` exposes the same workflow through two interfaces.
 
 **The dashboard (TUI)** — running `spec` in an interactive terminal launches a
 persistent, auto-refreshing dashboard with six tabs: **Dashboard, Pipeline, Specs,
-Triage, Reviews, Settings**. It has full keyboard navigation, drill-down spec
-reading, and inline actions for the whole lifecycle — advance, revert, block,
-focus, build, decide, push, sync, archive — plus a complete role-gated triage flow
-(open a detail view, add notes, edit, close, escalate, promote to a spec). Settings
-are editable live. Destructive actions confirm before they run.
+Triage, Reviews, Settings**. It supports keyboard navigation, drill-down spec
+reading, inline lifecycle actions (advance, revert, block, focus, build, decide,
+push, sync, archive), and a role-gated triage flow (open a detail view, add notes,
+edit, close, escalate, promote to a spec). Settings are editable live. Destructive
+actions require confirmation.
 
-**The command layer** — every dashboard action is also a first-class command, so
-the workflow composes cleanly in scripts, hooks, and CI. In non-interactive
+**The command interface** — every dashboard action is also a first-class command,
+so the workflow can run from scripts, hooks, and CI. In non-interactive
 contexts (pipes, CI) the dashboard falls back to a static render; force it anywhere
 with `--static`.
 

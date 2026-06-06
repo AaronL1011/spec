@@ -1,15 +1,13 @@
 # spec Agent Build Integration Port
 
-> The single document required to integrate any agent build system with
-> `spec build`. If your harness speaks MCP and can dispatch a unit of work into
-> a directory, it can drive a spec build using only what is below — no spec-cli
-> source, no specific skill files.
+> Reference for integrating an agent build system with `spec build`. If your
+> harness speaks MCP and can dispatch work into a directory, it can drive a spec
+> build using this port without depending on spec-cli internals or bundled skills.
 
-`spec-cli` is the **control plane**: it owns the dependency graph, the durable
-node ledger, all git/worktree mechanics, and the GitHub calls. Your build system
-is the **conductor**: it reads the graph, dispatches workers, and checkpoints
-progress through the port. spec-cli supplies *deterministic mechanism and data*;
-it never designs and never injects capability content into your conductor.
+`spec-cli` owns the dependency graph, durable node ledger, git/worktree mechanics,
+and GitHub calls. The build system reads the graph, dispatches workers, and
+checkpoints progress through the port. spec-cli supplies deterministic state and
+mechanics; the agent or harness supplies implementation judgement.
 
 ## 1. Launch & capability negotiation
 
@@ -19,7 +17,7 @@ agent adapter advertises:
 
 | Capability | Effect |
 |------------|--------|
-| `MCP` | spec-cli writes an ephemeral MCP config pointing at `spec mcp-server --spec <id>` and frames the run as a **conductor** traversal of this port. **Recommended.** |
+| `MCP` | spec-cli writes an ephemeral MCP config pointing at `spec mcp-server --spec <id>` and frames the run as a conductor traversal of this port. |
 | `Skills` | spec-cli passes the *conductor-level* skills (start-dir scoped, from `conductor_skill` config or `.spec/agent/skills/` discovery). Per-node worker skills are **not** passed here — they travel via `spec_provision_node`. |
 | `Headless` | enables `spec fix --auto` / CI autonomous runs. |
 | `SystemPrompt` | spec-cli supplies a thin base instruction; the orchestration playbook is a skill. |
@@ -45,7 +43,7 @@ Read these MCP resources (read-only):
 | `spec://current/conventions` | Project conventions (when present). |
 | `spec://current/prior-diffs` | Cumulative diffs of completed nodes; pass relevant slices to downstream workers. |
 | `spec://current/decisions` | Decision log. |
-| `spec://current/capabilities` | **Versioned JSON** (`docs/schemas/capabilities.v1.json`). Advertises the active router, strategy, finishing tools, and completion model so a BYO harness can adapt without probing. |
+| `spec://current/capabilities` | **Versioned JSON** (`docs/schemas/capabilities.v1.json`). Advertises the active router, strategy, finishing tools, and completion model so external harnesses can adapt without probing. |
 
 ### The DAG document (`build-port/v1`)
 
@@ -82,8 +80,7 @@ is policy, not a baked-in requirement:
   (flat, prefixed), `path:` repo-root-relative, plus a top-level `modifiers:` list.
   The legacy nested `applies_to`/`modifier: true` forms are still accepted.
 - **`none` / discovery.** Routes nothing; `skillPaths` is empty and the harness
-  discovers skills itself (e.g. pi/Claude scanning `.agents/skills/`). The BYO
-  "bring no routing model" path.
+  discovers skills itself (e.g. pi/Claude scanning `.agents/skills/`).
 
 A harness should treat `skillPaths` as given and hand them to the worker; it
 should not assume a routing model. `spec build --check` prints the active router.
@@ -102,7 +99,7 @@ The VCS/review workflow is a selectable *strategy* (`build.strategy` /
   build is done when every stack leaf has a draft PR.
 - **`none` / local.** Work stays on local branches; **no finishing tools are
   exposed** (calling one returns an error) and a build is done once all nodes
-  complete. The BYO "bring your own merge workflow" path.
+  complete.
 
 Read `finishingTools` from the capabilities resource rather than assuming the
 stacked workflow.
@@ -192,10 +189,9 @@ nodes are complete.
 - **`ai-squad-skills`** (`build-orchestrator` + `pr-finisher` skills) is the
   reference conductor for pi and Claude Code.
 - A non-LLM conformance kit (`internal/build/conformance_test.go`) drives a
-  synthetic fixture spec through the whole port in two fully-different
-  configurations — the default stack and a BYO `router=none`/`strategy=none`
-  stack — proving a different consumer integrates with **zero kernel change**.
-  It is the regression guard for changes to the port.
+  synthetic fixture spec through the port in two configurations: the default
+  stack and a `router=none`/`strategy=none` stack. It is the regression guard for
+  changes to the port.
 
 ## 9. Pluggable adapters at a glance
 
@@ -204,6 +200,6 @@ nodes are complete.
 | Skill routing (Tier 1) | `build.router` | `registry` | `none` | `docs/schemas/registry.v1.json` |
 | Build strategy (Tier 2) | `build.strategy` | `stacked-draft-pr` | `none` | `docs/schemas/capabilities.v1.json` |
 
-The kernel (spec/DAG/ledger/git/MCP) is mandatory and carries no AI/agent
-concern. Routers and strategies are boundary adapters: bring your own, or bring
-none, without touching the kernel.
+The kernel (spec/DAG/ledger/git/MCP) is mandatory and does not contain agent
+policy. Routers and strategies are boundary adapters: use the defaults, provide
+your own, or disable them without changing the kernel.

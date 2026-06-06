@@ -1,15 +1,13 @@
 # spec — Quickstart & Daily Guide
 
-This is the practical guide to `spec`: how to install it, configure your identity,
-join (or set up) a team, shape your pipeline, and use it every day. It assumes
-nothing beyond a terminal and Git.
+This guide covers installation, identity setup, team configuration, pipeline
+configuration, and daily use. It assumes only a terminal and Git.
 
-Day to day, you'll drive `spec` from its interactive dashboard — that's the primary
-interface and where this guide steers you first. The individual commands sit
-underneath it as a scriptable layer for automation, CI, and muscle memory; they're
-documented in full so nothing is hidden.
+The interactive dashboard is the primary interface for daily work. The command
+interface provides the same operations for automation, CI, and direct terminal
+use.
 
-For a high-level overview and contribution guide, see the [README](README.md).
+For a high-level overview and contribution guide, see the [README](../README.md).
 
 **Contents**
 
@@ -18,8 +16,8 @@ For a high-level overview and contribution guide, see the [README](README.md).
 3. [Join or create a team (team config)](#3-join-or-create-a-team-team-config)
 4. [Configure your pipeline](#4-configure-your-pipeline)
 5. [Connect integrations (optional)](#5-connect-integrations-optional)
-6. [Your daily driver: the dashboard (TUI)](#6-your-daily-driver-the-dashboard-tui)
-7. [The command layer](#7-the-command-layer)
+6. [Dashboard (TUI)](#6-dashboard-tui)
+7. [Command interface](#7-command-interface)
 8. [Building with a coding agent](#8-building-with-a-coding-agent)
 9. [Command reference](#9-command-reference)
 10. [Configuration reference](#10-configuration-reference)
@@ -29,7 +27,7 @@ For a high-level overview and contribution guide, see the [README](README.md).
 
 ## 1. Install
 
-Pick whichever suits you (see the [README](README.md#install) for all options):
+Pick whichever suits you (see the [README](../README.md#install) for all options):
 
 ```bash
 # Homebrew
@@ -250,21 +248,19 @@ spec config test
 
 ---
 
-## 6. Your daily driver: the dashboard (TUI)
+## 6. Dashboard (TUI)
 
 Running `spec` with no arguments opens the interactive dashboard — a persistent,
-auto-refreshing terminal app that is the primary way to use `spec`. Start your day
-here and you can read, triage, advance, review, and build without ever assembling a
-command by hand.
+auto-refreshing terminal app for reading specs, triaging intake, changing stages,
+reviewing work, and starting builds.
 
 ```bash
-spec                  # open the dashboard — everything awaiting you
+spec                  # open the dashboard
 ```
 
-In pipes/CI it falls back to a static render; force the static view anywhere with
-`spec --static`. Every non-dashboard command also prints a one-line awareness hint
-when items are pending (e.g. `⚠ 1 pending · run 'spec' for details`) to nudge you
-back to it.
+In pipes and CI it falls back to a static render; force the static view anywhere
+with `spec --static`. Non-dashboard commands also print a one-line awareness hint
+when items are pending, for example `⚠ 1 pending · run 'spec' for details`.
 
 ### Tabs
 
@@ -282,8 +278,7 @@ spec to drill into a readable detail view; `esc` goes back.
 
 ### Spec actions
 
-Select a spec in any list and drive its whole lifecycle inline — no command
-required:
+Select a spec in any list to run lifecycle actions inline:
 
 | Key | Action | Notes |
 |---|---|---|
@@ -306,9 +301,9 @@ required:
 
 ### Triage in the dashboard
 
-The **Triage** tab is a complete intake workflow. Press `enter` (or `space`) on an
-item to open its detail view — title, severity, source, history, and notes — then
-act on it inline. Actions are gated on your role so the surface stays clean:
+The **Triage** tab handles intake items. Press `enter` (or `space`) on an item to
+open its detail view — title, severity, source, history, and notes — then act on
+it inline. Actions are gated on your configured role:
 
 | Key | Action | Who |
 |---|---|---|
@@ -319,8 +314,9 @@ act on it inline. Actions are gated on your role so the surface stays clean:
 | `x` | escalate / de-escalate | pm · engineer |
 | `p` | promote to a full spec | pm |
 
-The edit form is a real inline editor: `tab` moves between fields, the arrow keys
-move the cursor, `enter` cycles priority, `ctrl+s` saves, `esc` cancels.
+The edit form supports field navigation and cursor movement: `tab` moves between
+fields, arrow keys move the cursor, `enter` cycles priority, `ctrl+s` saves, and
+`esc` cancels.
 
 ### Global keys
 
@@ -337,19 +333,19 @@ apply live and are written straight to your user config.
 
 ---
 
-## 7. The command layer
+## 7. Command interface
 
-Everything you do in the dashboard is also a plain command. Reach for these when you
-want to script a step, wire `spec` into CI or a git hook, or simply move faster from
-muscle memory. They share the dashboard's state, so a `spec focus` set here shows up
-there and vice versa.
+Every dashboard action is also available as a command. Use commands when scripting
+a step, integrating with CI or a git hook, or working directly from the shell. The
+dashboard and commands share state: a `spec focus` set in one interface is visible
+in the other.
 
 `spec focus` a spec once and you can drop the ID from almost every command below.
 
 ### Start your day
 
 ```bash
-spec                  # open the dashboard (the default — see §6)
+spec                  # open the dashboard (default interface)
 spec list --mine      # specs you own
 ```
 
@@ -475,8 +471,8 @@ spec draft --pr
 
 ## 9. Command reference
 
-The full surface, for when you're scripting or want the exact flags. Most of these
-have a one-key equivalent in the dashboard (§6) — that's the faster path day to day.
+Use this section when scripting or when you need the exact command and flags. Most
+daily actions also have a dashboard keybinding.
 
 `[id]` means the command uses the focused spec when the ID is omitted.
 
@@ -484,7 +480,7 @@ have a one-key equivalent in the dashboard (§6) — that's the faster path day 
 
 | Command | Description |
 |---|---|
-| `spec` | Interactive dashboard (TUI) — everything awaiting you |
+| `spec` | Interactive dashboard (TUI) |
 | `spec --static` | Static dashboard render (scripts / CI) |
 | `spec focus [id]` | Set (or `--clear`) the focused spec |
 | `spec do [id]` | Resume work with full context |
@@ -662,4 +658,3 @@ spec config test
 spec pipeline --verbose
 ```
 
-Now go... enjoy the sweet sensations of flow state! 🧘🚀

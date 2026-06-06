@@ -120,7 +120,7 @@ specs_repo:
 ### `integrations`
 
 All integrations are optional. Unconfigured providers use a no-op adapter that
-silently returns empty results — no panic, no crash.
+returns empty results and lets local workflows continue.
 
 #### `integrations.comms`
 
@@ -323,8 +323,8 @@ Defines the lifecycle every spec moves through. See [Pipeline configuration](#pi
 
 ### `build`
 
-Tunes `spec build`'s DAG orchestration and selects the pluggable build adapters.
-All keys are optional; the defaults reproduce the shipped behaviour.
+Tunes `spec build`'s DAG orchestration and selects the build adapters. All keys
+are optional.
 
 ```yaml
 build:
@@ -633,11 +633,11 @@ agent:
 
 This takes precedence over `integrations.agent` in `spec.config.yaml`.
 
-The build seam distinguishes two skill roles (see `docs/INTEGRATION-PORT.md`):
+The build integration distinguishes two skill roles:
 
 - `conductor_skill` — orchestrator-level skills handed to an MCP-capable agent
-  to drive the whole-DAG build. Start-dir scoped, so cross-repo skills cannot
-  collide in the conductor.
+  for the whole-DAG build. Start-dir scoping avoids cross-repo skill name
+  collisions.
 - `skill` — the per-node worker fallback, used only when a node does not match
   the repo's `.spec/agent/skills/registry.yaml`. Routed node-worker skills reach
   workers via `spec_provision_node`, never the conductor.
