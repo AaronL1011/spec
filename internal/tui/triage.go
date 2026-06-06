@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -20,14 +21,23 @@ type triageDataMsg struct {
 	Err   error
 }
 
+// triageItem is the in-memory representation of a single triage entry.
 type triageItem struct {
 	ID         string
 	Title      string
 	Priority   string
+	Severity   string // "urgent" or "" (normal)
+	LinkedSpec string // SPEC-NNN if manually linked
 	Source     string
+	SourceRef  string
 	ReportedBy string
 	Created    string
+	Body       string                   // content after the frontmatter
+	Comments   []markdown.TriageComment // append-only history log
 }
+
+// isUrgent reports whether the item carries urgent severity.
+func (i triageItem) isUrgent() bool { return i.Severity == "urgent" }
 
 // triageModel shows the incoming triage queue.
 type triageModel struct {
@@ -38,6 +48,8 @@ type triageModel struct {
 	loaded  bool // true once at least one fetch has succeeded
 	err     error
 	cursor  int
+
+	selectedItemKey string // ID of selected item; preserved across re-sort
 
 	width  int
 	height int
@@ -69,9 +81,23 @@ func (m triageModel) update(msg tea.Msg) (triageModel, tea.Cmd) {
 			}
 			return m, nil
 		}
-		m.items = msg.Items
+		// Sort: urgent first, then created descending (stable by ID within group).
+		sortedItems := make([]triageItem, len(msg.Items))
+		copy(sortedItems, msg.Items)
+		sort.SliceStable(sortedItems, func(i, j int) bool {
+			iUrgent := sortedItems[i].isUrgent()
+			jUrgent := sortedItems[j].isUrgent()
+			if iUrgent != jUrgent {
+				return iUrgent
+			}
+			// Descending by Created (lexicographic ISO-date is correct).
+			return sortedItems[i].Created > sortedItems[j].Created
+		})
+		m.items = sortedItems
 		m.err = nil
 		m.loaded = true
+		// Re-anchor cursor to the same item ID if it was set.
+		m.cursor = m.cursorForKey(m.selectedItemKey)
 		if m.cursor >= len(m.items) {
 			m.cursor = max(0, len(m.items)-1)
 		}
@@ -82,14 +108,26 @@ func (m triageModel) update(msg tea.Msg) (triageModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Up):
 			if m.cursor > 0 {
 				m.cursor--
+				m.selectedItemKey = m.items[m.cursor].ID
 			}
 		case key.Matches(msg, m.keys.Down):
 			if m.cursor < len(m.items)-1 {
 				m.cursor++
+				m.selectedItemKey = m.items[m.cursor].ID
 			}
 		}
 	}
 	return m, nil
+}
+
+// cursorForKey finds the index of the item with the given ID, or 0 if not found.
+func (m triageModel) cursorForKey(id string) int {
+	for i, item := range m.items {
+		if item.ID == id {
+			return i
+		}
+	}
+	return 0
 }
 
 func (m triageModel) view() string {
@@ -102,7 +140,7 @@ func (m triageModel) view() string {
 
 	var b strings.Builder
 
-	b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  %d items in triage", len(m.items))))
+	b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  Triage (%d open)", len(m.items))))
 	b.WriteString("\n\n")
 
 	if len(m.items) == 0 {
@@ -152,33 +190,48 @@ func (m *triageModel) clickRow(y int) clickResult {
 		return clickActivated
 	}
 	m.cursor = idx
+	m.selectedItemKey = m.items[m.cursor].ID
 	return clickSelected
 }
 
 // wheelRows moves the triage selection by delta rows (negative = up).
 func (m *triageModel) wheelRows(delta int) {
 	m.cursor = clampCursor(m.cursor+delta, len(m.items))
+	if m.cursor >= 0 && m.cursor < len(m.items) {
+		m.selectedItemKey = m.items[m.cursor].ID
+	}
 }
 
 func (m triageModel) renderTriageRow(item triageItem, selected bool, width int) string {
-	icon := priorityIcon(item.Priority)
+	var icon string
+	if item.isUrgent() {
+		icon = IconUrgent
+	} else {
+		icon = priorityIcon(item.Priority)
+	}
 
 	idStr := fmt.Sprintf("%-11s", item.ID)
-	titleMax := width - 20
+	titleMax := width - 24
 	if titleMax < 10 {
 		titleMax = 10
 	}
 	title := truncate(item.Title, titleMax)
 
 	var detail string
-	if item.Source != "" {
-		detail = item.Source
+	if item.ReportedBy != "" {
+		detail = "@" + item.ReportedBy
 	}
 	if item.Created != "" {
 		if detail != "" {
 			detail += "  "
 		}
 		detail += item.Created
+	}
+	if item.LinkedSpec != "" {
+		if detail != "" {
+			detail += "  "
+		}
+		detail += "→ " + item.LinkedSpec
 	}
 
 	line := fmt.Sprintf("%s%s %s %-*s", Indent(1), icon, idStr, titleMax, title)
@@ -189,6 +242,8 @@ func (m triageModel) renderTriageRow(item triageItem, selected bool, width int) 
 	switch {
 	case selected:
 		return m.styles.RowSelected.Render(line)
+	case item.isUrgent():
+		return m.styles.Error.Render(line)
 	case item.Priority == "critical" || item.Priority == "high":
 		return m.styles.Error.Render(line)
 	case item.Priority == "medium":
@@ -207,6 +262,25 @@ func (m triageModel) selectedItemID() string {
 		return m.items[m.cursor].ID
 	}
 	return ""
+}
+
+// selectedItem returns the currently selected triageItem, or nil.
+func (m triageModel) selectedItem() *triageItem {
+	if m.cursor >= 0 && m.cursor < len(m.items) {
+		item := m.items[m.cursor]
+		return &item
+	}
+	return nil
+}
+
+// findItemByID returns the item with the given ID, or nil if not in the list.
+func (m triageModel) findItemByID(id string) *triageItem {
+	for _, item := range m.items {
+		if item.ID == id {
+			return &item
+		}
+	}
+	return nil
 }
 
 func (m triageModel) refresh() tea.Cmd {
@@ -251,17 +325,33 @@ func loadTriageData(ctx context.Context, rc *config.ResolvedConfig) ([]triageIte
 			continue
 		}
 		path := filepath.Join(triageDir, e.Name())
-		meta, err := markdown.ReadTriageMeta(path)
-		if err != nil {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
 			continue
 		}
+		content := string(data)
+		meta, parseErr := markdown.ParseTriageMeta(content)
+		if parseErr != nil {
+			continue
+		}
+		// Filter out archived items — they are closed and should not appear in
+		// the active list. Missing status is treated as open (back-compat).
+		if meta.Status == "archived" {
+			continue
+		}
+		body := markdown.Body(content)
 		items = append(items, triageItem{
 			ID:         meta.ID,
 			Title:      meta.Title,
 			Priority:   meta.Priority,
+			Severity:   meta.Severity,
+			LinkedSpec: meta.LinkedSpec,
 			Source:     meta.Source,
+			SourceRef:  meta.SourceRef,
 			ReportedBy: meta.ReportedBy,
 			Created:    meta.Created,
+			Body:       body,
+			Comments:   meta.Comments,
 		})
 	}
 	return items, syncErr

@@ -212,6 +212,81 @@ func TestApp_ViewSwitchClosesDetail(t *testing.T) {
 	}
 }
 
+// TestApp_TriageDetailEscClosesPane is a regression test for the bug where the
+// global esc escalation swallowed esc before it could close the triage detail
+// pane, trapping the user in the detail view.
+func TestApp_TriageDetailEscClosesPane(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.activeView = ViewTriage
+	app.triage.loading = false
+	app.triage.items = []triageItem{{ID: "TRIAGE-001", Title: "Test"}}
+	app.triage.cursor = 0
+
+	app.openTriageDetailForSelected()
+	if !app.showTriageDetail {
+		t.Fatal("triage detail should be open")
+	}
+
+	// esc must close the pane through the real key path, not arm exit.
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	a := model.(App)
+	if a.showTriageDetail {
+		t.Error("esc should close the triage detail pane")
+	}
+	if a.exitArmed {
+		t.Error("esc inside triage detail must not arm exit")
+	}
+}
+
+// TestApp_TriageDetailViewSwitchClosesPane verifies switching views closes the
+// triage detail pane so it cannot linger as stale state over another view.
+func TestApp_TriageDetailViewSwitchClosesPane(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.activeView = ViewTriage
+	app.triage.loading = false
+	app.triage.items = []triageItem{{ID: "TRIAGE-001", Title: "Test"}}
+	app.triage.cursor = 0
+
+	app.openTriageDetailForSelected()
+	if !app.showTriageDetail {
+		t.Fatal("triage detail should be open")
+	}
+
+	app.switchView(ViewSpecs)
+	if app.showTriageDetail {
+		t.Error("switching view should close the triage detail pane")
+	}
+}
+
+// TestApp_TriageDetailScrollsWithoutClosing verifies navigation keys scroll the
+// pane and are absorbed rather than leaking to the list or closing the pane.
+func TestApp_TriageDetailScrollsWithoutClosing(t *testing.T) {
+	app := testApp()
+	app.width = 80
+	app.height = 24
+	app.propagateSize()
+
+	app.activeView = ViewTriage
+	app.triage.loading = false
+	app.triage.items = []triageItem{{ID: "TRIAGE-001", Title: "Test", Body: strings.Repeat("line\n", 50)}}
+	app.triage.cursor = 0
+	app.openTriageDetailForSelected()
+
+	model, _ := app.Update(keyMsg("j"))
+	a := model.(App)
+	if !a.showTriageDetail {
+		t.Error("scrolling must not close the triage detail pane")
+	}
+}
+
 // TestApp_DashboardDoesNotRefreshOnSwitchWhenLoaded verifies the dashboard
 // fetches only on first load; switching back to an already-loaded dashboard
 // schedules no refresh (updates come from the auto-timer or manual refresh).

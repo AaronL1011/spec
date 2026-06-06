@@ -99,9 +99,12 @@ func (m helpModel) renderContent() string {
 	b.WriteString(m.section("Navigation", m.keys.NavigationBindings()))
 	b.WriteString(m.section("Views", m.keys.ViewBindings()))
 
-	if m.context == "Settings" {
+	switch m.context {
+	case "Settings":
 		b.WriteString(m.section("Settings", m.keys.SettingsBindings()))
-	} else {
+	case "Triage":
+		b.WriteString(m.section("Triage Actions", m.keys.TriageBindings()))
+	default:
 		b.WriteString(m.section("Spec Actions", m.keys.ActionBindings()))
 		b.WriteString(m.section("Creation", m.keys.CreationBindings()))
 	}

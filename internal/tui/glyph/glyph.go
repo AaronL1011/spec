@@ -29,6 +29,7 @@ const (
 	Cursor = "▸" // selection / focus cursor
 	Caret  = "▌" // text input caret
 	Clock  = "◷" // stale / age badge
+	Urgent = "▲" // urgent severity marker
 )
 
 // Toast icons.
