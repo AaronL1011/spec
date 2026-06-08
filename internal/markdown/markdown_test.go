@@ -161,7 +161,7 @@ func TestSlugify(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"## Overview                          <!-- owner: pm -->", "overview"},
+		{"## TL;DR                             <!-- owner: anyone -->", "tl_dr"},
 		{"## 1. Problem Statement           <!-- owner: pm -->", "problem_statement"},
 		{"### 7.3 PR Stack Plan", "pr_stack_plan"},
 		{"## Decision Log", "decision_log"},
@@ -343,7 +343,7 @@ func TestScaffoldSpec(t *testing.T) {
 
 	sections := ExtractSections(Body(content))
 	requiredSlugs := []string{
-		"overview", "decision_log", "problem_statement", "goals_non_goals",
+		"tl_dr", "decision_log", "problem_statement", "goals_non_goals",
 		"acceptance_criteria", "technical_implementation", "pr_stack_plan",
 	}
 	for _, slug := range requiredSlugs {

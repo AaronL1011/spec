@@ -25,13 +25,7 @@ updated: %s
 
 # %s - %s
 
-## Overview                          <!-- owner: pm -->
-
-### What
-
-### Why
-
-### How
+## TL;DR                             <!-- owner: anyone -->
 
 ## 1. Problem Statement           <!-- owner: pm -->
 
