@@ -830,13 +830,15 @@ func (m specDetailModel) viewOverview() string {
 	// ── Identity block ────────────────────────────────────────────────────────
 	b.WriteString("\n")
 	b.WriteString(m.styles.Title.Render(fmt.Sprintf("  %s — %s", m.meta.ID, m.meta.Title)))
-	b.WriteString("\n")
+	// b.WriteString(" ")
+	if m.meta.Status != "" {
+		glyph, style := m.statusBadge(m.meta.Status)
+		b.WriteString(style.Render(fmt.Sprintf("%s%s %s", Indent(1), glyph, m.meta.Status)))
+		b.WriteString("\n")
+	}
 	var metaParts []string
 	if m.meta.Author != "" {
 		metaParts = append(metaParts, m.meta.Author)
-	}
-	if m.meta.Status != "" {
-		metaParts = append(metaParts, m.meta.Status)
 	}
 	if m.meta.Cycle != "" {
 		metaParts = append(metaParts, m.meta.Cycle)
@@ -880,6 +882,15 @@ func (m specDetailModel) viewOverview() string {
 		b.WriteString("\n")
 	}
 
+	// ── Spec blocked block ───────────────────────────────────────────────────
+	if m.meta.Status == pipeline.StatusBlocked {
+		b.WriteString("\n")
+		b.WriteString(m.styles.Error.Bold(true).Render(Indent(1)+IconBlocked+" Blocked") + "\n")
+		if reason := latestEscapeReason(m.sections); reason != "" {
+			b.WriteString(m.styles.Error.Render(Indent(2)+truncate(reason, contentWidth-8)) + "\n")
+		}
+	}
+
 	// ── TL;DR block ──────────────────────────────────────────────────────────
 	if preview := m.tldrPreview(contentWidth); preview != "" {
 		b.WriteString("\n")
@@ -902,15 +913,6 @@ func (m specDetailModel) viewOverview() string {
 		}
 	}
 
-	// ── Spec blocked block ───────────────────────────────────────────────────
-	if m.meta.Status == pipeline.StatusBlocked {
-		b.WriteString("\n")
-		b.WriteString(m.styles.Error.Bold(true).Render(Indent(1)+IconBlocked+" Blocked") + "\n")
-		if reason := latestEscapeReason(m.sections); reason != "" {
-			b.WriteString(m.styles.Error.Render(Indent(2)+truncate(reason, contentWidth-8)) + "\n")
-		}
-	}
-
 	// ── Sections list ─────────────────────────────────────────────────────────
 	b.WriteString("\n")
 	b.WriteString(m.styles.SectionTitle.Render(Indent(1)+"Sections") + "\n")
@@ -929,32 +931,62 @@ func (m specDetailModel) viewOverview() string {
 		fmt.Fprintf(&b, "%s%s %s%s\n", Indent(2), fill, sec.Slug, owner)
 	}
 
-	// ── Hint strip ────────────────────────────────────────────────────────────
+	// ── Scrollable body (hints are pinned below) ─────────────────────────────
+	lines := splitLines(b.String())
+	visible := m.height
+	if visible < 3 {
+		visible = 3
+	}
+	bodyViewport := visible - 1 // reserve the last row for the pinned footer
+	if bodyViewport < 1 {
+		bodyViewport = 1
+	}
+	start := m.scroll
+	if start > len(lines) {
+		start = len(lines)
+	}
+	end := start + bodyViewport
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	// ── Pinned footer: hints + scroll indicator ──────────────────────────────
 	archiveHint := Hint("d", "archive")
 	if m.isArchived {
 		archiveHint = Hint("r", "restore")
 	}
 	hints := HintStrip(m.styles, archiveHint,
 		Hint("o", "read sections"), Hint("e", "edit"), Hint("esc", "back"))
-	b.WriteString(hints + "\n")
 
-	lines := splitLines(b.String())
-	visible := m.height
-	if visible < 3 {
-		visible = 3
+	if len(lines) > bodyViewport {
+		indicator := m.styles.Muted.Render(fmt.Sprintf(" ↕ %d–%d/%d", start+1, end, len(lines)))
+		hints += indicator
 	}
-	start := m.scroll
-	if start > len(lines) {
-		start = len(lines)
-	}
-	end := start + visible
-	if end > len(lines) {
-		end = len(lines)
-	}
-	return strings.Join(lines[start:end], "\n")
+
+	body := make([]string, end-start, end-start+1)
+	copy(body, lines[start:end])
+	body = append(body, hints)
+	return strings.Join(body, "\n")
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// statusBadge returns a coloured glyph and style for the spec's pipeline status.
+// It reuses the pipeline view's mono-width glyph set and maps statuses to
+// semantic styles: blocked → Error, terminal stages → Success, all others → Accent.
+func (m specDetailModel) statusBadge(status string) (string, lipgloss.Style) {
+	if status == pipeline.StatusBlocked {
+		return IconBlocked, m.styles.Error
+	}
+	pl := m.rc.Pipeline()
+	for _, ts := range pipeline.TerminalStages(pl) {
+		if status == ts {
+			return IconDone, m.styles.Success
+		}
+	}
+	idx := pl.StageIndex(status)
+	return StageIconAt(idx), m.styles.Accent
+}
 
 // tldrPreview renders the TL;DR section content through the Glamour markdown
 // renderer so it displays with full formatting on the detail screen. Returns
@@ -1059,7 +1091,8 @@ func (m specDetailModel) maxScroll() int {
 		}
 		return mx
 	}
-	mx := m.contentLines - max(m.height, 3)
+	bodyViewport := max(m.height, 3) - 1 // reserve footer row for pinned hints
+	mx := m.contentLines - bodyViewport
 	if mx < 0 {
 		return 0
 	}
@@ -1070,8 +1103,8 @@ func (m specDetailModel) estimateContentLines() int {
 	if m.meta == nil {
 		return 1
 	}
-	// Identity: blank + title + compact meta line
-	lines := 3
+	// Identity: blank + title + status line + compact meta line
+	lines := 4
 
 	// Review block: blank + 1 line
 	if m.meta.Review != nil {
@@ -1112,9 +1145,6 @@ func (m specDetailModel) estimateContentLines() int {
 			lines++
 		}
 	}
-
-	// Hint strip
-	lines++
 
 	return lines
 }
