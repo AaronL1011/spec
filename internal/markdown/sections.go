@@ -204,7 +204,7 @@ func slugify(heading string) string {
 // ValidSectionSlugs returns all valid section slugs from the spec template.
 func ValidSectionSlugs() []string {
 	return []string{
-		"overview",
+		"tl_dr",
 		"problem_statement",
 		"goals_non_goals",
 		"user_stories",

@@ -18,19 +18,9 @@ updated: YYYY-MM-DD
 
 ---
 
-## Overview                          <!-- owner: pm -->
+## TL;DR                             <!-- owner: anyone -->
 
-### What
-
-*What is being built or changed?*
-
-### Why
-
-*Why is this needed? What problem does it solve?*
-
-### How
-
-*At a high level, how will this work?*
+> *A few sentences: what this spec changes, why it matters, and the high-level approach. Enough for a reader to decide whether to read on.*
 
 ---
 

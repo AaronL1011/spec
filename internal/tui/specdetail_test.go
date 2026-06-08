@@ -575,25 +575,25 @@ func TestSpecDetail_SectionAtClick_OverviewMisses(t *testing.T) {
 	}
 }
 
-func TestSpecDetail_OverviewBlockShown(t *testing.T) {
+func TestSpecDetail_TLDRBlockShown(t *testing.T) {
 	m := testSpecDetailModel()
 	m.meta = &markdown.SpecMeta{ID: "SPEC-050", Title: "Feature X", Status: "draft"}
 	m.sections = []markdown.Section{
-		{Slug: "overview", Heading: "## Overview", Level: 2, Owner: "pm", Content: "Build a widget that solves Y."},
+		{Slug: "tl_dr", Heading: "## TL;DR", Level: 2, Owner: "anyone", Content: "Build a widget that solves Y."},
 		{Slug: "problem_statement", Heading: "## 1. Problem Statement", Level: 2, Owner: "pm", Content: "Users struggle."},
 	}
 	m.contentLines = m.estimateContentLines()
 
 	got := m.view()
-	if !strings.Contains(got, "Overview") {
-		t.Error("overview block header should appear in detail view")
+	if !strings.Contains(got, "TL;DR") {
+		t.Error("TL;DR block header should appear in detail view")
 	}
 	if !strings.Contains(got, "Build a widget") {
-		t.Error("overview content should appear in detail view")
+		t.Error("TL;DR content should appear in detail view")
 	}
 }
 
-func TestSpecDetail_OverviewBlockHiddenWhenAbsent(t *testing.T) {
+func TestSpecDetail_TLDRBlockHiddenWhenAbsent(t *testing.T) {
 	m := testSpecDetailModel()
 	m.meta = &markdown.SpecMeta{ID: "SPEC-050", Title: "Legacy Spec", Status: "draft"}
 	m.sections = []markdown.Section{
@@ -602,36 +602,22 @@ func TestSpecDetail_OverviewBlockHiddenWhenAbsent(t *testing.T) {
 	m.contentLines = m.estimateContentLines()
 
 	got := m.view()
-	lines := strings.Split(got, "\n")
-	overviewHeaderFound := false
-	for _, line := range lines {
-		if strings.Contains(line, "Overview") && !strings.Contains(line, "SPEC-") {
-			overviewHeaderFound = true
-		}
-	}
-	if overviewHeaderFound {
-		t.Error("overview block should not appear when no overview section exists")
+	if strings.Contains(got, "TL;DR") {
+		t.Error("TL;DR block should not appear when no tl_dr section exists")
 	}
 }
 
-func TestSpecDetail_OverviewBlockHiddenWhenEmpty(t *testing.T) {
+func TestSpecDetail_TLDRBlockHiddenWhenEmpty(t *testing.T) {
 	m := testSpecDetailModel()
 	m.meta = &markdown.SpecMeta{ID: "SPEC-050", Title: "New Spec", Status: "draft"}
 	m.sections = []markdown.Section{
-		{Slug: "overview", Heading: "## Overview", Level: 2, Owner: "pm", Content: "  \n\n  "},
+		{Slug: "tl_dr", Heading: "## TL;DR", Level: 2, Owner: "anyone", Content: "  \n\n  "},
 		{Slug: "problem_statement", Heading: "## 1. Problem Statement", Level: 2, Owner: "pm", Content: ""},
 	}
 	m.contentLines = m.estimateContentLines()
 
 	got := m.view()
-	lines := strings.Split(got, "\n")
-	overviewHeaderFound := false
-	for _, line := range lines {
-		if strings.Contains(line, "Overview") && !strings.Contains(line, "SPEC-") && !strings.Contains(line, "concept") {
-			overviewHeaderFound = true
-		}
-	}
-	if overviewHeaderFound {
-		t.Error("overview block should not appear when overview section is blank")
+	if strings.Contains(got, "TL;DR") {
+		t.Error("TL;DR block should not appear when tl_dr section is blank")
 	}
 }

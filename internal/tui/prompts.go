@@ -312,7 +312,7 @@ func PromptSectionSlug() (string, error) {
 	}
 
 	commonSections := []string{
-		"overview",
+		"tl_dr",
 		"problem_statement",
 		"goals_non_goals",
 		"user_stories",

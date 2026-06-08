@@ -880,10 +880,10 @@ func (m specDetailModel) viewOverview() string {
 		b.WriteString("\n")
 	}
 
-	// ── Overview block ────────────────────────────────────────────────────────
-	if preview := m.overviewPreview(contentWidth); preview != "" {
+	// ── TL;DR block ──────────────────────────────────────────────────────────
+	if preview := m.tldrPreview(contentWidth); preview != "" {
 		b.WriteString("\n")
-		b.WriteString(m.styles.SectionTitle.Render(Indent(1)+"Overview") + "\n")
+		b.WriteString(m.styles.SectionTitle.Render(Indent(1)+"TL;DR") + "\n")
 		b.WriteString(preview)
 		b.WriteString("\n")
 	}
@@ -956,11 +956,11 @@ func (m specDetailModel) viewOverview() string {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// overviewPreview renders the overview section content through the Glamour
-// markdown renderer so it displays with full formatting (bold, lists, etc.)
-// on the detail screen. Returns empty string when absent or blank.
-func (m specDetailModel) overviewPreview(width int) string {
-	sec := markdown.FindSection(m.sections, "overview")
+// tldrPreview renders the TL;DR section content through the Glamour markdown
+// renderer so it displays with full formatting on the detail screen. Returns
+// empty string when absent or blank.
+func (m specDetailModel) tldrPreview(width int) string {
+	sec := markdown.FindSection(m.sections, "tl_dr")
 	if sec == nil {
 		return ""
 	}
@@ -1078,8 +1078,8 @@ func (m specDetailModel) estimateContentLines() int {
 		lines += 2
 	}
 
-	// Overview block: blank + header + rendered content lines
-	if sec := markdown.FindSection(m.sections, "overview"); sec != nil {
+	// TL;DR block: blank + header + rendered content lines
+	if sec := markdown.FindSection(m.sections, "tl_dr"); sec != nil {
 		if text := strings.TrimSpace(sec.Content); text != "" {
 			n := len(strings.Split(text, "\n"))
 			lines += 2 + n + 2 // raw lines + padding from renderer

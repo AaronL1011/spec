@@ -610,10 +610,7 @@ updated: [date]
 
 # SPEC-<id> - [Feature/Enhancement Title]
 
-## Overview                        <!-- owner: pm -->
-  ### What
-  ### Why
-  ### How
+## TL;DR                           <!-- owner: anyone -->
 ## 1. Problem Statement           <!-- owner: pm -->
 ## 2. Goals & Non-Goals           <!-- owner: pm -->
 ## 3. User Stories                <!-- owner: pm -->
