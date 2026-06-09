@@ -1,7 +1,7 @@
 package tui
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"strings"
 	"testing"
 )
@@ -258,7 +258,7 @@ func TestSpecList_EscClearsCommittedFilter(t *testing.T) {
 	m.searchActive = false
 	m.applyFilter()
 
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEscape})
+	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.searchQuery != "" {
 		t.Errorf("esc (not searching) should clear filter, got %q", m.searchQuery)
 	}

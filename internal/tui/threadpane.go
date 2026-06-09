@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/thread"
 )
@@ -82,41 +82,42 @@ func (m specDetailModel) paneActiveForCurrentSection() bool {
 
 // handleThreadInputKey processes a keystroke while an ask/reply prompt is open.
 // It returns handled=false when the key is not consumed by the input.
-func (m specDetailModel) handleThreadInputKey(msg tea.KeyMsg) (specDetailModel, tea.Cmd, bool) {
+func (m specDetailModel) handleThreadInputKey(msg tea.KeyPressMsg) (specDetailModel, tea.Cmd, bool) {
 	if !m.input.active() {
 		return m, nil, false
 	}
-	switch msg.Type {
-	case tea.KeyEsc:
+	switch msg.String() {
+	case "esc":
 		m.input = threadInput{}
 		return m, nil, true
-	case tea.KeyEnter:
+	case "enter":
 		return m.submitInput()
-	case tea.KeyBackspace:
+	case "backspace":
 		if n := len(m.input.buffer); n > 0 {
 			// Trim one UTF-8 rune from the end.
 			r := []rune(m.input.buffer)
 			m.input.buffer = string(r[:len(r)-1])
 		}
 		return m, nil, true
-	case tea.KeyRunes, tea.KeySpace:
-		if msg.Type == tea.KeySpace {
-			m.input.buffer += " "
-		} else {
-			m.input.buffer += string(msg.Runes)
+	case "space":
+		m.input.buffer += " "
+		return m, nil, true
+	default:
+		// Absorb everything else (e.g. arrow keys) while typing.
+		if msg.Text != "" {
+			m.input.buffer += msg.Text
 		}
 		return m, nil, true
 	}
-	return m, nil, true // absorb everything else while typing
 }
 
 // handleThreadActionKey processes thread action keys (a/r/x/t/tab) in reader
 // mode. Returns handled=false when the key is not a thread action.
-func (m specDetailModel) handleThreadActionKey(msg tea.KeyMsg) (specDetailModel, tea.Cmd, bool) {
-	if msg.Type != tea.KeyRunes && msg.Type != tea.KeyTab {
+func (m specDetailModel) handleThreadActionKey(msg tea.KeyPressMsg) (specDetailModel, tea.Cmd, bool) {
+	if msg.Text == "" && msg.Code != tea.KeyTab {
 		return m, nil, false
 	}
-	if msg.Type == tea.KeyTab {
+	if msg.String() == "tab" {
 		// Focus toggles only when the pane is showing something to focus.
 		if m.paneActiveForCurrentSection() {
 			m.paneFocused = !m.paneFocused
@@ -126,7 +127,7 @@ func (m specDetailModel) handleThreadActionKey(msg tea.KeyMsg) (specDetailModel,
 		return m, nil, true
 	}
 
-	switch string(msg.Runes) {
+	switch msg.Text {
 	case "t":
 		m.paneVisible = !m.paneVisible
 		if !m.paneVisible {

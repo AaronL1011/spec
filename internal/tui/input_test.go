@@ -4,7 +4,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestDropLastRune(t *testing.T) {
@@ -94,7 +94,7 @@ func TestSpecListSearchBackspace_RuneSafe(t *testing.T) {
 	m.searchActive = true
 	m.searchQuery = "café"
 
-	m, _ = m.updateSearch(tea.KeyMsg{Type: tea.KeyBackspace})
+	m, _ = m.updateSearch(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if m.searchQuery != "caf" || !utf8.ValidString(m.searchQuery) {
 		t.Errorf("search backspace = %q, want %q (valid=%v)", m.searchQuery, "caf", utf8.ValidString(m.searchQuery))
 	}

@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/aaronl1011/spec/internal/build"
 	"github.com/aaronl1011/spec/internal/config"
@@ -131,7 +131,7 @@ type pendingRenderRequest struct {
 // ── Constructor ───────────────────────────────────────────────────────────────
 
 func newSpecDetail(rc *config.ResolvedConfig, specID string, styles Styles, keys KeyMap, theme Theme) specDetailModel {
-	vp := viewport.New(80, 20)
+	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(20))
 	vp.KeyMap = viewport.KeyMap{} // viewport keys are managed by updateReader
 	return specDetailModel{
 		rc:                   rc,
@@ -162,7 +162,7 @@ func (m specDetailModel) update(msg tea.Msg) (specDetailModel, tea.Cmd) {
 		return m.handleRenderedMsg(msg)
 	case threadsChangedMsg:
 		return m.handleThreadsChanged(msg)
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.readerMode {
 			return m.updateReader(msg)
 		}
@@ -239,7 +239,7 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 // watcher- and poll-triggered refreshes (SPEC-007).
 func (m specDetailModel) applyRefresh(msg specDetailDataMsg) (specDetailModel, tea.Cmd) {
 	// Capture position before swapping data.
-	prevScroll := m.readerViewport.YOffset
+	prevScroll := m.readerViewport.YOffset()
 	prevSectionIdx := m.sectionIdx
 	prevThreadScroll := m.threadScroll
 	selectedID := ""
@@ -384,7 +384,7 @@ func (m *specDetailModel) wheelScroll(delta int) {
 	}
 }
 
-func (m specDetailModel) updateOverview(msg tea.KeyMsg) (specDetailModel, tea.Cmd) {
+func (m specDetailModel) updateOverview(msg tea.KeyPressMsg) (specDetailModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Up):
 		if m.scroll > 0 {
@@ -406,7 +406,7 @@ func (m specDetailModel) updateOverview(msg tea.KeyMsg) (specDetailModel, tea.Cm
 	return m, nil
 }
 
-func (m specDetailModel) updateReader(msg tea.KeyMsg) (specDetailModel, tea.Cmd) {
+func (m specDetailModel) updateReader(msg tea.KeyPressMsg) (specDetailModel, tea.Cmd) {
 	// Active ask/reply prompt captures all keys first.
 	if nm, cmd, handled := m.handleThreadInputKey(msg); handled {
 		return nm, cmd
@@ -435,27 +435,27 @@ func (m specDetailModel) updateReader(msg tea.KeyMsg) (specDetailModel, tea.Cmd)
 			return m, nil
 		}
 		m.readerViewport.ScrollDown(1)
-	case msg.Type == tea.KeyPgUp:
+	case msg.Code == tea.KeyPgUp:
 		m.readerViewport.PageUp()
-	case msg.Type == tea.KeyPgDown:
+	case msg.Code == tea.KeyPgDown:
 		m.readerViewport.PageDown()
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "n":
+	case msg.Text == "n":
 		if m.paneFocused {
 			return m.selectThread(1), nil // next thread when reading threads
 		}
 		return m.withSection(m.sectionIdx + 1)
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "p":
+	case msg.Text == "p":
 		if m.paneFocused {
 			return m.selectThread(-1), nil
 		}
 		return m.withSection(m.sectionIdx - 1)
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "g":
+	case msg.Text == "g":
 		m.readerViewport.GotoTop()
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "G":
+	case msg.Text == "G":
 		m.readerViewport.GotoBottom()
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9':
-		return m.withSection(int(msg.Runes[0]-'0') - 1)
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "0":
+	case len(msg.Text) == 1 && msg.Text[0] >= '1' && msg.Text[0] <= '9':
+		return m.withSection(int(msg.Text[0]-'0') - 1)
+	case msg.Text == "0":
 		for i, sec := range m.readableSections() {
 			if sec.Slug == "decision_log" {
 				return m.withSection(i)
@@ -1038,8 +1038,8 @@ func (m *specDetailModel) setSize(w, h int) {
 	oldWidth := m.effectiveWidth()
 	m.width = w
 	m.height = h
-	m.readerViewport.Width = m.effectiveWidth()
-	m.readerViewport.Height = max(h, 3)
+	m.readerViewport.SetWidth(m.effectiveWidth())
+	m.readerViewport.SetHeight(max(h, 3))
 	if m.readerMode && m.effectiveWidth() != oldWidth {
 		// Width changed — cached renders are invalid at new width.
 		m.readerCache = make(map[string]string)
@@ -1053,7 +1053,7 @@ func (m *specDetailModel) setSize(w, h int) {
 
 func (m specDetailModel) maxScroll() int {
 	if m.readerMode {
-		mx := m.readerViewport.TotalLineCount() - m.readerViewport.Height
+		mx := m.readerViewport.TotalLineCount() - m.readerViewport.Height()
 		if mx < 0 {
 			return 0
 		}

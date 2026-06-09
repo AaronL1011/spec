@@ -1,16 +1,23 @@
 package tui
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/adapter/noop"
 	"github.com/aaronl1011/spec/internal/config"
 )
 
-// keyMsg creates a tea.KeyMsg from a string for testing.
-func keyMsg(s string) tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+// keyMsg creates a printable key press from a string for testing. In Bubble
+// Tea v2 typed text travels in KeyPressMsg.Text, and Code carries the first
+// rune so String()/matching behave like a real key press.
+func keyMsg(s string) tea.KeyPressMsg {
+	var code rune
+	for _, r := range s {
+		code = r
+		break
+	}
+	return tea.KeyPressMsg{Code: code, Text: s}
 }
 
 // testResolvedConfig creates a minimal ResolvedConfig for testing.

@@ -8,7 +8,7 @@ import (
 
 	xansi "github.com/charmbracelet/x/ansi"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/dashboard"
 	"github.com/aaronl1011/spec/internal/markdown"
@@ -34,7 +34,7 @@ func TestApp_InitReturnsCmd(t *testing.T) {
 
 func TestApp_ViewBeforeWindowSize(t *testing.T) {
 	app := testApp()
-	got := app.View()
+	got := app.View().Content
 	if !strings.Contains(got, "Initialising") {
 		t.Errorf("View() before WindowSizeMsg should show initialising, got: %q", got)
 	}
@@ -43,7 +43,7 @@ func TestApp_ViewBeforeWindowSize(t *testing.T) {
 func TestApp_ViewAfterWindowSize(t *testing.T) {
 	app := testApp()
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	got := model.(App).View()
+	got := model.(App).View().Content
 	if strings.Contains(got, "Initialising") {
 		t.Error("View() after WindowSizeMsg should not show initialising")
 	}
@@ -67,7 +67,7 @@ func TestApp_TabSwitching(t *testing.T) {
 
 	var model tea.Model = app
 	for _, tt := range tests {
-		model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)})
+		model, _ = model.Update(tea.KeyPressMsg{Text: tt.key})
 		a := model.(App)
 		if a.activeView != tt.want {
 			t.Errorf("after key %q: activeView = %d, want %d", tt.key, a.activeView, tt.want)
@@ -79,7 +79,7 @@ func TestApp_TabSwitching(t *testing.T) {
 // Quit is now double-esc at the top level or ctrl+c.
 func TestApp_QuitOnQ(t *testing.T) {
 	app := testApp()
-	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	_, cmd := app.Update(tea.KeyPressMsg{Text: "q"})
 	// 'q' must NOT quit any more.
 	if cmd != nil {
 		t.Error("pressing 'q' should NOT return a quit command (retired by SPEC-010)")
@@ -89,7 +89,7 @@ func TestApp_QuitOnQ(t *testing.T) {
 // TestApp_CtrlCQuits verifies that ctrl+c is the hard-quit key.
 func TestApp_CtrlCQuits(t *testing.T) {
 	app := testApp()
-	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd := app.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if cmd == nil {
 		t.Error("ctrl+c should return a quit command")
 	}
@@ -100,7 +100,7 @@ func TestApp_DoubleEscQuits(t *testing.T) {
 	app := testApp()
 
 	// First esc at top level: arms exit, must NOT quit.
-	model, cmd := app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	model, cmd := app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd != nil {
 		t.Error("first esc at top level should not quit")
 	}
@@ -110,7 +110,7 @@ func TestApp_DoubleEscQuits(t *testing.T) {
 	}
 
 	// Second esc within the window: must quit.
-	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	_, cmd = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd == nil {
 		t.Error("second esc within arm window should quit")
 	}
@@ -120,7 +120,7 @@ func TestApp_DoubleEscQuits(t *testing.T) {
 // level only arms exit but does not exit (AC-3).
 func TestApp_SingleEscAtTopDoesNotQuit(t *testing.T) {
 	app := testApp()
-	model, cmd := app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	model, cmd := app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd != nil {
 		t.Error("single esc should not quit; it only arms exit")
 	}
@@ -134,7 +134,7 @@ func TestApp_SingleEscAtTopDoesNotQuit(t *testing.T) {
 // arming exit disarms it without quitting.
 func TestApp_NonEscDisarmsExit(t *testing.T) {
 	app := testApp()
-	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyEscape}) // arm
+	model, _ := app.Update(tea.KeyPressMsg{Code: tea.KeyEscape}) // arm
 	a := model.(App)
 	if !a.exitArmed {
 		t.Fatal("exitArmed should be true after first esc")
@@ -232,7 +232,7 @@ func TestApp_TriageDetailEscClosesPane(t *testing.T) {
 	}
 
 	// esc must close the pane through the real key path, not arm exit.
-	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	model, _ := app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a := model.(App)
 	if a.showTriageDetail {
 		t.Error("esc should close the triage detail pane")
@@ -396,14 +396,14 @@ func TestApp_ModalInputFlow(t *testing.T) {
 	}
 
 	// Type a reason.
-	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("API blocked")})
+	model, _ = a.Update(tea.KeyPressMsg{Text: "API blocked"})
 	a = model.(App)
 	if a.modal.Input != "API blocked" {
 		t.Errorf("modal input = %q, want 'API blocked'", a.modal.Input)
 	}
 
 	// Escape cancels.
-	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
 	if a.modal.Visible {
 		t.Error("modal should be hidden after escape")
@@ -531,7 +531,7 @@ func TestApp_SpinnerDuringAdvance(t *testing.T) {
 	}
 
 	// Verify spinner appears in the rendered view.
-	view := a.View()
+	view := a.View().Content
 	if !strings.Contains(view, "advancing") {
 		t.Error("view should show advancing label in status bar")
 	}
@@ -563,7 +563,7 @@ func TestApp_SpinnerDuringBlock(t *testing.T) {
 	// Open block modal with 'x', type reason, submit.
 	model, _ := app.Update(keyMsg("x"))
 	model, _ = model.Update(keyMsg("blocked"))
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	a := model.(App)
 
 	if !a.actionInFlight {
@@ -841,7 +841,7 @@ func TestApp_ViewFitsTerminalHeight(t *testing.T) {
 		app = m.(App)
 		app.activeView = ViewSettings
 
-		if lines := strings.Count(app.View(), "\n") + 1; lines != sz.h {
+		if lines := strings.Count(app.View().Content, "\n") + 1; lines != sz.h {
 			t.Errorf("%dx%d: View() = %d lines, want %d (idle status)", sz.w, sz.h, lines, sz.h)
 		}
 
@@ -850,7 +850,7 @@ func TestApp_ViewFitsTerminalHeight(t *testing.T) {
 		if app.statusBar.StatusKind() != components.StatusSuccess {
 			t.Fatal("status should be success after persist")
 		}
-		if lines := strings.Count(app.View(), "\n") + 1; lines != sz.h {
+		if lines := strings.Count(app.View().Content, "\n") + 1; lines != sz.h {
 			t.Errorf("%dx%d: View() = %d lines, want %d (status showing)", sz.w, sz.h, lines, sz.h)
 		}
 	}
@@ -980,14 +980,14 @@ func TestApp_FirstReaderOpenShowsSpinnerNotNoContent(t *testing.T) {
 		Sections: []markdown.Section{{Slug: "problem", Heading: "## Problem Statement", Level: 2, Content: "Some problem."}},
 	})
 
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	model, _ = model.Update(tea.KeyPressMsg{Text: "o"})
 	app := model.(App)
 	// Simulate pending state — render in flight, no content yet.
 	app.detail.readerContent = ""
 	app.detail.renderInFlight = true
 	app.syncBusyState()
 
-	view := app.View()
+	view := app.View().Content
 	if strings.Contains(view, "(no content)") {
 		t.Fatal("first open should not show no-content placeholder")
 	}
@@ -1014,11 +1014,11 @@ func TestApp_ReaderModeImmediateRender(t *testing.T) {
 		},
 	})
 
-	overviewView := model.View()
+	overviewView := model.View().Content
 
 	// Press 'o' to enter reader mode.
 	var cmd tea.Cmd
-	model, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	model, cmd = model.Update(tea.KeyPressMsg{Text: "o"})
 
 	app := model.(App)
 	if !app.detail.readerMode {
@@ -1029,7 +1029,7 @@ func TestApp_ReaderModeImmediateRender(t *testing.T) {
 	}
 	model, _ = model.Update(cmd())
 
-	readerView := model.View()
+	readerView := model.View().Content
 	if overviewView == readerView {
 		t.Fatal("overview and reader views must produce different output")
 	}
@@ -1086,7 +1086,7 @@ func TestApp_RevertOverlayEscCancels(t *testing.T) {
 	}
 
 	// Press Esc to cancel.
-	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
 	if a.revert.active {
 		t.Error("revert overlay should close on Esc")
@@ -1122,7 +1122,7 @@ func TestApp_RevertRendersInView(t *testing.T) {
 	app.propagateSize()
 
 	_ = app.revert.openRevert("SPEC-001", "build", app.rc.Pipeline())
-	got := app.View()
+	got := app.View().Content
 	if !strings.Contains(got, "Revert") {
 		t.Error("view should contain Revert overlay")
 	}
@@ -1179,7 +1179,7 @@ func TestApp_ModalInputAcceptsSpaces(t *testing.T) {
 
 	// Type text with a space.
 	model, _ = a.Update(keyMsg("API"))
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	model, _ = model.Update(keyMsg("down"))
 	a = model.(App)
 	if a.modal.Input != "API down" {
@@ -1203,7 +1203,7 @@ func TestApp_SearchAcceptsSpaces(t *testing.T) {
 	// Activate search and type with a space.
 	model, _ := app.Update(keyMsg("/"))
 	model, _ = model.Update(keyMsg("my"))
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	model, _ = model.Update(keyMsg("spec"))
 	a := model.(App)
 	if a.specs.searchQuery != "my spec" {
@@ -1221,7 +1221,7 @@ func TestApp_RevertReasonAcceptsSpaces(t *testing.T) {
 	app.revert.nextField() // move to reason
 
 	model, _ := app.Update(keyMsg("gate"))
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	model, _ = model.Update(keyMsg("failed"))
 	a := model.(App)
 	if a.revert.reason != "gate failed" {
@@ -1239,7 +1239,7 @@ func TestApp_IntakeAcceptsSpaces(t *testing.T) {
 
 	// Type a title with a space.
 	model, _ := app.Update(keyMsg("new"))
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	model, _ = model.Update(keyMsg("item"))
 	a := model.(App)
 	if a.intake.title != "new item" {
@@ -1277,7 +1277,7 @@ func TestApp_EscClearsSearchFilterBeforeArmingExit(t *testing.T) {
 	}
 
 	// esc #1: leave the search bar but keep the filter; must not arm exit.
-	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
 	if a.specs.searchActive {
 		t.Error("first esc should exit the search bar")
@@ -1290,7 +1290,7 @@ func TestApp_EscClearsSearchFilterBeforeArmingExit(t *testing.T) {
 	}
 
 	// esc #2: clear the filter; must not arm exit.
-	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
 	if a.specs.searchQuery != "" {
 		t.Errorf("second esc should clear the filter, got %q", a.specs.searchQuery)
@@ -1300,7 +1300,7 @@ func TestApp_EscClearsSearchFilterBeforeArmingExit(t *testing.T) {
 	}
 
 	// esc #3: nothing left to pop → arm exit.
-	model, _ = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
 	if !a.exitArmed {
 		t.Error("third esc with no filter should arm exit")

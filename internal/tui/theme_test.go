@@ -1,9 +1,10 @@
 package tui
 
 import (
+	"image/color"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 func TestResolveTheme_NamedThemes(t *testing.T) {
@@ -27,7 +28,7 @@ func TestResolveTheme_NamedThemes(t *testing.T) {
 func TestResolveTheme_AutoFallback(t *testing.T) {
 	for _, pref := range []string{"", "auto", "unknown-theme"} {
 		theme := ResolveTheme(pref)
-		if theme.Text == "" {
+		if theme.Text == nil {
 			t.Errorf("ResolveTheme(%q): Text should not be empty", pref)
 		}
 	}
@@ -66,9 +67,10 @@ func TestNewStyles_AllFieldsSet(t *testing.T) {
 	}
 }
 
-func assertNonEmpty(t *testing.T, field string, c lipgloss.Color) {
+func assertNonEmpty(t *testing.T, field string, c color.Color) {
 	t.Helper()
-	if string(c) == "" {
+	// lipgloss v2 colours are color.Color values; an unset theme field is nil.
+	if c == nil {
 		t.Errorf("%s colour should not be empty", field)
 	}
 }

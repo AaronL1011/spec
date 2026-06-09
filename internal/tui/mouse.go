@@ -1,6 +1,6 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
+import tea "charm.land/bubbletea/v2"
 
 // wheelStep is how many lines one mouse-wheel notch scrolls a detail view.
 // List views move their selection by a single row per notch instead, so a
@@ -22,13 +22,14 @@ var (
 // keyboard priority chain in handleKey: overlays absorb first, then wheel
 // scrolling, then region-based dispatch to the tab strip or the active view.
 func (a App) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	// Act only on left-button presses and wheel events. Motion, drag, release,
-	// and other buttons are ignored so hover/drag noise never drives the UI.
-	// IsWheel is defined on tea.MouseEvent; MouseMsg is a distinct named type,
-	// so convert rather than relying on method promotion (which Go does not do
-	// for defined types).
-	isWheel := tea.MouseEvent(msg).IsWheel()
-	leftPress := msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft
+	// Act only on left-button clicks and wheel events. Motion, drag, release,
+	// and other buttons are ignored so hover/drag noise never drives the UI. In
+	// Bubble Tea v2 the concrete message type encodes the action (click vs wheel
+	// vs motion vs release); the Mouse() payload carries position and button.
+	m := msg.Mouse()
+	_, isWheel := msg.(tea.MouseWheelMsg)
+	click, isClick := msg.(tea.MouseClickMsg)
+	leftPress := isClick && click.Button == tea.MouseLeft
 	if !isWheel && !leftPress {
 		return a, nil
 	}
@@ -42,17 +43,17 @@ func (a App) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Layer 2: the wheel scrolls the focused surface regardless of where the
 	// pointer sits, matching how terminals and editors treat the wheel.
 	if isWheel {
-		return a.handleWheel(msg)
+		return a.handleWheel(m)
 	}
 
 	// Layer 3: a left click dispatches by the screen region it landed in.
-	switch a.layout().regionAt(msg.Y) {
+	switch a.layout().regionAt(m.Y) {
 	case regionTabs:
-		if idx, ok := a.tabs.TabAt(msg.X); ok {
+		if idx, ok := a.tabs.TabAt(m.X); ok {
 			return a, a.switchView(View(idx))
 		}
 	case regionContent:
-		return a.handleContentClick(msg)
+		return a.handleContentClick(m)
 	}
 	return a, nil
 }
@@ -67,9 +68,9 @@ func (a App) overlayActive() bool {
 
 // handleWheel routes a wheel notch to the focused scrollable: the open spec
 // detail if present, otherwise the active view's selection.
-func (a App) handleWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	up := msg.Button == tea.MouseButtonWheelUp
-	down := msg.Button == tea.MouseButtonWheelDown
+func (a App) handleWheel(m tea.Mouse) (tea.Model, tea.Cmd) {
+	up := m.Button == tea.MouseWheelUp
+	down := m.Button == tea.MouseWheelDown
 	if !up && !down {
 		return a, nil // ignore horizontal wheel
 	}
@@ -97,8 +98,8 @@ func (a App) handleWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 // handleContentClick maps a click in the content band to the active view's row
 // hit-testing. A click on the already-selected row activates it, taking the
 // same path as pressing Enter.
-func (a App) handleContentClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	row, ok := a.layout().contentRow(msg.Y)
+func (a App) handleContentClick(m tea.Mouse) (tea.Model, tea.Cmd) {
+	row, ok := a.layout().contentRow(m.Y)
 	if !ok {
 		return a, nil
 	}
@@ -107,7 +108,7 @@ func (a App) handleContentClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// section navigator; clicking a section jumps to it (same path as the
 	// number-key jumps). Prose and thread clicks remain keyboard/wheel-driven.
 	if a.showDetail {
-		if idx, ok := a.detail.sectionAtClick(msg.X, row); ok {
+		if idx, ok := a.detail.sectionAtClick(m.X, row); ok {
 			var cmd tea.Cmd
 			a.detail, cmd = a.detail.withSection(idx)
 			a.syncBusyState()

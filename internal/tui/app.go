@@ -7,9 +7,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/aaronl1011/spec/internal/adapter"
@@ -507,7 +507,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, a.refreshActiveView()
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return a.handleKey(msg)
 
 	case tea.MouseMsg:
@@ -520,7 +520,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey is the single entry point for all keyboard input.
 // It follows a strict priority chain — the first match wins, no fall-through.
-func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// ── Layer 1: Overlays (absorb all keys) ──────────────────────────
 	// These are modal states that must capture every keystroke.
 
@@ -552,7 +552,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// ── Layer 2: Escape hatch (always works) ─────────────────────────
 
-	if msg.Type == tea.KeyCtrlC {
+	if msg.String() == "ctrl+c" {
 		return a, tea.Quit
 	}
 
@@ -613,8 +613,8 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// A subsequent a / r / s dispatches Archive / Restore / Standup.
 	if a.gPrefixArmed {
 		a.gPrefixArmed = false
-		switch {
-		case msg.Type == tea.KeyRunes && string(msg.Runes) == "a":
+		switch msg.Text {
+		case "a":
 			if specID := a.selectedSpecID(); isSpecID(specID) {
 				a.pendingAction = "archive"
 				a.pendingSpecID = specID
@@ -622,7 +622,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.modal.SetSize(a.width, a.contentHeight())
 			}
 			return a, nil
-		case msg.Type == tea.KeyRunes && string(msg.Runes) == "r":
+		case "r":
 			if specID := a.selectedSpecID(); isSpecID(specID) {
 				a.pendingAction = "restore"
 				a.pendingSpecID = specID
@@ -630,7 +630,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.modal.SetSize(a.width, a.contentHeight())
 			}
 			return a, nil
-		case msg.Type == tea.KeyRunes && string(msg.Runes) == "s":
+		case "s":
 			return a, generateStandup(a.rc, a.reg, a.db)
 		}
 		// Unrecognised follow-up key — fall through normally.
@@ -683,7 +683,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cmd := a.activateSelection(); cmd != nil {
 			return a, cmd
 		}
-	case msg.Type == tea.KeySpace && a.activeView == ViewTriage:
+	case msg.String() == "space" && a.activeView == ViewTriage:
 		return a, a.openTriageDetailForSelected()
 	}
 
@@ -702,7 +702,27 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // View renders the full application.
-func (a App) View() string {
+// View returns the program's view. In Bubble Tea v2 the view is a struct that
+// carries the rendered content plus declarative terminal state: the alt-screen
+// flag and mouse mode that were program options in v1 now live here, so the
+// in-app mouse toggle takes effect on the next render with no command.
+func (a App) View() tea.View {
+	v := tea.NewView(a.render())
+	v.AltScreen = true
+	if a.mouseEnabled() {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
+	return v
+}
+
+// mouseEnabled reports whether mouse reporting should be requested, honouring
+// the user's preference. It drives View.MouseMode each render.
+func (a App) mouseEnabled() bool {
+	return a.rc.User != nil && a.rc.User.Preferences.Mouse
+}
+
+// render composes the full-screen content string for the current state.
+func (a App) render() string {
 	if a.width == 0 {
 		return "Initialising…"
 	}
@@ -1149,9 +1169,9 @@ func waitForChange(w *watch.Watcher) tea.Cmd {
 	}
 }
 
-func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
+func (a App) updateDetail(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	// Hard quit always works.
-	if msg.Type == tea.KeyCtrlC {
+	if msg.String() == "ctrl+c" {
 		return a, tea.Quit
 	}
 
@@ -1226,7 +1246,7 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 		a.gPrefixArmed = false
 		specID := a.detail.specID
 		switch {
-		case msg.Type == tea.KeyRunes && string(msg.Runes) == "a" && isSpecID(specID):
+		case msg.Text == "a" && isSpecID(specID):
 			if !a.detail.isArchived {
 				a.pendingAction = "archive"
 				a.pendingSpecID = specID
@@ -1234,7 +1254,7 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 				a.modal.SetSize(a.width, a.contentHeight())
 			}
 			return a, nil
-		case msg.Type == tea.KeyRunes && string(msg.Runes) == "r" && isSpecID(specID):
+		case msg.Text == "r" && isSpecID(specID):
 			if a.detail.isArchived {
 				a.pendingAction = "restore"
 				a.pendingSpecID = specID
@@ -1242,7 +1262,7 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 				a.modal.SetSize(a.width, a.contentHeight())
 			}
 			return a, nil
-		case msg.Type == tea.KeyRunes && string(msg.Runes) == "s":
+		case msg.Text == "s":
 			return a, generateStandup(a.rc, a.reg, a.db)
 		}
 	}
@@ -1265,7 +1285,7 @@ func (a App) updateDetail(msg tea.KeyMsg) (App, tea.Cmd) {
 
 // handleSpecAction processes action hotkeys for a given spec ID.
 // Returns (cmd, true) if the key was consumed, (nil, false) otherwise.
-func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
+func (a *App) handleSpecAction(specID string, msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	switch {
 	case key.Matches(msg, a.keys.Advance) && isSpecID(specID):
 		a.pendingAction = "advance"
@@ -1357,51 +1377,53 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-func (a App) updateModal(msg tea.KeyMsg) (App, tea.Cmd) {
+func (a App) updateModal(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	switch a.modal.Kind {
 	case components.ModalInfo:
 		// Read-only dialog (e.g. full error detail): any of esc/enter/q closes it.
 		switch {
-		case msg.Type == tea.KeyEscape, msg.Type == tea.KeyEnter,
-			msg.Type == tea.KeyRunes && string(msg.Runes) == "q":
+		case msg.String() == "esc", msg.String() == "enter",
+			msg.Text == "q":
 			a.modal.Hide()
 		}
 		return a, nil
 
 	case components.ModalConfirm:
-		switch msg.Type {
-		case tea.KeyRunes:
-			if string(msg.Runes) == "y" {
+		switch msg.String() {
+		default:
+			if msg.Text == "y" {
 				a.modal.Hide()
 				return a, a.executeAction()
 			}
-			if string(msg.Runes) == "n" {
+			if msg.Text == "n" {
 				a.modal.Hide()
 				return a, nil
 			}
-		case tea.KeyEscape:
+		case "esc":
 			a.modal.Hide()
 			return a, nil
 		}
 
 	case components.ModalInput:
-		switch msg.Type {
-		case tea.KeyEscape:
+		switch msg.String() {
+		case "esc":
 			a.modal.Hide()
 			return a, nil
-		case tea.KeyEnter:
+		case "enter":
 			if a.modal.Input != "" {
 				// Capture input before Hide() clears it.
 				input := a.modal.Input
 				a.modal.Hide()
 				return a, a.executeActionWithInput(input)
 			}
-		case tea.KeyBackspace:
+		case "backspace":
 			a.modal.BackspaceInput()
-		case tea.KeySpace:
+		case "space":
 			a.modal.AppendInput(" ")
-		case tea.KeyRunes:
-			a.modal.AppendInput(string(msg.Runes))
+		default:
+			if msg.Text != "" {
+				a.modal.AppendInput(msg.Text)
+			}
 		}
 	}
 	return a, nil
@@ -1463,13 +1485,13 @@ func (a *App) executeActionWithInput(input string) tea.Cmd {
 }
 
 // updateStandup handles keys within the standup overlay.
-func (a App) updateStandup(msg tea.KeyMsg) (App, tea.Cmd) {
+func (a App) updateStandup(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	switch {
-	case msg.Type == tea.KeyCtrlC:
+	case msg.String() == "ctrl+c":
 		return a, tea.Quit
-	case msg.Type == tea.KeyEscape:
+	case msg.String() == "esc":
 		a.standup.hide()
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "c":
+	case msg.Text == "c":
 		// Copy standup text to clipboard.
 		a.standup.hide()
 		return a, yankText(a.standup.text)
@@ -1482,15 +1504,15 @@ func (a App) updateStandup(msg tea.KeyMsg) (App, tea.Cmd) {
 }
 
 // updateIntake handles keys within the inline intake form.
-func (a App) updateIntake(msg tea.KeyMsg) (App, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
+func (a App) updateIntake(msg tea.KeyPressMsg) (App, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
 		a.intake.close()
-	case tea.KeyTab:
+	case "tab":
 		a.intake.nextField()
-	case tea.KeyShiftTab:
+	case "shift+tab":
 		a.intake.prevField()
-	case tea.KeyEnter:
+	case "enter":
 		switch {
 		case a.intake.field == intakeFieldPriority:
 			// Enter on priority cycles the value.
@@ -1506,26 +1528,28 @@ func (a App) updateIntake(msg tea.KeyMsg) (App, tea.Cmd) {
 			a.intake.close()
 			return a, a.startAction("creating triage item", createTriageItem(a.rc, title, priority, source))
 		}
-	case tea.KeyBackspace:
+	case "backspace":
 		a.intake.backspaceField()
-	case tea.KeySpace:
+	case "space":
 		a.intake.appendToField(" ")
-	case tea.KeyRunes:
-		a.intake.appendToField(string(msg.Runes))
+	default:
+		if msg.Text != "" {
+			a.intake.appendToField(msg.Text)
+		}
 	}
 	return a, nil
 }
 
 // updateRevert handles keys within the inline revert form.
-func (a App) updateRevert(msg tea.KeyMsg) (App, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
+func (a App) updateRevert(msg tea.KeyPressMsg) (App, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
 		a.revert.close()
-	case tea.KeyTab:
+	case "tab":
 		a.revert.nextField()
-	case tea.KeyShiftTab:
+	case "shift+tab":
 		a.revert.prevField()
-	case tea.KeyEnter:
+	case "enter":
 		switch {
 		case a.revert.field == revertFieldStage:
 			// Enter on stage cycles the value.
@@ -1538,21 +1562,24 @@ func (a App) updateRevert(msg tea.KeyMsg) (App, tea.Cmd) {
 			a.revert.close()
 			return a, a.startAction("reverting "+specID, revertSpec(a.rc, specID, stage, reason, a.rc.UserName()))
 		}
-	case tea.KeyBackspace:
+	case "backspace":
 		switch a.revert.field {
 		case revertFieldReason:
 			a.revert.backspaceReason()
 		case revertFieldStage:
 			a.revert.cycleStageReverse()
 		}
-	case tea.KeySpace:
+	case "space":
 		if a.revert.field == revertFieldReason {
 			a.revert.appendToReason(" ")
 		}
-	case tea.KeyRunes:
+	default:
+		if msg.Text == "" {
+			break
+		}
 		switch a.revert.field {
 		case revertFieldReason:
-			a.revert.appendToReason(string(msg.Runes))
+			a.revert.appendToReason(msg.Text)
 		case revertFieldStage:
 			// On stage field, any rune cycles forward.
 			a.revert.cycleStage()
@@ -1652,13 +1679,9 @@ func (a *App) propagateSize() {
 func (a *App) applySettingsField(field settingsField) tea.Cmd {
 	switch field {
 	case fieldMouse:
-		// Apply the new preference to the running program immediately so the
-		// toggle takes effect without a restart. The startup ProgramOption in
-		// cmd/root.go still seeds the initial state from the same preference.
-		if a.rc.User != nil && a.rc.User.Preferences.Mouse {
-			return tea.EnableMouseCellMotion
-		}
-		return tea.DisableMouse
+		// Mouse mode is declared on the View in Bubble Tea v2 (see App.View), so
+		// flipping the preference takes effect on the next render with no command.
+		return nil
 	case fieldName, fieldRole:
 		if field == fieldRole {
 			a.role = strings.ToLower(a.rc.OwnerRole(""))
@@ -1938,8 +1961,8 @@ func (a *App) rehydrateTriageDetail() {
 // are honoured first, esc closes the pane, and the remaining keys drive triage
 // actions and scrolling. Unrecognised keys are absorbed so they cannot leak
 // into the list beneath the pane.
-func (a App) updateTriageDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyCtrlC {
+func (a App) updateTriageDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" {
 		return a, tea.Quit
 	}
 
@@ -1976,45 +1999,45 @@ func (a App) updateTriageDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleTriageDetailKey resolves a key press into a triage-detail action while
 // the pane is open: esc closes it, e/c/x/n/p drive role-gated actions, and j/k
 // scroll. It returns a command to run, or nil when the key has no effect.
-func (a *App) handleTriageDetailKey(msg tea.KeyMsg) tea.Cmd {
+func (a *App) handleTriageDetailKey(msg tea.KeyPressMsg) tea.Cmd {
 	if !a.showTriageDetail || a.triageDetail == nil {
 		return nil
 	}
 	item := a.triageDetail.item
 
 	switch {
-	case msg.Type == tea.KeyEscape:
+	case msg.String() == "esc":
 		a.closeTriageDetailPane()
 		return nil
 
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "e":
+	case msg.Text == "e":
 		if !roleAllowed(actionTriageEdit, a.rc) {
 			return nil
 		}
 		a.triageEdit.openEdit(item, a.width, a.contentHeight())
 		return nil
 
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "c":
+	case msg.Text == "c":
 		if !roleAllowed(actionTriageClose, a.rc) {
 			return nil
 		}
 		a.triageClose.openClose(item.ID)
 		return nil
 
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "x":
+	case msg.Text == "x":
 		if !roleAllowed(actionTriageEscalate, a.rc) {
 			return nil
 		}
 		return a.startAction("escalating "+item.ID, escalateTriageItem(a.rc, item.ID, item.isUrgent(), a.rc.UserName()))
 
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "n":
+	case msg.Text == "n":
 		if !roleAllowed(actionTriageComment, a.rc) {
 			return nil
 		}
 		a.triageNote.openNote(item.ID)
 		return nil
 
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "p":
+	case msg.Text == "p":
 		if !roleAllowed(actionTriagePromote, a.rc) {
 			return nil
 		}
@@ -2028,11 +2051,11 @@ func (a *App) handleTriageDetailKey(msg tea.KeyMsg) tea.Cmd {
 		a.modal.SetSize(a.width, a.contentHeight())
 		return nil
 
-	case msg.Type == tea.KeyUp || (msg.Type == tea.KeyRunes && string(msg.Runes) == "k"):
+	case msg.String() == "up" || msg.Text == "k":
 		a.triageDetail.scrollUp()
 		return nil
 
-	case msg.Type == tea.KeyDown || (msg.Type == tea.KeyRunes && string(msg.Runes) == "j"):
+	case msg.String() == "down" || msg.Text == "j":
 		a.triageDetail.scrollDown()
 		return nil
 	}
@@ -2043,12 +2066,12 @@ func (a *App) handleTriageDetailKey(msg tea.KeyMsg) tea.Cmd {
 // keys (cancel, save, field navigation, priority cycle) are handled first; every
 // other key is delegated to the focused input component so cursor movement and
 // text entry work natively.
-func (a App) updateTriageEdit(msg tea.KeyMsg) (App, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
+func (a App) updateTriageEdit(msg tea.KeyPressMsg) (App, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
 		a.triageEdit.close()
 		return a, nil
-	case tea.KeyCtrlS:
+	case "ctrl+s":
 		if !a.triageEdit.valid() {
 			return a, nil
 		}
@@ -2059,13 +2082,13 @@ func (a App) updateTriageEdit(msg tea.KeyMsg) (App, tea.Cmd) {
 		body := a.triageEdit.body.Value()
 		a.triageEdit.close()
 		return a, a.startAction("editing "+id, editTriageItem(a.rc, id, title, priority, source, body))
-	case tea.KeyTab:
+	case "tab":
 		a.triageEdit.nextField()
 		return a, nil
-	case tea.KeyShiftTab:
+	case "shift+tab":
 		a.triageEdit.prevField()
 		return a, nil
-	case tea.KeyEnter:
+	case "enter":
 		switch a.triageEdit.field {
 		case triageEditFieldPriority:
 			a.triageEdit.cyclePriority()
@@ -2082,15 +2105,15 @@ func (a App) updateTriageEdit(msg tea.KeyMsg) (App, tea.Cmd) {
 }
 
 // updateTriageClose handles keys within the inline triage close dialog.
-func (a App) updateTriageClose(msg tea.KeyMsg) (App, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
+func (a App) updateTriageClose(msg tea.KeyPressMsg) (App, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
 		a.triageClose.close()
-	case tea.KeyTab:
+	case "tab":
 		a.triageClose.nextField()
-	case tea.KeyShiftTab:
+	case "shift+tab":
 		a.triageClose.prevField()
-	case tea.KeyEnter:
+	case "enter":
 		switch a.triageClose.field {
 		case triageCloseFieldReason:
 			a.triageClose.nextField()
@@ -2102,19 +2125,22 @@ func (a App) updateTriageClose(msg tea.KeyMsg) (App, tea.Cmd) {
 			a.triageClose.close()
 			return a, a.startAction("closing "+id, closeTriageItem(a.rc, id, reason, note, actor))
 		}
-	case tea.KeyBackspace:
+	case "backspace":
 		if a.triageClose.field == triageCloseFieldNote {
 			a.triageClose.backspaceNote()
 		} else {
 			a.triageClose.cycleReason()
 		}
-	case tea.KeySpace:
+	case "space":
 		if a.triageClose.field == triageCloseFieldNote {
 			a.triageClose.appendNote(" ")
 		}
-	case tea.KeyRunes:
+	default:
+		if msg.Text == "" {
+			break
+		}
 		if a.triageClose.field == triageCloseFieldNote {
-			a.triageClose.appendNote(string(msg.Runes))
+			a.triageClose.appendNote(msg.Text)
 		} else {
 			a.triageClose.cycleReason()
 		}
@@ -2123,11 +2149,11 @@ func (a App) updateTriageClose(msg tea.KeyMsg) (App, tea.Cmd) {
 }
 
 // updateTriageNote handles keys within the inline triage note prompt.
-func (a App) updateTriageNote(msg tea.KeyMsg) (App, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
+func (a App) updateTriageNote(msg tea.KeyPressMsg) (App, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
 		a.triageNote.close()
-	case tea.KeyEnter:
+	case "enter":
 		if a.triageNote.valid() {
 			id := a.triageNote.triageID
 			note := a.triageNote.note
@@ -2135,12 +2161,14 @@ func (a App) updateTriageNote(msg tea.KeyMsg) (App, tea.Cmd) {
 			a.triageNote.close()
 			return a, a.startAction("commenting on "+id, commentTriageItem(a.rc, id, note, actor))
 		}
-	case tea.KeyBackspace:
+	case "backspace":
 		a.triageNote.backspace()
-	case tea.KeySpace:
+	case "space":
 		a.triageNote.append(" ")
-	case tea.KeyRunes:
-		a.triageNote.append(string(msg.Runes))
+	default:
+		if msg.Text != "" {
+			a.triageNote.append(msg.Text)
+		}
 	}
 	return a, nil
 }

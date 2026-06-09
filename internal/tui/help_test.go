@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestHelp_HiddenByDefault(t *testing.T) {
@@ -87,7 +87,7 @@ func TestHelp_DismissOnEsc(t *testing.T) {
 	h.setSize(80, 24)
 	h.visible = true
 
-	h, _ = h.update(tea.KeyMsg{Type: tea.KeyEscape})
+	h, _ = h.update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if h.visible {
 		t.Error("help should close on Esc")
 	}
