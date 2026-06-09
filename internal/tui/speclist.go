@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
@@ -78,7 +78,7 @@ func (m specListModel) update(msg tea.Msg) (specListModel, tea.Cmd) {
 		m.applyFilter()
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.searchActive {
 			return m.updateSearch(msg)
 		}
@@ -112,24 +112,26 @@ func (m specListModel) update(msg tea.Msg) (specListModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m specListModel) updateSearch(msg tea.KeyMsg) (specListModel, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
+func (m specListModel) updateSearch(msg tea.KeyPressMsg) (specListModel, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
 		// First Esc exits search mode (keeps filter). Second clears filter.
 		m.searchActive = false
-	case tea.KeyBackspace:
+	case "backspace":
 		if m.searchQuery != "" {
 			m.searchQuery = dropLastRune(m.searchQuery)
 			m.applyFilter()
 		}
-	case tea.KeyEnter:
+	case "enter":
 		m.searchActive = false
-	case tea.KeySpace:
+	case "space":
 		m.searchQuery += " "
 		m.applyFilter()
-	case tea.KeyRunes:
-		m.searchQuery += string(msg.Runes)
-		m.applyFilter()
+	default:
+		if msg.Text != "" {
+			m.searchQuery += msg.Text
+			m.applyFilter()
+		}
 	}
 	return m, nil
 }

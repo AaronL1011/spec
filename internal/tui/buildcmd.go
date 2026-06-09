@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/build"
 	"github.com/aaronl1011/spec/internal/config"

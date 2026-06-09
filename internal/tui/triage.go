@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
@@ -103,7 +103,7 @@ func (m triageModel) update(msg tea.Msg) (triageModel, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, m.keys.Up):
 			if m.cursor > 0 {

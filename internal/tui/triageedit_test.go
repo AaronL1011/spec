@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestTriageEditOverlay_CyclePriority(t *testing.T) {
@@ -79,7 +79,7 @@ func TestTriageEditOverlay_BodySupportsCursorNavigation(t *testing.T) {
 
 	// Typing at the start (after moveBodyToStart) must prepend, not append, so
 	// the user can edit the context section without deleting their notes.
-	o.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	o.update(tea.KeyPressMsg{Text: "X"})
 	if !strings.HasPrefix(o.body.Value(), "X") {
 		t.Errorf("cursor should start at the top; got body %q", o.body.Value())
 	}

@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestChromeLayout_RegionAt(t *testing.T) {

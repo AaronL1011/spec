@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/config"
 )
@@ -103,7 +103,7 @@ func (m settingsModel) update(msg tea.Msg) (settingsModel, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.mode == settingsEditing {
 			return m.updateEditing(msg)
 		}
@@ -112,7 +112,7 @@ func (m settingsModel) update(msg tea.Msg) (settingsModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m settingsModel) updateBrowse(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
+func (m settingsModel) updateBrowse(msg tea.KeyPressMsg) (settingsModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Up):
 		m.focusPrev()
@@ -140,21 +140,21 @@ func (m settingsModel) updateBrowse(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m settingsModel) updateEditing(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
+func (m settingsModel) updateEditing(msg tea.KeyPressMsg) (settingsModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Back):
 		return m.cancelEdit()
 	case key.Matches(msg, m.keys.Enter):
 		return m.confirmEdit()
-	case msg.Type == tea.KeySpace:
+	case msg.String() == "space":
 		if m.isEnumField(m.focused) {
 			m.cycleEnumForward()
 			return m, m.themePreviewCmd()
 		} else if m.isTextField(m.focused) {
 			m.appendDraft(" ")
 		}
-	case msg.Type == tea.KeyRunes:
-		runes := string(msg.Runes)
+	case msg.Text != "":
+		runes := msg.Text
 		// l/h cycle enum fields (Role/Theme); for text fields they are
 		// ordinary characters and must be inserted like any other rune.
 		if m.isEnumField(m.focused) {
@@ -169,7 +169,7 @@ func (m settingsModel) updateEditing(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 		} else if m.isTextField(m.focused) {
 			m.appendDraft(runes)
 		}
-	case msg.Type == tea.KeyBackspace:
+	case msg.String() == "backspace":
 		if m.isTextField(m.focused) {
 			m.backspaceDraft()
 		}

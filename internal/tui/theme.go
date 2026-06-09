@@ -6,10 +6,11 @@
 package tui
 
 import (
+	"image/color"
+	"os"
 	"sync"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"charm.land/lipgloss/v2"
 
 	catppuccin "github.com/catppuccin/go"
 
@@ -18,16 +19,16 @@ import (
 
 // Theme holds the semantic colour palette for the entire TUI.
 type Theme struct {
-	Base    lipgloss.Color // background / deepest layer
-	Surface lipgloss.Color // panels, selected rows
-	Overlay lipgloss.Color // borders, separators
-	Text    lipgloss.Color // primary text
-	SubText lipgloss.Color // secondary, dimmed
-	Accent  lipgloss.Color // highlights, active tab
-	Success lipgloss.Color // done, approved
-	Warning lipgloss.Color // stale, blocked
-	Error   lipgloss.Color // critical, failed
-	Muted   lipgloss.Color // disabled, inactive
+	Base    color.Color // background / deepest layer
+	Surface color.Color // panels, selected rows
+	Overlay color.Color // borders, separators
+	Text    color.Color // primary text
+	SubText color.Color // secondary, dimmed
+	Accent  color.Color // highlights, active tab
+	Success color.Color // done, approved
+	Warning color.Color // stale, blocked
+	Error   color.Color // critical, failed
+	Muted   color.Color // disabled, inactive
 }
 
 // Styles holds pre-built lipgloss styles derived from the active theme.
@@ -141,7 +142,7 @@ func statusStyles(t Theme) components.StatusStyles {
 	// Sleek, minimal treatment: status is conveyed by glyph shape and text
 	// colour alone — no background fill or padding. The element inherits the
 	// status bar's surface so it reads as plain coloured text, not a chip.
-	text := func(fg lipgloss.Color) lipgloss.Style {
+	text := func(fg color.Color) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(fg)
 	}
 	return components.StatusStyles{
@@ -202,12 +203,12 @@ func ResolveTheme(pref string) Theme {
 	}
 }
 
-// darkBackgroundOnce caches the terminal background detection. termenv queries
-// the terminal via an OSC escape sequence and waits for a reply; once Bubble
-// Tea owns stdin that reply never arrives, so the call blocks until it times
-// out. Detecting exactly once (at first resolve, before the program loop has
-// fully taken over) keeps the "auto" theme from freezing every time the user
-// cycles onto it.
+// darkBackgroundOnce caches the terminal background detection. Querying the
+// terminal sends an OSC escape sequence and waits for a reply; once Bubble Tea
+// owns stdin that reply never arrives, so the call blocks until it times out.
+// Detecting exactly once (at first resolve, before the program loop has fully
+// taken over) keeps the "auto" theme from freezing every time the user cycles
+// onto it.
 var (
 	darkBackgroundOnce sync.Once
 	darkBackground     bool
@@ -215,7 +216,7 @@ var (
 
 func hasDarkBackground() bool {
 	darkBackgroundOnce.Do(func() {
-		darkBackground = termenv.HasDarkBackground()
+		darkBackground = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 	})
 	return darkBackground
 }

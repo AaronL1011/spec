@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestStandupOverlay_HiddenByDefault(t *testing.T) {
@@ -24,7 +26,10 @@ func TestStandupOverlay_ShowAndHide(t *testing.T) {
 		t.Error("standup should be visible after show")
 	}
 
-	got := s.view()
+	// lipgloss v2 styles always emit ANSI; downsampling now happens at the
+	// program's write boundary, so strip codes before asserting on text. The
+	// "c copy" hint spans two separately styled runs joined by a plain space.
+	got := stripANSI(s.view())
 	if !strings.Contains(got, "Standup") {
 		t.Error("should contain 'Standup' header")
 	}
@@ -77,10 +82,9 @@ func TestApp_StandupOverlayFlow(t *testing.T) {
 	}
 
 	// Esc closes it.
-	_, _ = a.Update(keyMsg("\x1b")) // won't match Esc via keyMsg — use tea.KeyMsg
-	// Use proper esc:
-	a.standup.hide()
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
 	if a.standup.visible {
-		t.Error("standup should close on hide")
+		t.Error("standup should close on esc")
 	}
 }

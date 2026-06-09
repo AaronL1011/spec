@@ -3,7 +3,7 @@ package cmd
 //go:generate go run ../tools/gen-man --output ../docs/man
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/dashboard"
 	"github.com/aaronl1011/spec/internal/tui"
@@ -51,11 +51,9 @@ personal dashboard.`,
 		if !staticMode && tui.IsInteractive() {
 			app := tui.New(rc, reg, role)
 			defer func() { _ = app.Close() }()
-			opts := []tea.ProgramOption{tea.WithAltScreen()}
-			if rc.User != nil && rc.User.Preferences.Mouse {
-				opts = append(opts, tea.WithMouseCellMotion())
-			}
-			p := tea.NewProgram(app, opts...)
+			// In Bubble Tea v2 the alt-screen and mouse mode are declared on the
+			// model's View each render (see App.View), not as program options.
+			p := tea.NewProgram(app)
 			_, err := p.Run()
 			return err
 		}

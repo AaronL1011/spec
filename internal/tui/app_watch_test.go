@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/store"
 	"github.com/aaronl1011/spec/internal/thread"
@@ -163,7 +163,7 @@ func TestDetailInput_CapturesHotkeyChars(t *testing.T) {
 	// Type a question containing every char that doubles as a global hotkey.
 	for _, r := range "why redis?" {
 		var m tea.Model
-		m, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m, _ = app.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 		app = m.(App)
 	}
 

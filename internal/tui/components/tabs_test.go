@@ -3,7 +3,7 @@ package components
 import (
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // paddedTabStyles mirrors the real app, whose Active/Inactive/Bar styles carry

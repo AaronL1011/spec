@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/cursor"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 )
 
 // triageEditOverlay tracks the inline edit form state for a triage item. The
@@ -43,7 +42,8 @@ func (o *triageEditOverlay) openEdit(item triageItem, width, height int) {
 	title.Prompt = ""
 	title.SetValue(item.Title)
 	title.CursorEnd()
-	_ = title.Cursor.SetMode(cursor.CursorStatic)
+	// The virtual cursor renders static here: the blink command returned by
+	// Focus() is intentionally not run, so no blink ticks are delivered.
 	o.title = title
 
 	o.priority = item.Priority
@@ -55,14 +55,12 @@ func (o *triageEditOverlay) openEdit(item triageItem, width, height int) {
 	source.Prompt = ""
 	source.SetValue(item.Source)
 	source.CursorEnd()
-	_ = source.Cursor.SetMode(cursor.CursorStatic)
 	o.source = source
 
 	body := textarea.New()
 	body.Prompt = ""
 	body.ShowLineNumbers = false
 	body.SetValue(item.Body)
-	_ = body.Cursor.SetMode(cursor.CursorStatic)
 	o.body = body
 
 	o.setSize(width, height)
@@ -81,8 +79,8 @@ func (o *triageEditOverlay) setSize(width, height int) {
 	if fieldWidth < 20 {
 		fieldWidth = 20
 	}
-	o.title.Width = fieldWidth
-	o.source.Width = fieldWidth
+	o.title.SetWidth(fieldWidth)
+	o.source.SetWidth(fieldWidth)
 
 	bodyWidth := width - 4
 	if bodyWidth < 20 {

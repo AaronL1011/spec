@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 )
 
 // helpModel renders a contextual keybinding overlay.
@@ -33,9 +33,9 @@ func (m *helpModel) setContext(label string) { m.context = label }
 func (m *helpModel) setSize(w, h int)        { m.width = w; m.height = h }
 
 func (m helpModel) update(msg tea.Msg) (helpModel, tea.Cmd) {
-	if msg, ok := msg.(tea.KeyMsg); ok {
+	if msg, ok := msg.(tea.KeyPressMsg); ok {
 		switch {
-		case key.Matches(msg, m.keys.Help) || msg.Type == tea.KeyEscape:
+		case key.Matches(msg, m.keys.Help) || msg.String() == "esc":
 			m.visible = false
 		case key.Matches(msg, m.keys.Down):
 			m.scrollBy(1)

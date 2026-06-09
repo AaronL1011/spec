@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/thread"
@@ -64,7 +64,7 @@ func TestThreadPane_RendersWhenSectionHasThreads(t *testing.T) {
 
 func TestThreadPane_HiddenWhenToggledOff(t *testing.T) {
 	m := readerWithThreads([]thread.Thread{openThread("T-1", "Why Redis?")})
-	m, _, handled := m.handleThreadActionKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	m, _, handled := m.handleThreadActionKey(tea.KeyPressMsg{Text: "t"})
 	if !handled {
 		t.Fatal("'t' should be handled")
 	}
@@ -79,7 +79,7 @@ func TestThreadPane_HiddenWhenToggledOff(t *testing.T) {
 func TestThreadPane_AskOpensInputAndShowsPane(t *testing.T) {
 	m := readerWithThreads(nil)
 	m.paneVisible = false
-	m, _, handled := m.handleThreadActionKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m, _, handled := m.handleThreadActionKey(tea.KeyPressMsg{Text: "a"})
 	if !handled || !m.input.active() {
 		t.Fatal("'a' should open the ask input")
 	}
@@ -93,14 +93,14 @@ func TestThreadPane_AskOpensInputAndShowsPane(t *testing.T) {
 
 func TestThreadPane_InputCapturesTypingAndEscCancels(t *testing.T) {
 	m := readerWithThreads(nil)
-	m, _, _ = m.handleThreadActionKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m, _, _ = m.handleThreadActionKey(tea.KeyPressMsg{Text: "a"})
 	for _, r := range "hi" {
-		m, _, _ = m.handleThreadInputKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m, _, _ = m.handleThreadInputKey(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 	if m.input.buffer != "hi" {
 		t.Errorf("buffer = %q, want 'hi'", m.input.buffer)
 	}
-	m, _, handled := m.handleThreadInputKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m, _, handled := m.handleThreadInputKey(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if !handled || m.input.active() {
 		t.Error("esc should cancel the input")
 	}
@@ -111,7 +111,7 @@ func TestThreadPane_TabTogglesFocus(t *testing.T) {
 	if m.paneFocused {
 		t.Fatal("pane should start unfocused")
 	}
-	m, _, handled := m.handleThreadActionKey(tea.KeyMsg{Type: tea.KeyTab})
+	m, _, handled := m.handleThreadActionKey(tea.KeyPressMsg{Code: tea.KeyTab})
 	if !handled || !m.paneFocused {
 		t.Error("tab should focus the pane when it is active")
 	}
@@ -136,7 +136,7 @@ func TestThreadPane_ArrowMovesSelectionWhenFocused(t *testing.T) {
 
 func TestThreadPane_ResolveKeyIgnoredWithoutThread(t *testing.T) {
 	m := readerWithThreads(nil)
-	_, cmd, handled := m.handleThreadActionKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	_, cmd, handled := m.handleThreadActionKey(tea.KeyPressMsg{Text: "x"})
 	if !handled {
 		t.Error("'x' should be handled (no-op) even with no thread")
 	}
@@ -186,9 +186,9 @@ func TestThreadPane_InputAlwaysVisible(t *testing.T) {
 			m.setSize(tc.width, tc.height)
 			m.applyReaderContent(strings.TrimRight(strings.Repeat("prose line\n", tc.proseLines), "\n"))
 
-			m, _, _ = m.handleThreadActionKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+			m, _, _ = m.handleThreadActionKey(tea.KeyPressMsg{Text: "a"})
 			for _, r := range "why redis" {
-				m, _, _ = m.handleThreadInputKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+				m, _, _ = m.handleThreadInputKey(tea.KeyPressMsg{Code: r, Text: string(r)})
 			}
 
 			out := m.view()
@@ -221,7 +221,7 @@ func TestThreadPane_SelectedThreadShowsFullText(t *testing.T) {
 	m.setSize(120, 30)
 	m.applyReaderContent("Prose.")
 	m.threads = []thread.Thread{th}
-	m, _, _ = m.handleThreadActionKey(tea.KeyMsg{Type: tea.KeyTab}) // focus + expand
+	m, _, _ = m.handleThreadActionKey(tea.KeyPressMsg{Code: tea.KeyTab}) // focus + expand
 
 	// Collect all rows reachable by scrolling from top to bottom.
 	seen := map[string]bool{}
@@ -232,7 +232,7 @@ func TestThreadPane_SelectedThreadShowsFullText(t *testing.T) {
 	}
 	collect()
 	for i := 0; i < m.maxThreadScroll(); i++ {
-		m, _ = m.updateReader(tea.KeyMsg{Type: tea.KeyDown})
+		m, _ = m.updateReader(tea.KeyPressMsg{Code: tea.KeyDown})
 		collect()
 	}
 	joined := strings.Join(keysOf(seen), "\n")

@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/markdown"
 )
@@ -31,7 +31,7 @@ func loadSpecs(t *testing.T, a App, ids ...string) App {
 }
 
 func leftClick(x, y int) tea.MouseMsg {
-	return tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: x, Y: y}
+	return tea.MouseClickMsg{Button: tea.MouseLeft, X: x, Y: y}
 }
 
 // tabColumn finds a screen column that hit-tests to the given tab index.
@@ -60,7 +60,7 @@ func TestHandleMouse_TabClickSwitchesView(t *testing.T) {
 func TestHandleMouse_MotionIgnored(t *testing.T) {
 	a := sizedApp(t)
 	before := a.activeView
-	motion := tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonNone, X: 5, Y: a.layout().tabsRow}
+	motion := tea.MouseMotionMsg{Button: tea.MouseNone, X: 5, Y: a.layout().tabsRow}
 	model, cmd := a.Update(motion)
 	if cmd != nil {
 		t.Error("motion event should produce no command")
@@ -85,7 +85,7 @@ func TestHandleMouse_WheelMovesListSelection(t *testing.T) {
 	if a.specs.cursor != 0 {
 		t.Fatalf("precondition: cursor = %d, want 0", a.specs.cursor)
 	}
-	wheel := tea.MouseMsg{Button: tea.MouseButtonWheelDown, X: 5, Y: 10}
+	wheel := tea.MouseWheelMsg{Button: tea.MouseWheelDown, X: 5, Y: 10}
 	model, _ := a.Update(wheel)
 	if got := model.(App).specs.cursor; got != 1 {
 		t.Errorf("after wheel down cursor = %d, want 1", got)

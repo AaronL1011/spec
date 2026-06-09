@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestSettings_RendersIdentity(t *testing.T) {
@@ -141,7 +141,7 @@ func TestSettings_EscCancelsEdit(t *testing.T) {
 	m.focused = fieldName
 	m.draft = "changed"
 
-	m, cmd := m.update(tea.KeyMsg{Type: tea.KeyEscape})
+	m, cmd := m.update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd != nil {
 		t.Error("cancel should not persist")
 	}
@@ -160,7 +160,7 @@ func TestSettings_InvalidRefreshRejected(t *testing.T) {
 	m.focused = fieldRefresh
 	m.draft = "abc"
 
-	m, cmd := m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, cmd := m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd != nil {
 		t.Error("invalid refresh should not persist")
 	}
@@ -178,7 +178,7 @@ func TestSettings_ConfirmNameDispatchesPersist(t *testing.T) {
 	m.draft = "New Name"
 	m.snapshots[fieldName] = "Test"
 
-	m, cmd := m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, cmd := m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("confirm should schedule persist")
 	}
@@ -195,7 +195,7 @@ func TestSettings_TypeHLIntoTextField(t *testing.T) {
 	m.draft = ""
 
 	for _, r := range []rune{'h', 'e', 'l', 'l', 'o'} {
-		m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m, _ = m.update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 	if m.draft != "hello" {
 		t.Errorf("draft = %q, want hello (l/h must be typable in text fields)", m.draft)
@@ -209,8 +209,8 @@ func TestSettings_SpaceIntoTextField(t *testing.T) {
 	m.focused = fieldName
 	m.draft = "John"
 
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeySpace})
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeySpace})
+	m, _ = m.update(tea.KeyPressMsg{Code: 'D', Text: "D"})
 	if m.draft != "John D" {
 		t.Errorf("draft = %q, want %q", m.draft, "John D")
 	}
@@ -224,11 +224,11 @@ func TestSettings_CycleThemeWithHL(t *testing.T) {
 	m.enumIdx = 0
 	m.draft = ThemeNames()[0]
 
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m, _ = m.update(tea.KeyPressMsg{Code: 'l', Text: "l"})
 	if m.draft != ThemeNames()[1] {
 		t.Errorf("theme after l = %q, want %q", m.draft, ThemeNames()[1])
 	}
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m, _ = m.update(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	if m.draft != ThemeNames()[0] {
 		t.Errorf("theme after h = %q, want %q", m.draft, ThemeNames()[0])
 	}
@@ -242,7 +242,7 @@ func TestSettings_ThemeCyclePreviews(t *testing.T) {
 	m.enumIdx = 0
 	m.draft = ThemeNames()[0]
 
-	_, cmd := m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	_, cmd := m.update(tea.KeyPressMsg{Code: 'l', Text: "l"})
 	if cmd == nil {
 		t.Fatal("cycling theme in edit mode should emit a preview command")
 	}
@@ -262,7 +262,7 @@ func TestSettings_RoleCycleDoesNotPreview(t *testing.T) {
 	m.focused = fieldRole
 	m.enumIdx = 0
 
-	_, cmd := m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	_, cmd := m.update(tea.KeyPressMsg{Code: 'l', Text: "l"})
 	if cmd != nil {
 		t.Error("cycling a non-theme enum field should not emit a preview command")
 	}
@@ -277,10 +277,10 @@ func TestSettings_ThemeCancelRevertsPreview(t *testing.T) {
 	// Begin edit captures the original theme as the revert target.
 	m, _ = m.beginEdit()
 	// Preview a different theme by cycling.
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m, _ = m.update(tea.KeyPressMsg{Code: 'l', Text: "l"})
 
 	// Cancel should request a preview back to the original value.
-	m, cmd := m.update(tea.KeyMsg{Type: tea.KeyEscape})
+	m, cmd := m.update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd == nil {
 		t.Fatal("cancelling a theme edit should emit a revert preview command")
 	}
@@ -304,7 +304,7 @@ func TestSettings_CycleRoleInEditMode(t *testing.T) {
 	m.draft = "engineer"
 	m.enumIdx = 4
 
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeySpace})
+	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeySpace})
 	if m.draft != "pm" {
 		t.Errorf("role after cycle = %q, want pm", m.draft)
 	}
@@ -340,7 +340,7 @@ func TestSettings_PageDownScrollsToReadOnly(t *testing.T) {
 	// Page down repeatedly until Integrations section is visible.
 	var found bool
 	for range 20 {
-		m, _ = m.update(tea.KeyMsg{Type: tea.KeyPgDown})
+		m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyPgDown})
 		got := m.view()
 		if strings.Contains(got, "Integrations") {
 			found = true
@@ -361,7 +361,7 @@ func TestSettings_ScrollDownReachesConfigPaths(t *testing.T) {
 	// Scroll down line-by-line (shift+↓ = ScrollDown) until Config Paths is visible.
 	var found bool
 	for range 50 {
-		m, _ = m.update(tea.KeyMsg{Type: tea.KeyShiftDown})
+		m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModShift})
 		got := m.view()
 		if strings.Contains(got, "Config Paths") {
 			found = true
@@ -428,9 +428,9 @@ func TestSettings_MouseToggleCyclesAndPersists(t *testing.T) {
 	}
 
 	// Enter edit, cycle with space (off → on), confirm.
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeySpace})
-	_, cmd := m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, cmd := m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Error("confirming mouse toggle should dispatch a persist command")
 	}

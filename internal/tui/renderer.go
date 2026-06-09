@@ -3,13 +3,14 @@ package tui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"os"
 	"strings"
 	"sync"
 
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/glamour/styles"
-	"github.com/muesli/termenv"
+	"charm.land/glamour/v2"
+	"charm.land/glamour/v2/styles"
+	"github.com/charmbracelet/colorprofile"
 )
 
 // Renderer renders markdown content into ANSI-styled terminal text.
@@ -30,9 +31,11 @@ func newRenderer(theme Theme) Renderer {
 
 // colourDisabled reports whether ANSI styling should be suppressed, honouring
 // the NO_COLOR convention (https://no-color.org) and a profile-less terminal.
+// colorprofile.Detect already folds in NO_COLOR and TTY detection, returning
+// NoTTY or Ascii when colour must be off.
 func colourDisabled() bool {
-	output := termenv.NewOutput(os.Stdout)
-	return termenv.EnvNoColor() || output.Profile == termenv.Ascii
+	p := colorprofile.Detect(os.Stdout, os.Environ())
+	return p == colorprofile.NoTTY || p == colorprofile.Ascii
 }
 
 // GlamourRenderer renders markdown using Glamour with a pre-resolved style.
@@ -113,25 +116,26 @@ func (g *GlamourRenderer) rendererForWidth(width int) (*glamour.TermRenderer, er
 // glamourStyleForTheme maps a resolved Theme to a Glamour standard style by
 // inspecting the base background colour luminance.  This avoids terminal I/O.
 func glamourStyleForTheme(theme Theme) string {
-	if isLightColour(string(theme.Base)) {
+	if isLightColour(theme.Base) {
 		return styles.LightStyle
 	}
 	return styles.DarkStyle
 }
 
-// isLightColour returns true when a hex colour string represents a light
-// background (perceived luminance > 50%).
-func isLightColour(hex string) bool {
-	hex = strings.TrimPrefix(hex, "#")
-	if len(hex) < 6 {
+// isLightColour returns true when a colour represents a light background
+// (perceived luminance > 50%). lipgloss v2 colours implement color.Color, so
+// luminance is computed from the resolved RGBA rather than a hex string.
+func isLightColour(c color.Color) bool {
+	if c == nil {
 		return false
 	}
-	var r, g, b uint64
-	_, _ = fmt.Sscanf(hex[0:2], "%x", &r)
-	_, _ = fmt.Sscanf(hex[2:4], "%x", &g)
-	_, _ = fmt.Sscanf(hex[4:6], "%x", &b)
+	// color.Color.RGBA returns 16-bit channels (0..65535); shift down to 0..255.
+	r, g, b, _ := c.RGBA()
+	rf := float64(r >> 8)
+	gf := float64(g >> 8)
+	bf := float64(b >> 8)
 	// BT.601 perceived luminance.
-	return 0.299*float64(r)+0.587*float64(g)+0.114*float64(b) > 128
+	return 0.299*rf+0.587*gf+0.114*bf > 128
 }
 
 // PlainRenderer is a plain-text fallback with no ANSI styling.
