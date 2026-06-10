@@ -252,6 +252,7 @@ func TestMerge_UnionsThreadsAndReplies(t *testing.T) {
 	}
 	if t1 == nil {
 		t.Fatal("T-1 missing after merge")
+		return
 	}
 	if t1.IsOpen() {
 		t.Error("T-1 should be resolved after merge")

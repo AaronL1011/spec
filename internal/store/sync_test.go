@@ -22,6 +22,7 @@ func TestSyncStateGetSet_UpsertsEntry(t *testing.T) {
 	}
 	if entry == nil {
 		t.Fatal("SyncStateGet() entry = nil")
+		return
 	}
 	if entry.Hash != "hash-2" {
 		t.Fatalf("SyncStateGet() hash = %q, want %q", entry.Hash, "hash-2")

@@ -71,6 +71,7 @@ func TestDAGResource_Lists(t *testing.T) {
 	}
 	if found == nil {
 		t.Fatal("spec://current/dag resource not listed")
+		return
 	}
 	var doc dagDocument
 	if err := json.Unmarshal([]byte(found.Content), &doc); err != nil {

@@ -204,6 +204,7 @@ func TestReplaceSectionContent(t *testing.T) {
 	s := FindSection(sections, "problem_statement")
 	if s == nil {
 		t.Fatal("section not found after replacement")
+		return
 	}
 	if !strings.Contains(s.Content, "New problem statement content.") {
 		t.Errorf("section content = %q, want to contain 'New problem statement content.'", s.Content)
@@ -222,6 +223,7 @@ func TestDecisionLog(t *testing.T) {
 	dl := FindSection(sections, "decision_log")
 	if dl == nil {
 		t.Fatal("decision log not found")
+		return
 	}
 
 	entries, err := ParseDecisionLog(dl.Content)

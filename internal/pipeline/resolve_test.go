@@ -84,6 +84,7 @@ func TestResolveWithOverrides(t *testing.T) {
 	buildStage := resolved.StageByName("build")
 	if buildStage == nil {
 		t.Fatal("build stage not found")
+		return
 	}
 
 	// Check warning was added

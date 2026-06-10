@@ -25,6 +25,7 @@ func TestFromMeta(t *testing.T) {
 	plan := FromMeta(meta)
 	if plan == nil {
 		t.Fatal("FromMeta returned nil")
+		return
 	}
 
 	if plan.SpecID != "SPEC-001" {
@@ -97,6 +98,7 @@ func TestPlan_CurrentStep(t *testing.T) {
 	current := plan.CurrentStep()
 	if current == nil {
 		t.Fatal("CurrentStep should not be nil")
+		return
 	}
 	if current.Index != 2 {
 		t.Errorf("CurrentStep.Index = %d, want 2", current.Index)
@@ -420,6 +422,7 @@ func TestPlan_ToFrontmatter(t *testing.T) {
 
 	if review == nil {
 		t.Fatal("review should not be nil")
+		return
 	}
 	if review.Status != ReviewApproved {
 		t.Errorf("review.Status = %q", review.Status)
