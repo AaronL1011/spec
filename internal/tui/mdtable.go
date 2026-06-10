@@ -5,23 +5,17 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
-	xansi "github.com/charmbracelet/x/ansi"
 )
 
 // Markdown tables are rendered here with lipgloss directly rather than by
 // glamour: glamour never enables BorderRow on its underlying lipgloss table
 // and exposes no style option for it, so multi-line rows run together with
-// no separator. Inline cell content (code spans, bold) is still styled by
-// passing each cell through the glamour renderer.
+// no separator. Inline cell content (code spans, bold) is styled with a
+// plain string scan — running each cell through glamour is far too slow.
 
 // docMargin mirrors glamour's standard-style document margin so tables align
 // and wrap identically to glamour-rendered blocks around them.
 const docMargin = 2
-
-// inlineCellWrap is the word-wrap width used when rendering a cell's inline
-// markdown. Cells are single source lines; the table wraps them to column
-// width afterwards, so this just needs to be too wide to ever wrap.
-const inlineCellWrap = 1 << 12
 
 // mdSegment is a run of markdown lines, either one table block or the
 // content between table blocks.
@@ -162,10 +156,10 @@ func (g *GlamourRenderer) renderTableBlock(block string, width int) string {
 			}
 			return st
 		}).
-		Headers(g.renderCells(splitCells(lines[0]))...)
+		Headers(g.styleCells(splitCells(lines[0]))...)
 
 	for _, row := range lines[2:] {
-		tbl.Row(g.renderCells(splitCells(row))...)
+		tbl.Row(g.styleCells(splitCells(row))...)
 	}
 
 	indent := strings.Repeat(" ", docMargin)
@@ -178,45 +172,47 @@ func (g *GlamourRenderer) renderTableBlock(block string, width int) string {
 	return b.String()
 }
 
-func (g *GlamourRenderer) renderCells(cells []string) []string {
+func (g *GlamourRenderer) styleCells(cells []string) []string {
 	out := make([]string, len(cells))
 	for i, c := range cells {
-		out[i] = g.renderInline(c)
+		out[i] = styleCellInline(c, g.cellCode, g.cellBold)
 	}
 	return out
 }
 
-// renderInline styles a cell's inline markdown via glamour and collapses the
-// result to a single line, falling back to the raw text on any error.
-func (g *GlamourRenderer) renderInline(s string) string {
-	if s == "" {
-		return ""
-	}
-	r, err := g.rendererForWidth(inlineCellWrap)
-	if err != nil {
+// styleCellInline styles `code` spans and **bold** runs in a cell. Unbalanced
+// markers are left as literal text.
+func styleCellInline(s string, code, bold lipgloss.Style) string {
+	if !strings.ContainsAny(s, "`*") {
 		return s
 	}
-	g.mu.Lock()
-	rendered, err := r.Render(s)
-	g.mu.Unlock()
-	if err != nil {
-		return s
+	segs := strings.Split(s, "`")
+	if len(segs)%2 == 0 {
+		return styleBold(s, bold)
 	}
-	var parts []string
-	for _, line := range strings.Split(rendered, "\n") {
-		// Glamour pads every line to the wrap width with styled spaces;
-		// trim by display column so the table sees true content widths.
-		plain := xansi.Strip(line)
-		body := strings.TrimRight(plain, " \t")
-		if strings.TrimSpace(body) == "" {
-			continue
+	var b strings.Builder
+	for i, seg := range segs {
+		if i%2 == 1 {
+			b.WriteString(code.Render(seg))
+		} else {
+			b.WriteString(styleBold(seg, bold))
 		}
-		lead := len(body) - len(strings.TrimLeft(body, " \t"))
-		parts = append(parts, xansi.Cut(line, lead, xansi.StringWidth(body)))
 	}
-	// Cells like "#" parse as empty block constructs; show them verbatim.
-	if len(parts) == 0 {
+	return b.String()
+}
+
+func styleBold(s string, bold lipgloss.Style) string {
+	segs := strings.Split(s, "**")
+	if len(segs)%2 == 0 {
 		return s
 	}
-	return strings.Join(parts, " ")
+	var b strings.Builder
+	for i, seg := range segs {
+		if i%2 == 1 {
+			b.WriteString(bold.Render(seg))
+		} else {
+			b.WriteString(seg)
+		}
+	}
+	return b.String()
 }

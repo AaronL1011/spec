@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
@@ -73,6 +74,24 @@ func TestParseAlignments(t *testing.T) {
 	}
 }
 
+func TestStyleCellInline(t *testing.T) {
+	code := lipgloss.NewStyle().Bold(true) // any style with visible markers
+	bold := lipgloss.NewStyle().Bold(true)
+	cases := map[string]string{
+		"plain text":          "plain text",
+		"**Option B**":        "Option B",
+		"a `code span` b":     "a code span b",
+		"**bold** and `code`": "bold and code",
+		"unbalanced `tick":    "unbalanced `tick",
+		"unbalanced **stars":  "unbalanced **stars",
+	}
+	for in, want := range cases {
+		if got := xansi.Strip(styleCellInline(in, code, bold)); got != want {
+			t.Errorf("styleCellInline(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestGlamourRenderer_TableHasRowSeparators(t *testing.T) {
 	r := NewGlamourRenderer(catppuccinMocha())
 	out, err := r.Render(context.Background(), sampleTable, 80)
@@ -83,8 +102,9 @@ func TestGlamourRenderer_TableHasRowSeparators(t *testing.T) {
 	if got := strings.Count(out, "┼"); got < 2 {
 		t.Errorf("got %d horizontal separator junctions, want >= 2:\n%s", got, out)
 	}
-	if !strings.Contains(out, "Option B") {
-		t.Errorf("cell content missing from output:\n%s", out)
+	plain := xansi.Strip(out)
+	if !strings.Contains(plain, "Option B") || strings.Contains(plain, "**") {
+		t.Errorf("bold cell not styled correctly:\n%s", plain)
 	}
 }
 

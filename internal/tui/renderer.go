@@ -43,19 +43,23 @@ func colourDisabled() bool {
 // The TermRenderer is constructed once per (style, width) pair and cached, so
 // termenv.HasDarkBackground is never called on the hot render path.
 type GlamourRenderer struct {
-	mu     sync.Mutex
-	style  string
-	border lipgloss.Style
-	cache  map[int]*glamour.TermRenderer // keyed by word-wrap width
+	mu       sync.Mutex
+	style    string
+	border   lipgloss.Style
+	cellCode lipgloss.Style
+	cellBold lipgloss.Style
+	cache    map[int]*glamour.TermRenderer // keyed by word-wrap width
 }
 
 // NewGlamourRenderer creates a renderer whose style is derived from the
 // already-resolved Theme.  No terminal I/O is performed at construction time.
 func NewGlamourRenderer(theme Theme) Renderer {
 	return &GlamourRenderer{
-		style:  glamourStyleForTheme(theme),
-		border: lipgloss.NewStyle().Foreground(theme.Overlay),
-		cache:  make(map[int]*glamour.TermRenderer),
+		style:    glamourStyleForTheme(theme),
+		border:   lipgloss.NewStyle().Foreground(theme.Overlay),
+		cellCode: lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.Surface),
+		cellBold: lipgloss.NewStyle().Bold(true),
+		cache:    make(map[int]*glamour.TermRenderer),
 	}
 }
 
