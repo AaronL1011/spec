@@ -121,14 +121,25 @@ func resolvePM(cfg *config.TeamConfig) (adapter.PMAdapter, string) {
 	case "", "none":
 		return noop.PM{}, ""
 	case "jira":
-		baseURL := cfg.Integrations.PM.Get("base_url")
-		projectKey := cfg.Integrations.PM.Get("project_key")
-		email := cfg.Integrations.PM.Get("email")
-		token := cfg.Integrations.PM.Get("token")
-		if baseURL == "" || projectKey == "" || email == "" || token == "" {
+		jc := cfg.Integrations.PM.Jira()
+		if !jc.IsComplete() {
 			return noop.PM{}, "jira: base_url, project_key, email, and token required — PM disabled"
 		}
-		return jira.NewClient(baseURL, projectKey, email, token), ""
+		return jira.NewClient(jira.Options{
+			BaseURL:        jc.BaseURL,
+			Email:          jc.Email,
+			Token:          jc.Token,
+			ProjectKey:     jc.ProjectKey,
+			BoardID:        jc.BoardID,
+			TeamID:         jc.TeamID,
+			EpicIssueType:  jc.EpicIssueType,
+			StoryIssueType: jc.StoryIssueType,
+			Fields:         jc.Fields,
+			Labels:         jc.Labels,
+			Components:     jc.Components,
+			StatusMap:      jc.StatusMap,
+			Timeout:        jc.RequestTimeout,
+		}), ""
 	case "linear", "github-issues":
 		return noop.PM{}, fmt.Sprintf("%s PM adapter not yet implemented — PM disabled", provider)
 	default:

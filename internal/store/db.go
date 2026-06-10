@@ -69,7 +69,7 @@ func (db *DB) Conn() *sql.DB {
 	return db.conn
 }
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 func (db *DB) migrate() error {
 	// Create migrations table if not exists
@@ -100,6 +100,11 @@ func (db *DB) migrate() error {
 	}
 	if currentVersion < 3 {
 		if err := db.migrateV3(); err != nil {
+			return err
+		}
+	}
+	if currentVersion < 4 {
+		if err := db.migrateV4(); err != nil {
 			return err
 		}
 	}
@@ -243,6 +248,44 @@ func (db *DB) migrateV3() error {
 	for _, stmt := range statements {
 		if _, err := tx.Exec(stmt); err != nil {
 			return fmt.Errorf("migration v3 statement failed: %w\nSQL: %s", err, stmt)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) migrateV4() error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning migration v4: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }() // Rollback is no-op after Commit
+
+	statements := []string{
+		// PM sync queue: PM-tool operations (epic create/link, status
+		// transition, story sync) that failed and must be retried so the Jira
+		// board never silently drifts from spec state.
+		// (docs/JIRA_HARDENING_PLAN.md §P5)
+		`CREATE TABLE IF NOT EXISTS pm_queue (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			spec_id    TEXT NOT NULL,
+			epic_key   TEXT,
+			op         TEXT NOT NULL,
+			payload    TEXT,
+			status     TEXT NOT NULL,
+			attempts   INTEGER NOT NULL DEFAULT 0,
+			detail     TEXT,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_pm_queue_spec ON pm_queue(spec_id, status)`,
+
+		`INSERT INTO migrations (version) VALUES (4)`,
+	}
+
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("migration v4 statement failed: %w\nSQL: %s", err, stmt)
 		}
 	}
 

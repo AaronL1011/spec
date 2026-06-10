@@ -121,6 +121,16 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 
 	res.Effects, res.Archived = d.runTransitionEffects(ctx, resolved, res.PreviousStage, target, execCtx)
 
+	// Reflect the new stage onto the linked PM board status (on by default,
+	// idempotent, queued-on-failure). Independent of any update_pm effect.
+	if outcome := d.syncPMStatus(ctx, in.SpecID, meta.EpicKey, target); outcome != nil {
+		res.Effects = append(res.Effects, *outcome)
+	}
+	// Reconcile per-step PM stories when story sync is enabled.
+	if outcome := d.syncPMStories(ctx, in.SpecID, in.SpecPath, meta.EpicKey, meta.Steps); outcome != nil {
+		res.Effects = append(res.Effects, *outcome)
+	}
+
 	if d.Config.Team.Sync.OutboundOnAdvance && execCtx.Syncer != nil {
 		if err := execCtx.Syncer.Sync(ctx, "out", in.SpecID); err != nil {
 			res.Effects = append(res.Effects, EffectOutcome{Message: "outbound sync", Err: err.Error()})

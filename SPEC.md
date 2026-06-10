@@ -342,7 +342,7 @@ Sync is **section-scoped** and **role-aware**. The `<!-- owner: role -->` marker
 | Inbound | Confluence/Notion | Specs repo | `<!-- owner: qa -->` sections (§6, §9) | `spec sync <id>` |
 | Inbound | Service repo `.spec/` | Specs repo | Sections matching user's role | `spec sync <id>` (from service repo) |
 | Outbound | Specs repo | Confluence/Notion | All sections (full spec) | `spec sync <id>` or auto on `spec advance` |
-| Outbound | Specs repo | Jira/Linear | Frontmatter (`status`, `epic_key`) | Auto on `spec advance` |
+| Outbound | Specs repo | Jira/Linear | Board status via `status_map`, `epic_key`, per-step stories | Auto on `spec advance`; reconcile via `spec sync --pm` |
 | Inbound | Figma / Comms | Specs repo | §5 Design Inputs (links, annotations) | `spec link <id>` or comms bot |
 
 **Conflict resolution:** The specs repo always wins on conflict. If a section was modified in both the specs repo and Confluence since the last sync, `spec sync` warns and requires `--force` to accept the inbound change or `--skip` to keep the repo version.
@@ -464,7 +464,15 @@ integrations:
     provider: jira                     # jira | linear | github-issues | none
     base_url: ${JIRA_BASE_URL}
     project_key: PLAT
+    email: ${JIRA_EMAIL}               # required for Jira basic auth
     token: ${JIRA_API_TOKEN}
+    board_id: 42                       # optional: scope board analytics
+    status_map:                        # spec stage -> Jira status (deterministic sync)
+      draft: "To Do"
+      engineering: "In Progress"
+      done: "Done"
+    # sync_stories: true               # optional: mirror build steps as Jira stories
+    # fields: { epic_name: customfield_10011 }   # required on company-managed projects
 
   docs:
     provider: confluence               # confluence | notion | github | local

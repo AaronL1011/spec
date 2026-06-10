@@ -87,19 +87,11 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Create PM epic if configured
+	// Find-or-create the PM epic if configured (idempotent, crash-safe).
 	if rc.HasIntegration("pm") {
-		epicKey, pmErr := reg.PM().CreateEpic(ctx(), adapter.SpecMeta{
-			ID:    specID,
-			Title: title,
-		})
-		if pmErr != nil {
-			warnf("could not create PM epic: %v", pmErr)
-		} else if epicKey != "" {
-			fmt.Printf("Created PM epic: %s\n", epicKey)
-			if err := persistEpicKey(rc, specID, epicKey); err != nil {
-				warnf("could not persist PM epic key: %v", err)
-			}
+		sm := pmSpecMeta(rc, specID, title, &markdownMeta{Status: "draft"})
+		if epicKey := ensureEpic(rc, reg, specID, sm); epicKey != "" {
+			fmt.Printf("Linked PM epic: %s\n", epicKey)
 		}
 	}
 

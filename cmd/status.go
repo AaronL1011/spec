@@ -59,7 +59,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Cycle: %s\n", meta.Cycle)
 	fmt.Printf("Version: %s\n", meta.Version)
 	if meta.EpicKey != "" {
-		fmt.Printf("Epic: %s\n", meta.EpicKey)
+		fmt.Printf("Epic: %s%s\n", meta.EpicKey, pmDriftSuffix(specID))
 	}
 	if len(meta.Repos) > 0 {
 		fmt.Printf("Repos: %s\n", strings.Join(meta.Repos, ", "))
@@ -151,6 +151,20 @@ func printSyncFreshness(cmd *cobra.Command, rc *config.ResolvedConfig) {
 		}
 	}
 	fmt.Println()
+}
+
+// pmDriftSuffix reports whether the spec has deferred PM operations awaiting
+// reconciliation, so a stale Jira board is visible at a glance. Returns ""
+// when in sync or when no local DB is available.
+func pmDriftSuffix(specID string) string {
+	if recorderDB == nil {
+		return ""
+	}
+	pending, err := recorderDB.PMQueuePending(specID)
+	if err != nil || len(pending) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("  ⚠ Jira out of sync (%d pending — run 'spec sync --pm')", len(pending))
 }
 
 // humanizeAge renders a duration as a compact age string.
