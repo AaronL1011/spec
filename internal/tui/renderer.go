@@ -10,6 +10,7 @@ import (
 
 	"charm.land/glamour/v2"
 	"charm.land/glamour/v2/styles"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 )
 
@@ -42,17 +43,19 @@ func colourDisabled() bool {
 // The TermRenderer is constructed once per (style, width) pair and cached, so
 // termenv.HasDarkBackground is never called on the hot render path.
 type GlamourRenderer struct {
-	mu    sync.Mutex
-	style string
-	cache map[int]*glamour.TermRenderer // keyed by word-wrap width
+	mu     sync.Mutex
+	style  string
+	border lipgloss.Style
+	cache  map[int]*glamour.TermRenderer // keyed by word-wrap width
 }
 
 // NewGlamourRenderer creates a renderer whose style is derived from the
 // already-resolved Theme.  No terminal I/O is performed at construction time.
 func NewGlamourRenderer(theme Theme) Renderer {
 	return &GlamourRenderer{
-		style: glamourStyleForTheme(theme),
-		cache: make(map[int]*glamour.TermRenderer),
+		style:  glamourStyleForTheme(theme),
+		border: lipgloss.NewStyle().Foreground(theme.Overlay),
+		cache:  make(map[int]*glamour.TermRenderer),
 	}
 }
 
@@ -72,10 +75,48 @@ func (g *GlamourRenderer) Render(ctx context.Context, md string, width int) (str
 	}
 	md = stripHTMLComments(md)
 
+	segments := splitTableSegments(md)
+	hasTable := false
+	for _, seg := range segments {
+		if seg.table {
+			hasTable = true
+			break
+		}
+	}
+	if !hasTable {
+		out, err := g.glamourRender(md, width)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimRight(out, "\n"), nil
+	}
+
+	parts := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		var out string
+		if seg.table {
+			out = g.renderTableBlock(seg.text, width)
+		} else {
+			if strings.TrimSpace(seg.text) == "" {
+				continue
+			}
+			rendered, err := g.glamourRender(seg.text, width)
+			if err != nil {
+				return "", err
+			}
+			out = rendered
+		}
+		parts = append(parts, strings.Trim(out, "\n"))
+	}
+	return "\n" + strings.Join(parts, "\n\n"), nil
+}
+
+// glamourRender renders one markdown chunk through the cached glamour
+// renderer, falling back to unstyled text rather than blocking the user.
+func (g *GlamourRenderer) glamourRender(md string, width int) (string, error) {
 	r, err := g.rendererForWidth(width)
 	if err != nil {
-		// Fall back to unstyled text rather than block the user.
-		return stripHTMLComments(md), nil
+		return md, nil
 	}
 
 	g.mu.Lock()
@@ -85,7 +126,7 @@ func (g *GlamourRenderer) Render(ctx context.Context, md string, width int) (str
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimRight(out, "\n"), nil
+	return out, nil
 }
 
 // rendererForWidth returns a cached TermRenderer for the given width,
