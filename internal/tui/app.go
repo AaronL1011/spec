@@ -39,6 +39,26 @@ const (
 	refreshKeyReviews   = "reviews"
 )
 
+// refreshKeyForView maps a top-level tab to its data-refresh key, used to drive
+// the per-tab staleness indicator. Views without their own fetch (settings,
+// help) return "" so the indicator hides.
+func refreshKeyForView(v View) string {
+	switch v {
+	case ViewDashboard:
+		return refreshKeyDashboard
+	case ViewPipeline:
+		return refreshKeyPipeline
+	case ViewSpecs:
+		return refreshKeySpecs
+	case ViewTriage:
+		return refreshKeyTriage
+	case ViewReviews:
+		return refreshKeyReviews
+	default:
+		return ""
+	}
+}
+
 // tickMsg fires on each refresh interval.
 type tickMsg time.Time
 
@@ -208,6 +228,11 @@ func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string,
 	}
 	sb := components.NewStatusBar(sbStyles)
 	sb.SetView(ViewDashboard.Label())
+	sb.SetActiveRefreshKey(refreshKeyDashboard)
+	// Flag a tab stale once its data is twice the refresh interval old, so the
+	// "stale · r to refresh" affordance only appears after a poll has plausibly
+	// been missed rather than between two healthy ticks.
+	sb.SetStaleAfter(2 * parseRefreshInterval(rc))
 
 	return App{
 		rc:         rc,
@@ -307,7 +332,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.dashboard, cmd = a.dashboard.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.dashboard.loaded)
 		a.statusBar.SetPending(a.dashboard.pendingCount())
-		a.markDataFresh(msg.Err)
+		a.markDataFresh(refreshKeyDashboard, msg.Err)
 		return a, cmd
 
 	case pipelineDataMsg:
@@ -315,7 +340,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.pipeline, cmd = a.pipeline.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.pipeline.loaded)
-		a.markDataFresh(msg.Err)
+		a.markDataFresh(refreshKeyPipeline, msg.Err)
 		return a, cmd
 
 	case specListDataMsg:
@@ -323,7 +348,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.specs, cmd = a.specs.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.specs.loaded)
-		a.markDataFresh(msg.Err)
+		a.markDataFresh(refreshKeySpecs, msg.Err)
 		return a, cmd
 
 	case triageDataMsg:
@@ -331,7 +356,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.triage, cmd = a.triage.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.triage.loaded)
-		a.markDataFresh(msg.Err)
+		a.markDataFresh(refreshKeyTriage, msg.Err)
 		a.rehydrateTriageDetail()
 		return a, cmd
 
@@ -340,7 +365,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.reviews, cmd = a.reviews.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.reviews.loaded)
-		a.markDataFresh(msg.Err)
+		a.markDataFresh(refreshKeyReviews, msg.Err)
 		return a, cmd
 
 	case fileChangedMsg:
@@ -940,6 +965,7 @@ func (a *App) switchView(v View) tea.Cmd {
 	a.activeView = v
 	a.tabs.SetActive(int(v))
 	a.statusBar.SetView(v.Label())
+	a.statusBar.SetActiveRefreshKey(refreshKeyForView(v))
 	a.syncBusyState()
 	// The dashboard makes a network call (PR reviews), so re-fetching every time
 	// the user switches back to it is spammy. On switch, fetch only if it has
@@ -1007,16 +1033,20 @@ func (a *App) scheduleRefresh(key string, cmd tea.Cmd) tea.Cmd {
 	return cmd
 }
 
-// markDataFresh resets the status bar's staleness clock when a view's data load
+// markDataFresh resets the given tab's staleness clock when its data load
 // succeeds. A failed poll deliberately does not reset it: the data on screen is
-// no fresher than before, so the "Ns ago" indicator should keep climbing as the
-// honest signal that the latest refresh did not land. Every view's data message
-// calls this so the indicator is accurate on every tab, not just the dashboard.
-func (a *App) markDataFresh(err error) {
+// no fresher than before, so the age indicator should keep climbing as the
+// honest signal that the latest refresh did not land. A failed poll also marks
+// the bar offline so the affordance reads "cached · offline"; a success clears
+// it. Each tab is keyed independently so the indicator reflects the tab the
+// user is viewing, not a global last-refresh.
+func (a *App) markDataFresh(key string, err error) {
 	if err != nil {
+		a.statusBar.SetOffline(true)
 		return
 	}
-	a.statusBar.SetRefresh(time.Now())
+	a.statusBar.SetOffline(false)
+	a.statusBar.SetRefresh(key, time.Now())
 }
 
 // expandError opens the full, untruncated text of the current sticky error in
@@ -1770,6 +1800,8 @@ func (a *App) applyTheme(name string) {
 	})
 	a.statusBar.SetView(a.activeView.Label())
 	a.statusBar.SetPending(a.dashboard.pendingCount())
+	a.statusBar.SetActiveRefreshKey(refreshKeyForView(a.activeView))
+	a.statusBar.SetStaleAfter(2 * a.refreshInterval)
 
 	a.modal = components.NewModal(components.ModalStyles{
 		Border:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(a.theme.Accent),
