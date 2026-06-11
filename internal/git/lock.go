@@ -22,7 +22,7 @@ const (
 // IMPORTANT: The advisory locks in this file are SINGLE-HOST ONLY.
 //
 // They use kernel-advisory flock(2), which serializes only processes on the
-// same machine that share the same clone directory (CLI vs MCP vs `spec watch`).
+// same machine that share the same clone directory (CLI vs MCP vs the TUI).
 // They provide NO cross-machine mutual exclusion. Cross-teammate safety is, and
 // remains, git's atomic ref update on push plus the section-aware rebase-retry
 // loop (see WithSpecsRepo / PushLocalEdits). Do not mistake these locks for a

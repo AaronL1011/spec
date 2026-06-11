@@ -485,7 +485,6 @@ daily actions also have a dashboard keybinding.
 | `spec focus [id]` | Set (or `--clear`) the focused spec |
 | `spec do [id]` | Resume work with full context |
 | `spec standup` | Auto-generated standup from real activity |
-| `spec watch` | Live-updating pipeline dashboard |
 
 ### Intake & lifecycle
 
