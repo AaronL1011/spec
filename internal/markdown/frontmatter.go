@@ -27,6 +27,16 @@ type SpecMeta struct {
 	Created     string   `yaml:"created"`
 	Updated     string   `yaml:"updated"`
 
+	// Assignees are the people responsible for moving the spec at its current
+	// stage. Drives personal dashboard scope (assignee-scoped stages). Empty
+	// means the spec is unclaimed and surfaces to the whole owning role.
+	Assignees []string `yaml:"assignees,omitempty"`
+
+	// BlockedFrom records the stage a spec was in when it was ejected to
+	// `blocked`, so the dashboard can role-scope the BLOCKED section and
+	// `spec resume` can restore the stage without parsing the escape-hatch log.
+	BlockedFrom string `yaml:"blocked_from,omitempty"`
+
 	// Steps is the structured build plan.
 	// Replaces unstructured §7.3 prose with authoritative step tracking.
 	Steps []BuildStep `yaml:"steps,omitempty"`
@@ -141,6 +151,22 @@ func (m *SpecMeta) IsReviewPending() bool {
 // IsReviewChangesRequested returns true if reviewer requested changes.
 func (m *SpecMeta) IsReviewChangesRequested() bool {
 	return m.Review != nil && m.Review.Status == ReviewStatusChangesRequested
+}
+
+// HasAssignee reports whether identity (a user name or handle) is one of the
+// spec's assignees. Matching is case-insensitive and tolerates a leading '@'
+// on either side, mirroring how reviewers are matched elsewhere.
+func (m *SpecMeta) HasAssignee(identity string) bool {
+	target := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(identity)), "@")
+	if target == "" {
+		return false
+	}
+	for _, a := range m.Assignees {
+		if strings.TrimPrefix(strings.ToLower(strings.TrimSpace(a)), "@") == target {
+			return true
+		}
+	}
+	return false
 }
 
 // TriageMeta represents the YAML frontmatter of a TRIAGE.md file.

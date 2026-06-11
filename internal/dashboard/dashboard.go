@@ -116,24 +116,30 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 	// (fast) and at most one API call for PR reviews. Caching added more
 	// complexity (TTL, invalidation, mtime checks) than it saved.
 	pl := rc.Pipeline()
+	viewer := viewerFor(rc, role)
+	blockedCfg := blockedConfig(rc)
 
-	// DO section: specs where stage owner_role matches user
+	// DO section: specs scoped to the viewer by stage dashboard scope.
+	// BLOCKED section: blocked specs scoped by the team blocked config.
 	if rc.SpecsRepoDir != "" {
 		specs, err := loadSpecs(rc)
 		if err == nil {
 			for _, s := range specs {
-				stage := pl.StageByName(s.Status)
-				if stage != nil && stage.HasOwner(role) {
+				view := s.view()
+				if s.Status == pipeline.StatusBlocked {
+					if VisibleInBlocked(pl, blockedCfg, view, viewer) {
+						data.Blocked = append(data.Blocked, DashboardItem{
+							SpecID: s.ID,
+							Title:  s.Title,
+						})
+					}
+					continue
+				}
+				if VisibleInDo(pl, view, viewer) {
 					data.Do = append(data.Do, DashboardItem{
 						SpecID: s.ID,
 						Title:  s.Title,
 						Stage:  s.Status,
-					})
-				}
-				if s.Status == pipeline.StatusBlocked {
-					data.Blocked = append(data.Blocked, DashboardItem{
-						SpecID: s.ID,
-						Title:  s.Title,
 					})
 				}
 			}
@@ -170,9 +176,36 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 }
 
 type specInfo struct {
-	ID     string
-	Title  string
-	Status string
+	ID          string
+	Title       string
+	Status      string
+	Author      string
+	Assignees   []string
+	BlockedFrom string
+}
+
+// view projects a specInfo into the resolver's SpecView.
+func (s specInfo) view() SpecView {
+	return SpecView{
+		Author:      s.Author,
+		Assignees:   s.Assignees,
+		Status:      s.Status,
+		BlockedFrom: s.BlockedFrom,
+	}
+}
+
+// viewerFor builds a Viewer from resolved config and the active role.
+func viewerFor(rc *config.ResolvedConfig, role string) Viewer {
+	return Viewer{Role: role, Name: rc.UserName(), Handle: rc.UserHandle()}
+}
+
+// blockedConfig returns the team BLOCKED-section config, or the zero value
+// (which means "all roles, all blocked specs") when team config is absent.
+func blockedConfig(rc *config.ResolvedConfig) config.BlockedConfig {
+	if rc.Team == nil {
+		return config.BlockedConfig{}
+	}
+	return rc.Team.Dashboard.Blocked
 }
 
 func loadSpecs(rc *config.ResolvedConfig) ([]specInfo, error) {
@@ -195,9 +228,12 @@ func loadSpecs(rc *config.ResolvedConfig) ([]specInfo, error) {
 			continue
 		}
 		specs = append(specs, specInfo{
-			ID:     meta.ID,
-			Title:  meta.Title,
-			Status: meta.Status,
+			ID:          meta.ID,
+			Title:       meta.Title,
+			Status:      meta.Status,
+			Author:      meta.Author,
+			Assignees:   meta.Assignees,
+			BlockedFrom: meta.BlockedFrom,
 		})
 	}
 	return specs, nil

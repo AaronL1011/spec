@@ -220,6 +220,9 @@ func TestEjectAndResume(t *testing.T) {
 	if meta.Status != StatusBlocked {
 		t.Errorf("status = %q, want blocked", meta.Status)
 	}
+	if meta.BlockedFrom != "build" {
+		t.Errorf("blocked_from = %q, want build", meta.BlockedFrom)
+	}
 
 	// Resume
 	if err := Resume(path, meta, "build"); err != nil {
@@ -229,6 +232,9 @@ func TestEjectAndResume(t *testing.T) {
 	meta, _ = markdown.ReadMeta(path)
 	if meta.Status != "build" {
 		t.Errorf("status after resume = %q, want build", meta.Status)
+	}
+	if meta.BlockedFrom != "" {
+		t.Errorf("blocked_from after resume = %q, want empty", meta.BlockedFrom)
 	}
 }
 

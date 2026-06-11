@@ -164,13 +164,63 @@ integrations:
     provider: jira              # jira | none  (linear, github-issues: coming soon)
     base_url: ${JIRA_BASE_URL}  # e.g. https://myorg.atlassian.net
     project_key: PLAT
-    email: ${JIRA_EMAIL}
+    email: ${JIRA_EMAIL}        # REQUIRED — Atlassian account email for basic auth
     token: ${JIRA_API_TOKEN}
+
+    # --- Optional: bind to a specific board/team and tune behaviour ---
+    board_id: 42                # board analytics are scoped here
+    team_id: "team-abc"         # Jira Team field (Advanced Roadmaps / Plans)
+    epic_issue_type: Epic       # Epic | Initiative | <custom hierarchy level>
+    story_issue_type: Story     # issue type used when sync_stories is on
+    sync_stories: false         # opt-in: create a Jira story per build step
+    request_timeout: 10s
+    labels: [spec-managed]      # applied to every spec-created issue
+    components: []
+
+    # Custom-field ids vary per Jira instance — set them explicitly, never
+    # guessed. Run `spec config check` to discover your instance's fields.
+    fields:
+      epic_name: customfield_10011   # required on company-managed projects
+      epic_link: customfield_10014   # company-managed: links stories to the epic
+                                     # (omit on team-managed; the parent field is used)
+      team: customfield_10001
+      sprint: customfield_10020
+      story_points: customfield_10016
+
+    # Map spec pipeline stages to Jira board statuses. A stage that is absent
+    # makes no Jira call (clean no-op). Status sync is on by default once this
+    # map is set; run `spec config check` to print your workflow statuses.
+    status_map:1
+      draft: "To Do"
+      engineering: "In Progress"
+      build: "In Progress"
+      pr-review: "In Review"
+      qa-validation: "In Review"
+      done: "Done"
+      closed: "Done"
 ```
 
-| Provider | Required fields |
-|---|---|
-| `jira` | `base_url`, `project_key`, `email`, `token` |
+| Provider | Required fields | Key optional fields |
+|---|---|---|
+| `jira` | `base_url`, `project_key`, `email`, `token` | `board_id`, `team_id`, `epic_issue_type`, `fields.*`, `status_map`, `sync_stories` |
+
+**Linking is idempotent.** `spec new`/`spec promote` find-or-create the epic by a
+`spec-id:<ID>` marker label, so re-runs never duplicate. Created epics carry a
+remote link back to the spec. Adopt an existing epic with
+`spec link <id> --epic PLAT-123`.
+
+**Status reflection is deterministic.** On `spec advance`, the new stage is
+mapped to a Jira status via `status_map` and the matching transition is
+executed (idempotently). Unmapped stages do nothing. A failed transition is
+queued and retried; `spec sync --pm` reconciles a drifted board on demand and
+`spec status <id>` flags a spec whose Jira card is out of sync.
+
+**Enable runbook:**
+1. Set `email` plus `board_id`/`fields` as needed.
+2. Run `spec config check` to validate credentials and print the live workflow
+   statuses.
+3. Author `status_map` from those statuses.
+4. Optionally set `sync_stories: true` to mirror build steps as Jira stories.
 
 #### `integrations.docs`
 
