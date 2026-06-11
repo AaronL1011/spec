@@ -122,6 +122,39 @@ func TestSpecDetail_ScrollClamp(t *testing.T) {
 	}
 }
 
+// TestSpecDetail_LastLineReachable verifies that scrolling to the bottom of a
+// tall overview reveals its final line (the hint strip) rather than clipping it
+// behind the status bar. This guards the accurate-line-count contract between
+// overviewLines and estimateContentLines.
+func TestSpecDetail_LastLineReachable(t *testing.T) {
+	m := testSpecDetailModel()
+	m.width = 80
+	m.height = 6 // small viewport forces scrolling
+	m.meta = &markdown.SpecMeta{
+		ID: "SPEC-001", Title: "Test", Status: "build",
+		Author: "alice", Updated: "2026-05-20",
+	}
+	m.sections = []markdown.Section{
+		{Slug: "problem_statement", Level: 2, Content: "text"},
+		{Slug: "proposed_solution", Level: 2, Content: "text"},
+		{Slug: "acceptance_criteria", Level: 2, Content: "text"},
+		{Slug: "technical_implementation", Level: 2, Content: "text"},
+	}
+	m.contentLines = m.estimateContentLines()
+
+	lines := m.overviewLines()
+	lastLine := lines[len(lines)-1]
+
+	// Scroll to the bottom.
+	for range 100 {
+		m, _ = m.update(keyMsg("j"))
+	}
+
+	if !strings.Contains(m.view(), lastLine) {
+		t.Errorf("last overview line %q not visible at max scroll; view:\n%s", lastLine, m.view())
+	}
+}
+
 // TestSpecDetail_ScrollOnResize verifies scroll clamps when terminal shrinks.
 func TestSpecDetail_ScrollOnResize(t *testing.T) {
 	m := testSpecDetailModel()

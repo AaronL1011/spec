@@ -60,10 +60,6 @@ func TestSpecDetail_RendersMetadata(t *testing.T) {
 		{Slug: "proposed_solution", Level: 2, Owner: "pm", Content: "We will rebuild..."},
 		{Slug: "acceptance_criteria", Level: 2, Owner: "qa", Content: ""},
 	}
-	m.decisions = []markdown.DecisionEntry{
-		{Number: 1, Question: "Use OAuth2 or SAML?", Decision: "OAuth2", Rationale: "Simpler for SPA"},
-		{Number: 2, Question: "Session storage?", Decision: ""},
-	}
 
 	got := m.view()
 
@@ -88,9 +84,10 @@ func TestSpecDetail_RendersMetadata(t *testing.T) {
 		t.Error("should list problem_statement section")
 	}
 
-	// Decisions
-	if !strings.Contains(got, "OAuth2") {
-		t.Error("should show resolved decision")
+	// The decision log is intentionally not rendered on the overview screen
+	// (too noisy); it is reachable via the decision_log reader section.
+	if strings.Contains(got, "Decisions") {
+		t.Error("overview should not render the decision log block")
 	}
 }
 
