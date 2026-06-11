@@ -5,13 +5,18 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
+	"github.com/yuin/goldmark"
+	gast "github.com/yuin/goldmark/ast"
+	east "github.com/yuin/goldmark/extension/ast"
+	"github.com/yuin/goldmark/text"
 )
 
 // Markdown tables are rendered here with lipgloss directly rather than by
 // glamour: glamour never enables BorderRow on its underlying lipgloss table
 // and exposes no style option for it, so multi-line rows run together with
-// no separator. Inline cell content (code spans, bold) is styled with a
-// plain string scan — running each cell through glamour is far too slow.
+// no separator. Inline cell content (code, emphasis, strikethrough, links)
+// is styled by walking goldmark's inline AST — running each cell through
+// glamour is far too slow.
 
 // docMargin mirrors glamour's standard-style document margin so tables align
 // and wrap identically to glamour-rendered blocks around them.
@@ -175,43 +180,106 @@ func (g *GlamourRenderer) renderTableBlock(block string, width int) string {
 func (g *GlamourRenderer) styleCells(cells []string) []string {
 	out := make([]string, len(cells))
 	for i, c := range cells {
-		out[i] = styleCellInline(c, g.cellCode, g.cellBold)
+		out[i] = styleCellInline(c, g.mdParser, g.cells)
 	}
 	return out
 }
 
-// styleCellInline styles `code` spans and **bold** runs in a cell. Unbalanced
-// markers are left as literal text.
-func styleCellInline(s string, code, bold lipgloss.Style) string {
-	if !strings.ContainsAny(s, "`*") {
-		return s
-	}
-	segs := strings.Split(s, "`")
-	if len(segs)%2 == 0 {
-		return styleBold(s, bold)
-	}
+// inlineCtx carries the enclosing emphasis context down the AST walk so
+// nested styles compose at the text leaves. Styling leaves (rather than
+// wrapping container nodes) keeps an inner span's ANSI reset from
+// terminating the outer style for text that follows it.
+type inlineCtx struct {
+	bold, italic, strike bool
+}
+
+// styleCellInline styles a cell's inline markdown (code spans, emphasis,
+// strikethrough, links) by walking goldmark's inline AST. Cells whose parse
+// yields no text (e.g. "#" parses as an empty heading) are shown verbatim.
+func styleCellInline(s string, md goldmark.Markdown, st cellStyles) string {
+	src := []byte(s)
+	doc := md.Parser().Parse(text.NewReader(src))
 	var b strings.Builder
-	for i, seg := range segs {
-		if i%2 == 1 {
-			b.WriteString(code.Render(seg))
-		} else {
-			b.WriteString(styleBold(seg, bold))
-		}
+	styleInlineAST(doc, src, &b, st, inlineCtx{})
+	if b.Len() == 0 {
+		return s
 	}
 	return b.String()
 }
 
-func styleBold(s string, bold lipgloss.Style) string {
-	segs := strings.Split(s, "**")
-	if len(segs)%2 == 0 {
+func styleInlineAST(n gast.Node, src []byte, b *strings.Builder, st cellStyles, ctx inlineCtx) {
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		switch c.Kind() {
+		case gast.KindText:
+			t := c.(*gast.Text)
+			b.WriteString(styleLeaf(string(t.Value(src)), st, ctx))
+			if t.SoftLineBreak() || t.HardLineBreak() {
+				b.WriteByte(' ')
+			}
+		case gast.KindString:
+			b.WriteString(styleLeaf(string(c.(*gast.String).Value), st, ctx))
+		case gast.KindCodeSpan:
+			b.WriteString(st.code.Render(plainText(c, src)))
+		case gast.KindEmphasis:
+			next := ctx
+			if c.(*gast.Emphasis).Level == 2 {
+				next.bold = true
+			} else {
+				next.italic = true
+			}
+			styleInlineAST(c, src, b, st, next)
+		case east.KindStrikethrough:
+			next := ctx
+			next.strike = true
+			styleInlineAST(c, src, b, st, next)
+		case gast.KindLink:
+			lnk := c.(*gast.Link)
+			label := plainText(lnk, src)
+			dest := string(lnk.Destination)
+			if label == "" {
+				label = dest
+			}
+			b.WriteString(st.link.Render(label))
+			if dest != "" && dest != label {
+				b.WriteString(" " + st.url.Render("("+dest+")"))
+			}
+		case gast.KindAutoLink:
+			b.WriteString(st.link.Render(string(c.(*gast.AutoLink).Label(src))))
+		default:
+			styleInlineAST(c, src, b, st, ctx)
+		}
+	}
+}
+
+func styleLeaf(s string, st cellStyles, ctx inlineCtx) string {
+	if !ctx.bold && !ctx.italic && !ctx.strike {
 		return s
 	}
+	style := lipgloss.NewStyle()
+	if ctx.bold {
+		style = style.Inherit(st.bold)
+	}
+	if ctx.italic {
+		style = style.Inherit(st.italic)
+	}
+	if ctx.strike {
+		style = style.Inherit(st.strike)
+	}
+	return style.Render(s)
+}
+
+// plainText collects a node's text content with no styling, for spans that
+// render as a single unit (code spans, link labels).
+func plainText(n gast.Node, src []byte) string {
 	var b strings.Builder
-	for i, seg := range segs {
-		if i%2 == 1 {
-			b.WriteString(bold.Render(seg))
-		} else {
-			b.WriteString(seg)
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		switch c.Kind() {
+		case gast.KindText:
+			b.Write(c.(*gast.Text).Value(src))
+		case gast.KindString:
+			b.Write(c.(*gast.String).Value)
+		default:
+			b.WriteString(plainText(c, src))
 		}
 	}
 	return b.String()

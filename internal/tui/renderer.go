@@ -12,6 +12,8 @@ import (
 	"charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 )
 
 // Renderer renders markdown content into ANSI-styled terminal text.
@@ -46,19 +48,40 @@ type GlamourRenderer struct {
 	mu       sync.Mutex
 	style    string
 	border   lipgloss.Style
-	cellCode lipgloss.Style
-	cellBold lipgloss.Style
+	cells    cellStyles
+	mdParser goldmark.Markdown
 	cache    map[int]*glamour.TermRenderer // keyed by word-wrap width
+}
+
+// cellStyles holds the lipgloss styles applied to inline markdown elements
+// inside table cells.
+type cellStyles struct {
+	code   lipgloss.Style
+	bold   lipgloss.Style
+	italic lipgloss.Style
+	strike lipgloss.Style
+	link   lipgloss.Style
+	url    lipgloss.Style
 }
 
 // NewGlamourRenderer creates a renderer whose style is derived from the
 // already-resolved Theme.  No terminal I/O is performed at construction time.
 func NewGlamourRenderer(theme Theme) Renderer {
 	return &GlamourRenderer{
-		style:    glamourStyleForTheme(theme),
-		border:   lipgloss.NewStyle().Foreground(theme.Overlay),
-		cellCode: lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.Surface),
-		cellBold: lipgloss.NewStyle().Bold(true),
+		style:  glamourStyleForTheme(theme),
+		border: lipgloss.NewStyle().Foreground(theme.Overlay),
+		cells: cellStyles{
+			code:   lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.Surface),
+			bold:   lipgloss.NewStyle().Bold(true),
+			italic: lipgloss.NewStyle().Italic(true),
+			strike: lipgloss.NewStyle().Strikethrough(true),
+			link:   lipgloss.NewStyle().Foreground(theme.Accent).Underline(true),
+			url:    lipgloss.NewStyle().Foreground(theme.Muted),
+		},
+		// Strikethrough is the only non-CommonMark inline element needed;
+		// the full GFM bundle would register table/tasklist block parsers
+		// that are useless at cell level.
+		mdParser: goldmark.New(goldmark.WithExtensions(extension.Strikethrough)),
 		cache:    make(map[int]*glamour.TermRenderer),
 	}
 }

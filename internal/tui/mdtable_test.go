@@ -7,6 +7,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 )
 
 const sampleTable = `| # | Question | Decision |
@@ -75,20 +77,47 @@ func TestParseAlignments(t *testing.T) {
 }
 
 func TestStyleCellInline(t *testing.T) {
-	code := lipgloss.NewStyle().Bold(true) // any style with visible markers
-	bold := lipgloss.NewStyle().Bold(true)
+	md := goldmark.New(goldmark.WithExtensions(extension.Strikethrough))
+	st := cellStyles{
+		code:   lipgloss.NewStyle().Bold(true),
+		bold:   lipgloss.NewStyle().Bold(true),
+		italic: lipgloss.NewStyle().Italic(true),
+		strike: lipgloss.NewStyle().Strikethrough(true),
+		link:   lipgloss.NewStyle().Underline(true),
+		url:    lipgloss.NewStyle().Faint(true),
+	}
 	cases := map[string]string{
-		"plain text":          "plain text",
-		"**Option B**":        "Option B",
-		"a `code span` b":     "a code span b",
-		"**bold** and `code`": "bold and code",
-		"unbalanced `tick":    "unbalanced `tick",
-		"unbalanced **stars":  "unbalanced **stars",
+		"plain text":                   "plain text",
+		"**Option B**":                 "Option B",
+		"a `code span` b":              "a code span b",
+		"**bold** and `code`":          "bold and code",
+		"unbalanced `tick":             "unbalanced `tick",
+		"unbalanced **stars":           "unbalanced **stars",
+		"*italic text*":                "italic text",
+		"_italic text_":                "italic text",
+		"~~strike~~":                   "strike",
+		"**bold _italic_**":            "bold italic",
+		"[label](https://example.com)": "label (https://example.com)",
+		"[example.com](example.com)":   "example.com",
+		"<https://example.com>":        "https://example.com",
+		"decision_log":                 "decision_log",
+		"user_id and tenant_id":        "user_id and tenant_id",
+		"#":                            "#",
 	}
 	for in, want := range cases {
-		if got := xansi.Strip(styleCellInline(in, code, bold)); got != want {
+		if got := xansi.Strip(styleCellInline(in, md, st)); got != want {
 			t.Errorf("styleCellInline(%q) = %q, want %q", in, got, want)
 		}
+	}
+
+	// Text following a nested span must keep the outer style: leaves are
+	// styled individually, so the inner span's ANSI reset cannot bleed.
+	raw := styleCellInline("**bold _x_ tail**", md, st)
+	if got := xansi.Strip(raw); got != "bold x tail" {
+		t.Fatalf("nested with tail = %q, want %q", got, "bold x tail")
+	}
+	if !strings.Contains(raw, "\x1b[1m tail") {
+		t.Errorf("trailing text lost bold styling: %q", raw)
 	}
 }
 
