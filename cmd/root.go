@@ -3,6 +3,8 @@ package cmd
 //go:generate go run ../tools/gen-man --output ../docs/man
 
 import (
+	"errors"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/dashboard"
@@ -27,6 +29,34 @@ personal dashboard.`,
 		}
 
 		role := rc.OwnerRole("")
+
+		// First run: no identity and/or no team config. In an interactive
+		// terminal, host the onboarding wizard rather than printing a hint and
+		// exiting (US-6). On completion, re-resolve config and fall through to
+		// the live dashboard without a restart. Non-interactive shells keep the
+		// scriptable printed-hint behaviour.
+		staticMode, _ := cmd.Flags().GetBool("static")
+		if (role == "" || rc.Team == nil) && !staticMode && tui.IsInteractive() {
+			res, err := tui.RunOnboarding(ctx(), role != "")
+			if err != nil {
+				if errors.Is(err, tui.ErrOnboardCancelled) {
+					cmd.Println("Onboarding cancelled. Run 'spec config init' to finish setup later.")
+					return nil
+				}
+				return err
+			}
+			if !res.Completed {
+				cmd.Println("Run 'spec config init' to finish setting up your team.")
+				return nil
+			}
+			// Re-resolve now that identity + team config exist.
+			rc, err = resolveConfig()
+			if err != nil {
+				return err
+			}
+			role = rc.OwnerRole("")
+		}
+
 		if role == "" {
 			cmd.Println("Welcome to spec — the end-game developer control plane.")
 			cmd.Println("Run 'spec config init --user' to set up your identity.")
@@ -42,9 +72,6 @@ personal dashboard.`,
 		}
 
 		reg := buildRegistry(rc)
-
-		// --static flag bypasses the TUI for scripts and legacy usage.
-		staticMode, _ := cmd.Flags().GetBool("static")
 
 		// Interactive terminal → launch the persistent TUI.
 		// Non-interactive (piped, redirected) → static dashboard render.

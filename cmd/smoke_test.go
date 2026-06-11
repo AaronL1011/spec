@@ -261,17 +261,23 @@ func (e *smokeEnv) runSpec(args ...string) (string, error) {
 	rootCmd.SetErr(&cobraErr)
 	rootCmd.SetArgs(args)
 
-	// Redirect process stdout/stderr to capture fmt.Printf-style output.
-	origOut, origErr := os.Stdout, os.Stderr
+	// Redirect process stdout/stderr to capture fmt.Printf-style output, and
+	// point stdin at a non-TTY pipe so IsInteractive() is deterministically
+	// false. Without this, a test run attached to a terminal would trip the
+	// interactive onboarding path instead of the scriptable printed-hint path.
+	origOut, origErr, origIn := os.Stdout, os.Stderr, os.Stdin
 	rOut, wOut, _ := os.Pipe()
 	rErr, wErr, _ := os.Pipe()
-	os.Stdout, os.Stderr = wOut, wErr
+	rIn, wIn, _ := os.Pipe()
+	_ = wIn.Close() // stdin reads EOF immediately; it is never a char device.
+	os.Stdout, os.Stderr, os.Stdin = wOut, wErr, rIn
 
 	execErr := rootCmd.Execute()
 
 	_ = wOut.Close()
 	_ = wErr.Close()
-	os.Stdout, os.Stderr = origOut, origErr
+	_ = rIn.Close()
+	os.Stdout, os.Stderr, os.Stdin = origOut, origErr, origIn
 
 	var pipeOut, pipeErr bytes.Buffer
 	_, _ = pipeOut.ReadFrom(rOut)
