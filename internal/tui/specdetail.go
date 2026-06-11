@@ -30,7 +30,6 @@ import (
 type specDetailDataMsg struct {
 	Meta      *markdown.SpecMeta
 	Sections  []markdown.Section
-	Decisions []markdown.DecisionEntry
 	Threads   []thread.Thread
 	Hash      string
 	Archived  bool
@@ -71,7 +70,6 @@ type specDetailModel struct {
 	// Spec data
 	meta        *markdown.SpecMeta
 	sections    []markdown.Section
-	decisions   []markdown.DecisionEntry
 	loading     bool
 	err         error
 	notice      string // calm inline notice (e.g. file removed); non-fatal
@@ -214,7 +212,6 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	}
 	m.meta = msg.Meta
 	m.sections = msg.Sections
-	m.decisions = msg.Decisions
 	m.threads = msg.Threads
 	m.err = nil
 	m.contentHash = msg.Hash
@@ -249,7 +246,6 @@ func (m specDetailModel) applyRefresh(msg specDetailDataMsg) (specDetailModel, t
 
 	m.meta = msg.Meta
 	m.sections = msg.Sections
-	m.decisions = msg.Decisions
 	m.threads = msg.Threads
 	m.err = nil
 	m.contentHash = msg.Hash
@@ -818,6 +814,26 @@ func composeContentColumn(viewportView string, pane []string, height int) []stri
 }
 
 func (m specDetailModel) viewOverview() string {
+	lines := m.overviewLines()
+	visible := m.height
+	if visible < 3 {
+		visible = 3
+	}
+	start := m.scroll
+	if start > len(lines) {
+		start = len(lines)
+	}
+	end := start + visible
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return strings.Join(lines[start:end], "\n")
+}
+
+// overviewLines builds the full, unscrolled overview content as individual
+// lines. viewOverview slices a scroll window out of it, and estimateContentLines
+// counts it, so the rendered height and the scroll bounds can never drift.
+func (m specDetailModel) overviewLines() []string {
 	var b strings.Builder
 	contentWidth := ContentWidth(m.width)
 
@@ -895,20 +911,6 @@ func (m specDetailModel) viewOverview() string {
 		b.WriteString("\n")
 	}
 
-	// ── Decisions block ───────────────────────────────────────────────────────
-	if len(m.decisions) > 0 {
-		b.WriteString("\n")
-		b.WriteString(m.styles.SectionTitle.Render(Indent(1)+"Decisions") + "\n")
-		for _, d := range m.decisions {
-			if d.Decision != "" {
-				b.WriteString(m.styles.Muted.Render(fmt.Sprintf("%s%s #%d %s", Indent(2), IconActive, d.Number, truncate(d.Question, contentWidth-20))) + "\n")
-				b.WriteString(m.styles.Success.Render(fmt.Sprintf("%s→ %s", Indent(3), truncate(d.Decision, contentWidth-10))) + "\n")
-			} else {
-				b.WriteString(m.styles.RowNormal.Render(fmt.Sprintf("%s%s #%d %s", Indent(2), IconOpen, d.Number, truncate(d.Question, contentWidth-20))) + "\n")
-			}
-		}
-	}
-
 	// ── Spec blocked block ───────────────────────────────────────────────────
 	if m.meta.Status == pipeline.StatusBlocked {
 		b.WriteString("\n")
@@ -941,6 +943,9 @@ func (m specDetailModel) viewOverview() string {
 	}
 
 	// ── Hint strip ────────────────────────────────────────────────────────────
+	// Breathing room so the controls read as a distinct footer, not another
+	// Sections row.
+	b.WriteString("\n")
 	archiveHint := Hint("d", "archive")
 	if m.isArchived {
 		archiveHint = Hint("r", "restore")
@@ -949,20 +954,7 @@ func (m specDetailModel) viewOverview() string {
 		Hint("o", "read sections"), Hint("e", "edit"), Hint("esc", "back"))
 	b.WriteString(hints + "\n")
 
-	lines := splitLines(b.String())
-	visible := m.height
-	if visible < 3 {
-		visible = 3
-	}
-	start := m.scroll
-	if start > len(lines) {
-		start = len(lines)
-	}
-	end := start + visible
-	if end > len(lines) {
-		end = len(lines)
-	}
-	return strings.Join(lines[start:end], "\n")
+	return splitLines(b.String())
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1056,6 +1048,12 @@ func (m *specDetailModel) setSize(w, h int) {
 		m.readerCache = make(map[string]string)
 		m.cancelRender()
 	}
+	// Recompute the overview height: a width change reflows the TL;DR preview
+	// and other wrapped blocks, so the stored line count (and thus maxScroll)
+	// must track the new geometry or the last line clips behind the status bar.
+	if !m.readerMode && m.meta != nil {
+		m.contentLines = m.estimateContentLines()
+	}
 	// Clamp overview scroll to new bounds.
 	if mx := m.maxScroll(); m.scroll > mx {
 		m.scroll = mx
@@ -1077,57 +1075,16 @@ func (m specDetailModel) maxScroll() int {
 	return mx
 }
 
+// estimateContentLines reports the true rendered height of the overview by
+// counting the lines overviewLines() actually produces. Counting the real
+// output (rather than estimating it block-by-block) keeps maxScroll exact, so
+// the final line — the Sections list — can always be scrolled clear of the
+// status bar instead of being clipped behind it.
 func (m specDetailModel) estimateContentLines() int {
 	if m.meta == nil {
 		return 1
 	}
-	// Identity: blank + title + compact meta line
-	lines := 3
-
-	// Review block: blank + 1 line
-	if m.meta.Review != nil {
-		lines += 2
-	}
-
-	// TL;DR block: blank + header + rendered content lines
-	if sec := markdown.FindSection(m.sections, "tl_dr"); sec != nil {
-		if text := strings.TrimSpace(sec.Content); text != "" {
-			n := len(strings.Split(text, "\n"))
-			lines += 2 + n + 2 // raw lines + padding from renderer
-		}
-	}
-
-	// Decisions block: blank + header + one line per entry (resolved gets an extra line)
-	if len(m.decisions) > 0 {
-		lines += 2
-		for _, d := range m.decisions {
-			lines++
-			if d.Decision != "" {
-				lines++
-			}
-		}
-	}
-
-	// Spec blocked block: blank + header + optional reason line
-	if m.meta.Status == pipeline.StatusBlocked {
-		lines += 2
-		if latestEscapeReason(m.sections) != "" {
-			lines++
-		}
-	}
-
-	// Sections list: blank + header + one line per level-2 section
-	lines += 2
-	for _, sec := range m.sections {
-		if sec.Level == 2 {
-			lines++
-		}
-	}
-
-	// Hint strip
-	lines++
-
-	return lines
+	return len(m.overviewLines())
 }
 
 // latestEscapeReason parses the most recent entry from the escape hatch log
@@ -1217,14 +1174,12 @@ func (m specDetailModel) fetchData() tea.Cmd {
 		if err != nil {
 			return specDetailDataMsg{Err: err}
 		}
-		decisions, _ := markdown.ParseDecisionLog(content)
 		// Threads are a best-effort sidecar load: a parse error must never
 		// block reading the spec.
 		threads, _ := thread.NewSidecarStore(filepath.Dir(path)).List(specID)
 		return specDetailDataMsg{
 			Meta:      meta,
 			Sections:  markdown.ExtractSections(content),
-			Decisions: decisions,
 			Threads:   threads,
 			Hash:      contentHash(data),
 			Archived:  isArchived,
