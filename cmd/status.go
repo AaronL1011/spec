@@ -24,6 +24,36 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 }
 
+// statusReport is the machine-readable shape emitted by `spec status --json`.
+// It is a stable scripting/CI contract: field names and types must not change
+// without a deliberate version bump.
+type statusReport struct {
+	ID          string             `json:"id"`
+	Title       string             `json:"title"`
+	Status      string             `json:"status"`
+	Author      string             `json:"author"`
+	Cycle       string             `json:"cycle"`
+	Version     string             `json:"version"`
+	EpicKey     string             `json:"epic_key,omitempty"`
+	Repos       []string           `json:"repos,omitempty"`
+	Source      string             `json:"source,omitempty"`
+	RevertCount int                `json:"revert_count"`
+	Sections    []statusSection    `json:"sections"`
+	Gates       []statusGateResult `json:"gates"`
+}
+
+type statusSection struct {
+	Slug    string `json:"slug"`
+	Owner   string `json:"owner,omitempty"`
+	HasData bool   `json:"has_data"`
+}
+
+type statusGateResult struct {
+	Gate   string `json:"gate"`
+	Passed bool   `json:"passed"`
+	Reason string `json:"reason,omitempty"`
+}
+
 func runStatus(cmd *cobra.Command, args []string) error {
 	specID, err := resolveSpecIDArg(args, "spec status <id>")
 	if err != nil {
@@ -51,6 +81,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	pl := rc.Pipeline()
+
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return newPrinter(cmd).JSON(buildStatusReport(pl, meta, sections))
+	}
 
 	// Header
 	fmt.Printf("%s — %s\n", meta.ID, meta.Title)
@@ -115,6 +149,38 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// buildStatusReport assembles the machine-readable status shape from the spec
+// metadata, its level-2 sections, and the current-stage gate evaluation.
+func buildStatusReport(pl config.PipelineConfig, meta *markdown.SpecMeta, sections []markdown.Section) statusReport {
+	rep := statusReport{
+		ID:          meta.ID,
+		Title:       meta.Title,
+		Status:      meta.Status,
+		Author:      meta.Author,
+		Cycle:       meta.Cycle,
+		Version:     meta.Version,
+		EpicKey:     meta.EpicKey,
+		Repos:       meta.Repos,
+		Source:      meta.Source,
+		RevertCount: meta.RevertCount,
+	}
+	for _, s := range sections {
+		if s.Level != 2 {
+			continue
+		}
+		rep.Sections = append(rep.Sections, statusSection{
+			Slug:    s.Slug,
+			Owner:   s.Owner,
+			HasData: strings.TrimSpace(s.Content) != "",
+		})
+	}
+	hasPRStack := markdown.IsSectionNonEmpty(sections, "pr_stack_plan")
+	for _, r := range pipeline.EvaluateGates(pl, meta.Status, sections, hasPRStack, false, meta) {
+		rep.Gates = append(rep.Gates, statusGateResult{Gate: r.Gate, Passed: r.Passed, Reason: r.Reason})
+	}
+	return rep
 }
 
 // printSyncFreshness drains the queued-push backlog and prints a one-line
