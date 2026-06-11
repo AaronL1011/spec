@@ -1,8 +1,11 @@
 package dashboard
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +95,109 @@ func TestTruncStr(t *testing.T) {
 			t.Errorf("truncStr(%q, %d) = %q, want %q", tt.input, tt.max, got, tt.want)
 		}
 	}
+}
+
+func writeSpec(t *testing.T, dir, id, status string, assignees []string) {
+	t.Helper()
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\nid: %s\ntitle: %s\nstatus: %s\nauthor: Ana\n", id, id, status)
+	if len(assignees) > 0 {
+		b.WriteString("assignees:\n")
+		for _, a := range assignees {
+			fmt.Fprintf(&b, "  - %q\n", a)
+		}
+	}
+	if status == "blocked" {
+		b.WriteString("blocked_from: build\n")
+	}
+	b.WriteString("---\n")
+	if err := os.WriteFile(filepath.Join(dir, id+".md"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func scopedTeamConfig() *config.TeamConfig {
+	tc := &config.TeamConfig{
+		Pipeline: config.PipelineConfig{
+			Stages: []config.StageConfig{
+				{Name: "engineering", Owner: config.Owners{"engineer"},
+					Dashboard: config.StageDashboardConfig{DoScope: "assignee"}},
+				{Name: "build", Owner: config.Owners{"engineer"}},
+			},
+		},
+	}
+	tc.Dashboard.Blocked = config.BlockedConfig{Scope: "owning_role"}
+	return tc
+}
+
+func TestAggregate_AssigneeScopeAndBlocked(t *testing.T) {
+	dir := t.TempDir()
+	writeSpec(t, dir, "SPEC-100", "engineering", nil)              // unclaimed
+	writeSpec(t, dir, "SPEC-101", "engineering", []string{"@ana"}) // claimed by Ana
+	writeSpec(t, dir, "SPEC-102", "blocked", nil)                  // blocked from build (engineer-owned)
+
+	ana := &config.ResolvedConfig{SpecsRepoDir: dir, Team: scopedTeamConfig(),
+		User: userCfg("Ana", "@ana", "engineer")}
+	ben := &config.ResolvedConfig{SpecsRepoDir: dir, Team: scopedTeamConfig(),
+		User: userCfg("Ben", "@ben", "engineer")}
+	pam := &config.ResolvedConfig{SpecsRepoDir: dir, Team: scopedTeamConfig(),
+		User: userCfg("Pam", "@pam", "pm")}
+
+	anaData, _ := Aggregate(context.Background(), ana, nil, "engineer")
+	benData, _ := Aggregate(context.Background(), ben, nil, "engineer")
+	pamData, _ := Aggregate(context.Background(), pam, nil, "pm")
+
+	// Ana sees the unclaimed queue spec + her own claimed spec.
+	if ids := doIDs(anaData); !equalSet(ids, []string{"SPEC-100", "SPEC-101"}) {
+		t.Errorf("Ana DO = %v, want [SPEC-100 SPEC-101]", ids)
+	}
+	// Ben sees the unclaimed queue spec but NOT Ana's claimed spec.
+	if ids := doIDs(benData); !equalSet(ids, []string{"SPEC-100"}) {
+		t.Errorf("Ben DO = %v, want [SPEC-100]", ids)
+	}
+	// PM is not an engineer-stage owner, so sees nothing in DO.
+	if ids := doIDs(pamData); len(ids) != 0 {
+		t.Errorf("Pam DO = %v, want []", ids)
+	}
+	// Blocked-from-build is engineer-owned: engineers see it, PM does not.
+	if len(anaData.Blocked) != 1 {
+		t.Errorf("Ana Blocked = %d, want 1", len(anaData.Blocked))
+	}
+	if len(pamData.Blocked) != 0 {
+		t.Errorf("Pam Blocked = %d, want 0", len(pamData.Blocked))
+	}
+}
+
+func userCfg(name, handle, role string) *config.UserConfig {
+	uc := &config.UserConfig{}
+	uc.User.Name = name
+	uc.User.Handle = handle
+	uc.User.OwnerRole = role
+	return uc
+}
+
+func doIDs(d *DashboardData) []string {
+	var ids []string
+	for _, item := range d.Do {
+		ids = append(ids, item.SpecID)
+	}
+	return ids
+}
+
+func equalSet(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	seen := make(map[string]bool, len(got))
+	for _, g := range got {
+		seen[g] = true
+	}
+	for _, w := range want {
+		if !seen[w] {
+			return false
+		}
+	}
+	return true
 }
 
 // defaultTeamConfig returns a minimal team config with the default pipeline.

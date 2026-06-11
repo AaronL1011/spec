@@ -89,6 +89,9 @@ func Eject(path string, meta *markdown.SpecMeta, reason, user string) (*EjectRes
 		newContent = string(content)
 	}
 
+	// Record the pre-block stage so the dashboard can role-scope BLOCKED and
+	// `spec resume` can restore the stage without parsing the escape-hatch log.
+	meta.BlockedFrom = meta.Status
 	meta.Status = StatusBlocked
 	finalContent, err := replaceFrontmatterInContent(newContent, meta)
 	if err != nil {
@@ -109,6 +112,7 @@ func Resume(path string, meta *markdown.SpecMeta, previousStage string) error {
 	}
 
 	meta.Status = previousStage
+	meta.BlockedFrom = "" // cleared on restore; only meaningful while blocked
 	meta.Updated = time.Now().Format("2006-01-02")
 
 	return markdown.WriteMeta(path, meta)

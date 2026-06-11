@@ -303,12 +303,16 @@ func (m dashboardModel) buildRows() []dashboardRow {
 		if item.Urgency == "stale" {
 			icon = IconStale
 		}
+		detail := item.Stage
+		if item.Assignee != "" {
+			detail += "  ·  " + item.Assignee
+		}
 		do = append(do, dashboardRow{
 			section:  "DO",
 			icon:     icon,
 			specID:   item.SpecID,
 			title:    item.Title,
-			detail:   item.Stage,
+			detail:   detail,
 			urgency:  item.Urgency,
 			sortRank: urgencyRank(item.Urgency),
 		})

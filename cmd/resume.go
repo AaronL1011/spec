@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/workflow"
 	"github.com/spf13/cobra"
 )
@@ -52,9 +53,15 @@ func runResume(cmd *cobra.Command, args []string) error {
 			return "", err
 		}
 
-		// Detect the pre-block stage from the escape-hatch log when --stage is
-		// not supplied. Detection needs the file path inside the repo clone.
+		// Resolve the pre-block stage when --stage is not supplied: prefer the
+		// persisted `blocked_from` frontmatter field, falling back to parsing the
+		// escape-hatch log for specs blocked before that field existed.
 		stage := resumeStage
+		if stage == "" {
+			if meta, err := markdown.ReadMeta(path); err == nil {
+				stage = meta.BlockedFrom
+			}
+		}
 		if stage == "" {
 			stage = detectPreBlockStage(path)
 		}

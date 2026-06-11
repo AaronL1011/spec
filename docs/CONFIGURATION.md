@@ -357,11 +357,33 @@ archive:
 
 ### `dashboard`
 
+Controls the personal dashboard (`spec` with no args) — its staleness cue, cache,
+and which blocked specs surface in the **BLOCKED** section.
+
 ```yaml
 dashboard:
   stale_threshold: 48h        # Age after which a spec is marked stale (default: 48h)
   refresh_ttl: 300            # Cache TTL in seconds (default: 300)
+  blocked:                    # Scope the BLOCKED section (default: every role sees every blocked spec)
+    visible_to: [tl, engineer]  # Roles allowed to see BLOCKED. Empty/omitted = all roles.
+    scope: owning_role          # all (default) | involved | owning_role
 ```
+
+| Field | Default | Description |
+|---|---|---|
+| `stale_threshold` | `48h` | Time-in-stage after which a spec is flagged stale. |
+| `refresh_ttl` | `300` | Seconds the dashboard caches aggregated data. |
+| `blocked.visible_to` | all roles | Roles that may see the BLOCKED section at all. A role not listed sees no BLOCKED section. |
+| `blocked.scope` | `all` | Which blocked specs a permitted role sees: `all` (every blocked spec), `involved` (only specs you author or are assigned), `owning_role` (only specs whose pre-block stage your role owned). |
+
+`owning_role` reads the `blocked_from` frontmatter field, which `spec eject`
+records automatically when a spec is blocked. Because the team standup already
+rolls up every blocker, a common pattern is `scope: involved` here so each
+person's dashboard shows only *their own* stuck work while the TL gets the
+team-wide view from standup.
+
+The **DO** section is scoped separately, per stage — see
+[Dashboard scope](#dashboard-scope) under pipeline configuration.
 
 ---
 
@@ -464,6 +486,7 @@ pipeline:
   on_exit: []                 # Effects fired when leaving this stage. See Effects.
   auto_archive: false         # true = move spec to archive/ when entering.
   review: {}                  # Technical plan review requirement. See Stage review.
+  dashboard: {}               # Who sees this stage's specs in the DO section. See Dashboard scope.
 ```
 
 **`owner`** accepts a single role string or an array:
@@ -474,6 +497,90 @@ owner: [pm, tl]
 ```
 
 Valid roles: `pm`, `tl`, `designer`, `qa`, `engineer`
+
+### Dashboard scope
+
+By default a spec appears in the **DO** section of the dashboard for *everyone*
+whose role owns its current stage. On a team with several engineers that floods
+each dashboard with the whole role's work. Per-stage `dashboard.do_scope`
+narrows DO to the person actually responsible, using two spec concepts:
+
+- **author** — who originated the spec (frontmatter `author`, set at `spec new`).
+- **assignees** — who is responsible for moving it *now* (frontmatter
+  `assignees`). Set with `spec assign`, claimed in the TUI with `g c`, or
+  claimed automatically when you run `spec build` / `spec do` on an
+  assignee-scoped stage.
+
+```yaml
+- name: engineering
+  owner: engineer
+  dashboard:
+    do_scope: assignee        # role (default) | assignee | author | none
+    claimable: true           # default true
+```
+
+| `do_scope` | Who sees the spec in DO |
+|---|---|
+| `role` (default) | Anyone whose role owns the stage. Today's behaviour. |
+| `assignee` | The spec's assignee(s) only. While unassigned the spec falls back to the whole owning role (a shared "claimable" queue) unless `claimable: false`. |
+| `author` | The spec author only, regardless of role. |
+| `none` | Nobody — the spec is visible only in `spec watch` / `spec list`, never in DO. |
+
+**`claimable`** (default `true`) only applies to `assignee` scope. `true`
+surfaces unassigned specs to the whole owning role so anyone can pick them up;
+`false` hides them from everyone until someone is explicitly assigned.
+
+The full pipeline stays visible to everyone via `spec watch` and `spec list` —
+scope only narrows the focused DO section, never hides work outright.
+
+**Identity matching.** Assignees and author are matched against the user's
+configured `name` *and* `handle` (case-insensitive, a leading `@` is ignored),
+so `@maximo`, `maximo`, and `Maximo` all resolve to the same person.
+
+#### Assigning work
+
+| Action | CLI | TUI |
+|---|---|---|
+| Claim a spec for yourself | `spec assign SPEC-123` | `g c`, then Enter |
+| Assign to others | `spec assign SPEC-123 @greg @maximo` | `g c`, edit the handles |
+| Unassign everyone | `spec assign SPEC-123 --clear` | `g c`, type `-` |
+| Auto-claim on starting work | `spec build` / `spec do` | `b` (build) |
+
+Auto-claim fires only on the build/`do` path, so a `planning`-style stage that is
+`assignee`-scoped is picked up explicitly with `spec assign` (or `g c`). The DO
+row shows the assignee (e.g. `@maximo`, or `@maximo +1`) or `unclaimed` for an
+assignee-scoped stage waiting to be picked up.
+
+#### Worked example
+
+Keep a planning stage personal to its author until it reaches a role-scoped
+review stage, where the reviewing role picks it up:
+
+```yaml
+dashboard:
+  blocked:
+    visible_to: [tl, engineer]
+    scope: owning_role
+
+pipeline:
+  stages:
+    - name: planning
+      owner: engineer
+      dashboard: { do_scope: assignee }   # unclaimed → shared queue; claimed → personal
+    - name: plan_review
+      owner: [tl, engineer]               # role-scoped (default): opens up for review
+    - name: build
+      owner: engineer
+      dashboard: { do_scope: assignee }   # only the engineer building it
+    - name: done
+      owner: tl
+      dashboard: { do_scope: none }       # terminal — keep finished specs out of DO
+```
+
+Result: an unclaimed `planning` spec shows to every engineer as a queue; once
+claimed it shows only to its assignee; at `plan_review` it opens to the whole
+reviewing role; a spec blocked from `build` shows in BLOCKED for the TL and
+engineers (build is engineer-owned) but not for the PM or designer.
 
 ### Gates
 

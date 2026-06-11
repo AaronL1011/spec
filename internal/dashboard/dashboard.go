@@ -18,12 +18,13 @@ import (
 
 // DashboardItem represents a single item in a dashboard section.
 type DashboardItem struct {
-	SpecID  string `json:"spec_id"`
-	Title   string `json:"title"`
-	Stage   string `json:"stage"`
-	Detail  string `json:"detail"`
-	Urgency string `json:"urgency"` // "normal", "stale", "critical"
-	URL     string `json:"url,omitempty"`
+	SpecID   string `json:"spec_id"`
+	Title    string `json:"title"`
+	Stage    string `json:"stage"`
+	Detail   string `json:"detail"`
+	Urgency  string `json:"urgency"` // "normal", "stale", "critical"
+	URL      string `json:"url,omitempty"`
+	Assignee string `json:"assignee,omitempty"` // assignee label or "unclaimed" for DO rows
 }
 
 // DashboardData holds all dashboard sections.
@@ -60,7 +61,11 @@ func Render(data *DashboardData, userName, role, cycle string) {
 			if item.Urgency == "stale" {
 				icon = "⏰"
 			}
-			fmt.Printf("%s %-10s  %-30s  %s\n", icon, item.SpecID, truncStr(item.Title, 30), item.Stage)
+			stage := item.Stage
+			if item.Assignee != "" {
+				stage += "  ·  " + item.Assignee
+			}
+			fmt.Printf("%s %-10s  %-30s  %s\n", icon, item.SpecID, truncStr(item.Title, 30), stage)
 			if item.Detail != "" {
 				fmt.Printf("   %s\n", item.Detail)
 			}
@@ -116,24 +121,31 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 	// (fast) and at most one API call for PR reviews. Caching added more
 	// complexity (TTL, invalidation, mtime checks) than it saved.
 	pl := rc.Pipeline()
+	viewer := viewerFor(rc, role)
+	blockedCfg := blockedConfig(rc)
 
-	// DO section: specs where stage owner_role matches user
+	// DO section: specs scoped to the viewer by stage dashboard scope.
+	// BLOCKED section: blocked specs scoped by the team blocked config.
 	if rc.SpecsRepoDir != "" {
 		specs, err := loadSpecs(rc)
 		if err == nil {
 			for _, s := range specs {
-				stage := pl.StageByName(s.Status)
-				if stage != nil && stage.HasOwner(role) {
-					data.Do = append(data.Do, DashboardItem{
-						SpecID: s.ID,
-						Title:  s.Title,
-						Stage:  s.Status,
-					})
-				}
+				view := s.view()
 				if s.Status == pipeline.StatusBlocked {
-					data.Blocked = append(data.Blocked, DashboardItem{
-						SpecID: s.ID,
-						Title:  s.Title,
+					if VisibleInBlocked(pl, blockedCfg, view, viewer) {
+						data.Blocked = append(data.Blocked, DashboardItem{
+							SpecID: s.ID,
+							Title:  s.Title,
+						})
+					}
+					continue
+				}
+				if VisibleInDo(pl, view, viewer) {
+					data.Do = append(data.Do, DashboardItem{
+						SpecID:   s.ID,
+						Title:    s.Title,
+						Stage:    s.Status,
+						Assignee: doAssigneeLabel(pl, s),
 					})
 				}
 			}
@@ -170,9 +182,36 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 }
 
 type specInfo struct {
-	ID     string
-	Title  string
-	Status string
+	ID          string
+	Title       string
+	Status      string
+	Author      string
+	Assignees   []string
+	BlockedFrom string
+}
+
+// view projects a specInfo into the resolver's SpecView.
+func (s specInfo) view() SpecView {
+	return SpecView{
+		Author:      s.Author,
+		Assignees:   s.Assignees,
+		Status:      s.Status,
+		BlockedFrom: s.BlockedFrom,
+	}
+}
+
+// viewerFor builds a Viewer from resolved config and the active role.
+func viewerFor(rc *config.ResolvedConfig, role string) Viewer {
+	return Viewer{Role: role, Name: rc.UserName(), Handle: rc.UserHandle()}
+}
+
+// blockedConfig returns the team BLOCKED-section config, or the zero value
+// (which means "all roles, all blocked specs") when team config is absent.
+func blockedConfig(rc *config.ResolvedConfig) config.BlockedConfig {
+	if rc.Team == nil {
+		return config.BlockedConfig{}
+	}
+	return rc.Team.Dashboard.Blocked
 }
 
 func loadSpecs(rc *config.ResolvedConfig) ([]specInfo, error) {
@@ -195,9 +234,12 @@ func loadSpecs(rc *config.ResolvedConfig) ([]specInfo, error) {
 			continue
 		}
 		specs = append(specs, specInfo{
-			ID:     meta.ID,
-			Title:  meta.Title,
-			Status: meta.Status,
+			ID:          meta.ID,
+			Title:       meta.Title,
+			Status:      meta.Status,
+			Author:      meta.Author,
+			Assignees:   meta.Assignees,
+			BlockedFrom: meta.BlockedFrom,
 		})
 	}
 	return specs, nil
@@ -233,6 +275,32 @@ func loadTriageItems(rc *config.ResolvedConfig) ([]triageInfo, error) {
 		})
 	}
 	return items, nil
+}
+
+// doAssigneeLabel returns the DO-row assignee indicator: a compact assignee
+// label when the spec is claimed, or "unclaimed" when an assignee-scoped stage
+// is still waiting for someone to pick it up. Role-scoped, unassigned specs get
+// no label.
+func doAssigneeLabel(pl config.PipelineConfig, s specInfo) string {
+	if len(s.Assignees) > 0 {
+		return assigneeLabel(s.Assignees)
+	}
+	if stage := pl.StageByName(s.Status); stage != nil && stage.Dashboard.Scope() == config.DoScopeAssignee {
+		return "unclaimed"
+	}
+	return ""
+}
+
+// assigneeLabel renders assignees compactly: the first name, plus "+N" when
+// there are more.
+func assigneeLabel(assignees []string) string {
+	if len(assignees) == 0 {
+		return ""
+	}
+	if len(assignees) == 1 {
+		return assignees[0]
+	}
+	return fmt.Sprintf("%s +%d", assignees[0], len(assignees)-1)
 }
 
 func countCompletedSpecs(data *DashboardData) int {

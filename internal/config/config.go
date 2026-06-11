@@ -215,8 +215,55 @@ type SyncConfig struct {
 
 // DashboardConfig defines dashboard behaviour.
 type DashboardConfig struct {
-	StaleThreshold string `yaml:"stale_threshold"`
-	RefreshTTL     int    `yaml:"refresh_ttl"`
+	StaleThreshold string        `yaml:"stale_threshold"`
+	RefreshTTL     int           `yaml:"refresh_ttl"`
+	Blocked        BlockedConfig `yaml:"blocked,omitempty"`
+}
+
+// Blocked scope constants govern which blocked specs appear in a viewer's
+// BLOCKED section.
+const (
+	// BlockedScopeAll shows every blocked spec (default; back-compat).
+	BlockedScopeAll = "all"
+	// BlockedScopeInvolved shows blocked specs the viewer authors or is assigned.
+	BlockedScopeInvolved = "involved"
+	// BlockedScopeOwningRole shows blocked specs whose pre-block stage the
+	// viewer's role owned.
+	BlockedScopeOwningRole = "owning_role"
+)
+
+// BlockedConfig configures the dashboard BLOCKED section.
+type BlockedConfig struct {
+	// VisibleTo lists roles that may see the BLOCKED section. Empty = all roles.
+	VisibleTo []string `yaml:"visible_to,omitempty"`
+
+	// Scope filters which blocked specs appear: "all" (default), "involved",
+	// or "owning_role".
+	Scope string `yaml:"scope,omitempty"`
+}
+
+// EffectiveScope returns the configured blocked scope, defaulting to "all".
+func (b BlockedConfig) EffectiveScope() string {
+	switch b.Scope {
+	case BlockedScopeInvolved, BlockedScopeOwningRole:
+		return b.Scope
+	default:
+		return BlockedScopeAll
+	}
+}
+
+// RoleCanSee reports whether a role may see the BLOCKED section at all. An
+// empty VisibleTo list means every role can (back-compat).
+func (b BlockedConfig) RoleCanSee(role string) bool {
+	if len(b.VisibleTo) == 0 {
+		return true
+	}
+	for _, r := range b.VisibleTo {
+		if strings.EqualFold(r, role) {
+			return true
+		}
+	}
+	return false
 }
 
 // NOTE: PipelineConfig, StageConfig, GateConfig and related types are defined

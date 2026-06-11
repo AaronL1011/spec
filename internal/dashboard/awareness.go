@@ -18,6 +18,7 @@ func PendingCount(rc *config.ResolvedConfig, role string) int {
 	}
 
 	pl := rc.Pipeline()
+	viewer := viewerFor(rc, role)
 	count := 0
 
 	entries, err := os.ReadDir(rc.SpecsRepoDir)
@@ -32,8 +33,15 @@ func PendingCount(rc *config.ResolvedConfig, role string) int {
 		if err != nil || !strings.HasPrefix(meta.ID, "SPEC-") {
 			continue
 		}
-		stage := pl.StageByName(meta.Status)
-		if stage != nil && stage.HasOwner(role) {
+		// Reuse the dashboard DO resolver so the awareness count and the DO
+		// section never disagree about what needs the viewer's attention.
+		view := SpecView{
+			Author:      meta.Author,
+			Assignees:   meta.Assignees,
+			Status:      meta.Status,
+			BlockedFrom: meta.BlockedFrom,
+		}
+		if VisibleInDo(pl, view, viewer) {
 			count++
 		}
 	}

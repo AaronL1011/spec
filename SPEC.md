@@ -848,11 +848,31 @@ The `spec` (no args) dashboard aggregates signals from multiple adapters:
 
 | Section | Data Source | Adapter |
 |---|---|---|
-| DO | Specs where stage `owner_role` matches user, sorted by time-in-stage | Spec Engine + PM adapter |
+| DO | Specs the user should act on, scoped per stage (see Dashboard scope) | Spec Engine + PM adapter |
 | REVIEW | Open PRs where user is requested reviewer | Repo adapter (GitHub/GitLab) |
 | INCOMING | New triage items, specs entering user's stage, comms mentions | Intake Engine + Comms adapter |
-| BLOCKED | Specs in `blocked` state related to user | Spec Engine |
+| BLOCKED | Specs in `blocked` state, scoped by team `dashboard.blocked` config | Spec Engine |
 | FYI | Recently completed specs user was involved in | Spec Engine |
+
+**Dashboard scope (authors & assignees):** The DO and BLOCKED sections are a
+focus tool, not a backlog dump, so their scope is configurable rather than a
+blunt role match. Two concepts drive it:
+
+- **author** — who originated the spec (frontmatter `author`).
+- **assignees** — who is responsible for moving it at its current stage
+  (frontmatter `assignees`; set via `spec assign`, or claimed automatically on
+  `spec build`/`spec do`).
+
+Each stage declares a `dashboard.do_scope` of `role` (default — anyone whose
+role owns the stage), `assignee` (the assignee(s) only; unassigned specs fall
+back to the whole role as a claimable queue when `claimable: true`), `author`
+(the author only), or `none` (pipeline view only). This keeps a planning stage
+personal to its author until it advances into a `role`-scoped review stage. The
+BLOCKED section is governed by `dashboard.blocked` (`visible_to` roles +
+`scope: all|involved|owning_role`), where `owning_role` uses the `blocked_from`
+stage recorded at eject time. The full pipeline remains visible to everyone via
+`spec watch` / `spec list`; scope only narrows the focused dashboard. See
+`docs/CONFIGURATION.md` for the full reference.
 
 **Performance:** The dashboard fetches live data with a cache TTL (configurable, default 5 min). Subsequent invocations within the TTL read from `~/.spec/cache/`. The cache is populated as a side effect of live queries. Offline mode reads entirely from cache.
 

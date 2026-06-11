@@ -218,6 +218,82 @@ func revertSpec(rc *config.ResolvedConfig, specID, targetStage, reason, user str
 	}
 }
 
+// assignSpec replaces a spec's assignees (an empty list clears them). It mirrors
+// the CLI `spec assign`: claiming, reassigning, and unassigning are all the same
+// frontmatter write committed through the specs repo.
+func assignSpec(rc *config.ResolvedConfig, specID string, assignees []string) tea.Cmd {
+	return func() tea.Msg {
+		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("assign", specID), func(repoPath string) (string, error) {
+			path, pErr := resolveSpecIn(repoPath, rc, specID)
+			if pErr != nil {
+				return "", pErr
+			}
+			meta, pErr := markdown.ReadMeta(path)
+			if pErr != nil {
+				return "", pErr
+			}
+			meta.Assignees = assignees
+			if err := markdown.WriteMeta(path, meta); err != nil {
+				return "", err
+			}
+			if len(assignees) == 0 {
+				return fmt.Sprintf("chore: unassign %s", specID), nil
+			}
+			return fmt.Sprintf("chore: assign %s to %s", specID, strings.Join(assignees, ", ")), nil
+		})
+
+		status, fatal := pushOutcome(err)
+		detail := ""
+		if !fatal {
+			if len(assignees) == 0 {
+				detail = "unassigned (" + status + ")"
+			} else {
+				detail = "assigned to " + strings.Join(assignees, ", ") + " (" + status + ")"
+			}
+			err = nil
+		}
+		return actionResultMsg{Action: "assign", SpecID: specID, Detail: detail, Err: err}
+	}
+}
+
+// selfAssignIdentity returns the current user's preferred assignment identity,
+// favouring the comms handle over the display name.
+func selfAssignIdentity(rc *config.ResolvedConfig) string {
+	if h := strings.TrimSpace(rc.UserHandle()); h != "" {
+		return h
+	}
+	if n := strings.TrimSpace(rc.UserName()); n != "" && n != "unknown" {
+		return n
+	}
+	return ""
+}
+
+// parseAssignInput interprets the assign modal input into an assignee list:
+// "-", "clear", or "none" clears all assignees; otherwise the input is split on
+// spaces/commas and de-duplicated (case-insensitively, ignoring a leading '@').
+func parseAssignInput(input string) []string {
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "-", "clear", "none":
+		return []string{}
+	}
+	fields := strings.FieldsFunc(input, func(r rune) bool { return r == ' ' || r == ',' })
+	seen := make(map[string]bool)
+	var out []string
+	for _, f := range fields {
+		t := strings.TrimSpace(f)
+		if t == "" {
+			continue
+		}
+		key := strings.TrimPrefix(strings.ToLower(t), "@")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, t)
+	}
+	return out
+}
+
 // focusSpec sets the focused spec in the local store.
 func focusSpec(db *store.DB, specID string) tea.Cmd {
 	return func() tea.Msg {

@@ -99,3 +99,31 @@ func TestFormatSyncDetail_NilPrepared(t *testing.T) {
 		t.Errorf("formatSyncDetail(nil) = %q, want %q", got, "no changes")
 	}
 }
+
+func TestParseAssignInput(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{"@ana", []string{"@ana"}},
+		{"@ana @ben", []string{"@ana", "@ben"}},
+		{"@ana, @ben", []string{"@ana", "@ben"}},
+		{"@ana @Ana @ANA", []string{"@ana"}}, // dedupe, case-insensitive
+		{"-", []string{}},                    // clear
+		{"clear", []string{}},
+		{"none", []string{}},
+		{"   ", nil}, // whitespace → no tokens
+	}
+	for _, tt := range tests {
+		got := parseAssignInput(tt.in)
+		if len(got) != len(tt.want) {
+			t.Errorf("parseAssignInput(%q) = %v, want %v", tt.in, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("parseAssignInput(%q)[%d] = %q, want %q", tt.in, i, got[i], tt.want[i])
+			}
+		}
+	}
+}

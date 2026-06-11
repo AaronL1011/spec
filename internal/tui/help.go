@@ -94,7 +94,15 @@ func (m helpModel) renderContent() string {
 	var b strings.Builder
 
 	b.WriteString(m.styles.Title.Render("  Keyboard Shortcuts"))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+
+	// Context label sits directly under the title so it stays visible even when
+	// the binding list overflows the overlay height and scrolls.
+	if m.context != "" && m.context != "Settings" {
+		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  context: %s", m.context)))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	b.WriteString(m.section("Navigation", m.keys.NavigationBindings()))
 	b.WriteString(m.section("Views", m.keys.ViewBindings()))
@@ -110,11 +118,6 @@ func (m helpModel) renderContent() string {
 	}
 
 	b.WriteString(m.section("Global", m.keys.GlobalBindings()))
-
-	if m.context != "" && m.context != "Settings" {
-		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  context: %s", m.context)))
-		b.WriteString("\n")
-	}
 
 	return b.String()
 }
