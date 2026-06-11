@@ -80,6 +80,10 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return engine.Check(ctx(), specID, specPath, workDir)
 	}
 
+	// Starting work claims the spec when its stage is assignee-scoped, so it
+	// narrows from the role's claimable queue to this engineer's DO.
+	maybeAutoClaim(cmd, rc, specID, meta)
+
 	if restart, _ := cmd.Flags().GetBool("restart"); restart {
 		if err := db.SessionDelete(specID); err != nil {
 			return fmt.Errorf("clearing build session for %s: %w", specID, err)

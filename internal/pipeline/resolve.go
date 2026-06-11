@@ -142,6 +142,12 @@ func mergeStage(base, override config.StageConfig) config.StageConfig {
 	if override.SkipWhen != "" {
 		result.SkipWhen = override.SkipWhen
 	}
+	if override.Dashboard.DoScope != "" {
+		result.Dashboard.DoScope = override.Dashboard.DoScope
+	}
+	if override.Dashboard.Claimable != nil {
+		result.Dashboard.Claimable = override.Dashboard.Claimable
+	}
 
 	// For slices, override replaces entirely if non-empty
 	if len(override.Gates) > 0 {

@@ -65,6 +65,61 @@ func (o Owners) IsEmpty() bool {
 	return len(o) == 0
 }
 
+// DoScope controls who sees specs at a stage in their dashboard DO section.
+type DoScope string
+
+const (
+	// DoScopeRole shows the spec to anyone whose role owns the stage. Default.
+	DoScopeRole DoScope = "role"
+	// DoScopeAssignee shows the spec to its assignee(s) only; unassigned specs
+	// fall back to the whole owning role when the stage is claimable.
+	DoScopeAssignee DoScope = "assignee"
+	// DoScopeAuthor shows the spec to its author only.
+	DoScopeAuthor DoScope = "author"
+	// DoScopeNone hides the spec from DO entirely (pipeline view only).
+	DoScopeNone DoScope = "none"
+)
+
+// IsValid reports whether s is a recognised dashboard scope.
+func (s DoScope) IsValid() bool {
+	switch s {
+	case DoScopeRole, DoScopeAssignee, DoScopeAuthor, DoScopeNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// StageDashboardConfig configures how a stage's specs surface in the dashboard.
+type StageDashboardConfig struct {
+	// DoScope controls who sees specs at this stage in their DO section.
+	// One of: "role" (default), "assignee", "author", "none".
+	DoScope string `yaml:"do_scope,omitempty"`
+
+	// Claimable, when true (the default), surfaces unassigned specs to the
+	// whole owning role under assignee scope so they can be claimed. Set false
+	// to hide unassigned specs from everyone until explicitly assigned.
+	Claimable *bool `yaml:"claimable,omitempty"`
+}
+
+// Scope returns the effective DO scope, defaulting to role when unset or invalid.
+func (d StageDashboardConfig) Scope() DoScope {
+	scope := DoScope(d.DoScope)
+	if !scope.IsValid() {
+		return DoScopeRole
+	}
+	return scope
+}
+
+// IsClaimable reports whether unassigned specs surface to the owning role under
+// assignee scope. Defaults to true.
+func (d StageDashboardConfig) IsClaimable() bool {
+	if d.Claimable == nil {
+		return true
+	}
+	return *d.Claimable
+}
+
 // StageConfig defines a single pipeline stage.
 type StageConfig struct {
 	// Name is the stage identifier (lowercase, underscores allowed).
@@ -73,6 +128,9 @@ type StageConfig struct {
 	// Owner is the role(s) that own this stage. Can be a single role
 	// or an array of roles in YAML.
 	Owner Owners `yaml:"owner,omitempty"`
+
+	// Dashboard controls how this stage's specs surface in the DO section.
+	Dashboard StageDashboardConfig `yaml:"dashboard,omitempty"`
 
 	// OwnerRole is the legacy field for backward compatibility.
 	//

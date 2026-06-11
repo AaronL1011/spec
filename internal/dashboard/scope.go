@@ -1,0 +1,101 @@
+package dashboard
+
+import (
+	"strings"
+
+	"github.com/aaronl1011/spec/internal/config"
+)
+
+// Viewer identifies the person the dashboard is being rendered for. Name and
+// Handle are both matched against spec author/assignees so display-name vs
+// @handle drift across teams does not hide a user's own work.
+type Viewer struct {
+	Role   string
+	Name   string
+	Handle string
+}
+
+// SpecView is the minimal projection of a spec the visibility rules need. It
+// keeps the resolver pure — no file or config I/O — so the policy is one
+// table-tested place and the aggregator stays thin.
+type SpecView struct {
+	Author      string
+	Assignees   []string
+	Status      string
+	BlockedFrom string
+}
+
+// VisibleInDo reports whether the spec should appear in the viewer's DO
+// section, applying the spec's current stage dashboard scope.
+func VisibleInDo(pl config.PipelineConfig, s SpecView, v Viewer) bool {
+	stage := pl.StageByName(s.Status)
+	if stage == nil {
+		return false
+	}
+	switch stage.Dashboard.Scope() {
+	case config.DoScopeNone:
+		return false
+	case config.DoScopeAuthor:
+		return matchesIdentity(s.Author, v)
+	case config.DoScopeAssignee:
+		if len(s.Assignees) == 0 {
+			// Unclaimed work surfaces to the whole owning role so someone can
+			// pick it up — unless the stage opts out of claimability.
+			return stage.Dashboard.IsClaimable() && stage.HasOwner(v.Role)
+		}
+		return anyIdentity(s.Assignees, v)
+	default: // DoScopeRole
+		return stage.HasOwner(v.Role)
+	}
+}
+
+// VisibleInBlocked reports whether a blocked spec should appear in the viewer's
+// BLOCKED section, applying the team-level blocked config.
+func VisibleInBlocked(pl config.PipelineConfig, cfg config.BlockedConfig, s SpecView, v Viewer) bool {
+	if !cfg.RoleCanSee(v.Role) {
+		return false
+	}
+	switch cfg.EffectiveScope() {
+	case config.BlockedScopeInvolved:
+		return isInvolved(s, v)
+	case config.BlockedScopeOwningRole:
+		stage := pl.StageByName(s.BlockedFrom)
+		if stage == nil {
+			// Unknown pre-block stage (e.g. blocked before blocked_from
+			// existed): fall back to visible so the signal is not lost.
+			return true
+		}
+		return stage.HasOwner(v.Role)
+	default: // BlockedScopeAll
+		return true
+	}
+}
+
+// isInvolved reports whether the viewer authored or is assigned to the spec.
+func isInvolved(s SpecView, v Viewer) bool {
+	return matchesIdentity(s.Author, v) || anyIdentity(s.Assignees, v)
+}
+
+// anyIdentity reports whether the viewer matches any of the candidate identities.
+func anyIdentity(candidates []string, v Viewer) bool {
+	for _, c := range candidates {
+		if matchesIdentity(c, v) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesIdentity reports whether candidate names the viewer, by display name
+// or handle. Matching is case-insensitive and tolerates a leading '@'.
+func matchesIdentity(candidate string, v Viewer) bool {
+	c := normaliseIdentity(candidate)
+	if c == "" {
+		return false
+	}
+	return c == normaliseIdentity(v.Name) || c == normaliseIdentity(v.Handle)
+}
+
+func normaliseIdentity(s string) string {
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(s)), "@")
+}

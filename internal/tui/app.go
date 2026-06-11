@@ -630,6 +630,11 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				a.modal.SetSize(a.width, a.contentHeight())
 			}
 			return a, nil
+		case "c":
+			if specID := a.selectedSpecID(); isSpecID(specID) {
+				a.armAssignModal(specID)
+			}
+			return a, nil
 		case "s":
 			return a, generateStandup(a.rc, a.reg, a.db)
 		}
@@ -1262,6 +1267,9 @@ func (a App) updateDetail(msg tea.KeyPressMsg) (App, tea.Cmd) {
 				a.modal.SetSize(a.width, a.contentHeight())
 			}
 			return a, nil
+		case msg.Text == "c" && isSpecID(specID):
+			a.armAssignModal(specID)
+			return a, nil
 		case msg.Text == "s":
 			return a, generateStandup(a.rc, a.reg, a.db)
 		}
@@ -1434,6 +1442,17 @@ func (a *App) executeAction() tea.Cmd {
 	return a.executeActionWithInput("")
 }
 
+// armAssignModal opens the assign/claim input modal for a spec, pre-filled with
+// the current user's identity so a bare Enter claims it. Editing the field
+// assigns other people; entering "-" clears all assignees.
+func (a *App) armAssignModal(specID string) {
+	a.pendingAction = "assign"
+	a.pendingSpecID = specID
+	a.modal.ShowInput("Assign "+specID, "Space-separated handles · '-' to unassign:")
+	a.modal.Input = selfAssignIdentity(a.rc)
+	a.modal.SetSize(a.width, a.contentHeight())
+}
+
 // executeActionWithInput runs the pending action with the given input value.
 // For confirm modals, input is empty. For input modals, it contains the user's text.
 func (a *App) executeActionWithInput(input string) tea.Cmd {
@@ -1449,6 +1468,8 @@ func (a *App) executeActionWithInput(input string) tea.Cmd {
 		return a.startAction("blocking "+specID, blockSpec(a.rc, specID, reason, a.rc.UserName()))
 	case "build":
 		return a.startAction("building "+specID, buildSpec(a.rc, specID))
+	case "assign":
+		return a.startAction("assigning "+specID, assignSpec(a.rc, specID, parseAssignInput(input)))
 	case "unblock":
 		return a.startAction("unblocking "+specID, unblockSpec(a.rc, specID))
 	case "archive":

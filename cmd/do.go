@@ -69,6 +69,9 @@ func runDo(cmd *cobra.Command, args []string) error {
 			specID, meta.Status, specID)
 	}
 
+	// Resuming work claims the spec when its stage is assignee-scoped.
+	maybeAutoClaim(cmd, rc, specID, meta)
+
 	reg := buildRegistry(rc)
 	engine := build.NewEngine(db, reg.Agent(), buildEngineOptions(rc, false))
 

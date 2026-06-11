@@ -164,13 +164,63 @@ integrations:
     provider: jira              # jira | none  (linear, github-issues: coming soon)
     base_url: ${JIRA_BASE_URL}  # e.g. https://myorg.atlassian.net
     project_key: PLAT
-    email: ${JIRA_EMAIL}
+    email: ${JIRA_EMAIL}        # REQUIRED — Atlassian account email for basic auth
     token: ${JIRA_API_TOKEN}
+
+    # --- Optional: bind to a specific board/team and tune behaviour ---
+    board_id: 42                # board analytics are scoped here
+    team_id: "team-abc"         # Jira Team field (Advanced Roadmaps / Plans)
+    epic_issue_type: Epic       # Epic | Initiative | <custom hierarchy level>
+    story_issue_type: Story     # issue type used when sync_stories is on
+    sync_stories: false         # opt-in: create a Jira story per build step
+    request_timeout: 10s
+    labels: [spec-managed]      # applied to every spec-created issue
+    components: []
+
+    # Custom-field ids vary per Jira instance — set them explicitly, never
+    # guessed. Run `spec config check` to discover your instance's fields.
+    fields:
+      epic_name: customfield_10011   # required on company-managed projects
+      epic_link: customfield_10014   # company-managed: links stories to the epic
+                                     # (omit on team-managed; the parent field is used)
+      team: customfield_10001
+      sprint: customfield_10020
+      story_points: customfield_10016
+
+    # Map spec pipeline stages to Jira board statuses. A stage that is absent
+    # makes no Jira call (clean no-op). Status sync is on by default once this
+    # map is set; run `spec config check` to print your workflow statuses.
+    status_map:1
+      draft: "To Do"
+      engineering: "In Progress"
+      build: "In Progress"
+      pr-review: "In Review"
+      qa-validation: "In Review"
+      done: "Done"
+      closed: "Done"
 ```
 
-| Provider | Required fields |
-|---|---|
-| `jira` | `base_url`, `project_key`, `email`, `token` |
+| Provider | Required fields | Key optional fields |
+|---|---|---|
+| `jira` | `base_url`, `project_key`, `email`, `token` | `board_id`, `team_id`, `epic_issue_type`, `fields.*`, `status_map`, `sync_stories` |
+
+**Linking is idempotent.** `spec new`/`spec promote` find-or-create the epic by a
+`spec-id:<ID>` marker label, so re-runs never duplicate. Created epics carry a
+remote link back to the spec. Adopt an existing epic with
+`spec link <id> --epic PLAT-123`.
+
+**Status reflection is deterministic.** On `spec advance`, the new stage is
+mapped to a Jira status via `status_map` and the matching transition is
+executed (idempotently). Unmapped stages do nothing. A failed transition is
+queued and retried; `spec sync --pm` reconciles a drifted board on demand and
+`spec status <id>` flags a spec whose Jira card is out of sync.
+
+**Enable runbook:**
+1. Set `email` plus `board_id`/`fields` as needed.
+2. Run `spec config check` to validate credentials and print the live workflow
+   statuses.
+3. Author `status_map` from those statuses.
+4. Optionally set `sync_stories: true` to mirror build steps as Jira stories.
 
 #### `integrations.docs`
 
@@ -307,11 +357,33 @@ archive:
 
 ### `dashboard`
 
+Controls the personal dashboard (`spec` with no args) — its staleness cue, cache,
+and which blocked specs surface in the **BLOCKED** section.
+
 ```yaml
 dashboard:
   stale_threshold: 48h        # Age after which a spec is marked stale (default: 48h)
   refresh_ttl: 300            # Cache TTL in seconds (default: 300)
+  blocked:                    # Scope the BLOCKED section (default: every role sees every blocked spec)
+    visible_to: [tl, engineer]  # Roles allowed to see BLOCKED. Empty/omitted = all roles.
+    scope: owning_role          # all (default) | involved | owning_role
 ```
+
+| Field | Default | Description |
+|---|---|---|
+| `stale_threshold` | `48h` | Time-in-stage after which a spec is flagged stale. |
+| `refresh_ttl` | `300` | Seconds the dashboard caches aggregated data. |
+| `blocked.visible_to` | all roles | Roles that may see the BLOCKED section at all. A role not listed sees no BLOCKED section. |
+| `blocked.scope` | `all` | Which blocked specs a permitted role sees: `all` (every blocked spec), `involved` (only specs you author or are assigned), `owning_role` (only specs whose pre-block stage your role owned). |
+
+`owning_role` reads the `blocked_from` frontmatter field, which `spec eject`
+records automatically when a spec is blocked. Because the team standup already
+rolls up every blocker, a common pattern is `scope: involved` here so each
+person's dashboard shows only *their own* stuck work while the TL gets the
+team-wide view from standup.
+
+The **DO** section is scoped separately, per stage — see
+[Dashboard scope](#dashboard-scope) under pipeline configuration.
 
 ---
 
@@ -414,6 +486,7 @@ pipeline:
   on_exit: []                 # Effects fired when leaving this stage. See Effects.
   auto_archive: false         # true = move spec to archive/ when entering.
   review: {}                  # Technical plan review requirement. See Stage review.
+  dashboard: {}               # Who sees this stage's specs in the DO section. See Dashboard scope.
 ```
 
 **`owner`** accepts a single role string or an array:
@@ -424,6 +497,90 @@ owner: [pm, tl]
 ```
 
 Valid roles: `pm`, `tl`, `designer`, `qa`, `engineer`
+
+### Dashboard scope
+
+By default a spec appears in the **DO** section of the dashboard for *everyone*
+whose role owns its current stage. On a team with several engineers that floods
+each dashboard with the whole role's work. Per-stage `dashboard.do_scope`
+narrows DO to the person actually responsible, using two spec concepts:
+
+- **author** — who originated the spec (frontmatter `author`, set at `spec new`).
+- **assignees** — who is responsible for moving it *now* (frontmatter
+  `assignees`). Set with `spec assign`, claimed in the TUI with `g c`, or
+  claimed automatically when you run `spec build` / `spec do` on an
+  assignee-scoped stage.
+
+```yaml
+- name: engineering
+  owner: engineer
+  dashboard:
+    do_scope: assignee        # role (default) | assignee | author | none
+    claimable: true           # default true
+```
+
+| `do_scope` | Who sees the spec in DO |
+|---|---|
+| `role` (default) | Anyone whose role owns the stage. Today's behaviour. |
+| `assignee` | The spec's assignee(s) only. While unassigned the spec falls back to the whole owning role (a shared "claimable" queue) unless `claimable: false`. |
+| `author` | The spec author only, regardless of role. |
+| `none` | Nobody — the spec is visible only in `spec watch` / `spec list`, never in DO. |
+
+**`claimable`** (default `true`) only applies to `assignee` scope. `true`
+surfaces unassigned specs to the whole owning role so anyone can pick them up;
+`false` hides them from everyone until someone is explicitly assigned.
+
+The full pipeline stays visible to everyone via `spec watch` and `spec list` —
+scope only narrows the focused DO section, never hides work outright.
+
+**Identity matching.** Assignees and author are matched against the user's
+configured `name` *and* `handle` (case-insensitive, a leading `@` is ignored),
+so `@maximo`, `maximo`, and `Maximo` all resolve to the same person.
+
+#### Assigning work
+
+| Action | CLI | TUI |
+|---|---|---|
+| Claim a spec for yourself | `spec assign SPEC-123` | `g c`, then Enter |
+| Assign to others | `spec assign SPEC-123 @greg @maximo` | `g c`, edit the handles |
+| Unassign everyone | `spec assign SPEC-123 --clear` | `g c`, type `-` |
+| Auto-claim on starting work | `spec build` / `spec do` | `b` (build) |
+
+Auto-claim fires only on the build/`do` path, so a `planning`-style stage that is
+`assignee`-scoped is picked up explicitly with `spec assign` (or `g c`). The DO
+row shows the assignee (e.g. `@maximo`, or `@maximo +1`) or `unclaimed` for an
+assignee-scoped stage waiting to be picked up.
+
+#### Worked example
+
+Keep a planning stage personal to its author until it reaches a role-scoped
+review stage, where the reviewing role picks it up:
+
+```yaml
+dashboard:
+  blocked:
+    visible_to: [tl, engineer]
+    scope: owning_role
+
+pipeline:
+  stages:
+    - name: planning
+      owner: engineer
+      dashboard: { do_scope: assignee }   # unclaimed → shared queue; claimed → personal
+    - name: plan_review
+      owner: [tl, engineer]               # role-scoped (default): opens up for review
+    - name: build
+      owner: engineer
+      dashboard: { do_scope: assignee }   # only the engineer building it
+    - name: done
+      owner: tl
+      dashboard: { do_scope: none }       # terminal — keep finished specs out of DO
+```
+
+Result: an unclaimed `planning` spec shows to every engineer as a queue; once
+claimed it shows only to its assignee; at `plan_review` it opens to the whole
+reviewing role; a spec blocked from `build` shows in BLOCKED for the TL and
+engineers (build is engineer-owned) but not for the PM or designer.
 
 ### Gates
 
