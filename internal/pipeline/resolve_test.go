@@ -406,3 +406,24 @@ func TestEvaluateSkipWhen_PerStage(t *testing.T) {
 		})
 	}
 }
+
+// TestPresetNamesMatchLinter guards the config linter's hardcoded preset list
+// (config.KnownPresets, which cannot import this package without a cycle)
+// against the authoritative registry here. If a preset is added, both lists
+// must move together.
+func TestPresetNamesMatchLinter(t *testing.T) {
+	got := PresetNames()
+	want := config.KnownPresets()
+	if len(got) != len(want) {
+		t.Fatalf("PresetNames %v vs config.KnownPresets %v: length mismatch", got, want)
+	}
+	set := make(map[string]bool, len(want))
+	for _, p := range want {
+		set[p] = true
+	}
+	for _, p := range got {
+		if !set[p] {
+			t.Errorf("preset %q in PresetNames but missing from config.KnownPresets", p)
+		}
+	}
+}
