@@ -93,3 +93,39 @@ func TestVisibleInBlocked(t *testing.T) {
 		})
 	}
 }
+
+func TestAssigneeLabel(t *testing.T) {
+	cases := []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{"@ana"}, "@ana"},
+		{[]string{"@ana", "@ben"}, "@ana +1"},
+		{[]string{"@ana", "@ben", "@cleo"}, "@ana +2"},
+	}
+	for _, c := range cases {
+		if got := assigneeLabel(c.in); got != c.want {
+			t.Errorf("assigneeLabel(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestDoAssigneeLabel(t *testing.T) {
+	pl := scopePipeline() // engineering=assignee, build=role
+	cases := []struct {
+		name string
+		spec specInfo
+		want string
+	}{
+		{"assignee-scoped unclaimed", specInfo{Status: "engineering"}, "unclaimed"},
+		{"assignee-scoped claimed", specInfo{Status: "engineering", Assignees: []string{"@ana"}}, "@ana"},
+		{"role-scoped unassigned", specInfo{Status: "build"}, ""},
+		{"role-scoped but assigned", specInfo{Status: "build", Assignees: []string{"@ana"}}, "@ana"},
+	}
+	for _, c := range cases {
+		if got := doAssigneeLabel(pl, c.spec); got != c.want {
+			t.Errorf("%s: doAssigneeLabel = %q, want %q", c.name, got, c.want)
+		}
+	}
+}

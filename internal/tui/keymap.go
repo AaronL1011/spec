@@ -44,6 +44,7 @@ type KeyMap struct {
 	Unblock       key.Binding // u — explicit unblock (kept for dispatch)
 	ToggleArchive key.Binding // ` — toggle archive list in spec tab
 	Revert        key.Binding
+	Assign        key.Binding // g c — assign/claim (modal)
 	Focus         key.Binding // f — toggle focus
 	Open          key.Binding
 	Yank          key.Binding
@@ -189,6 +190,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("v"),
 			key.WithHelp("v", "revert"),
 		),
+		Assign: key.NewBinding(
+			key.WithKeys(),
+			key.WithHelp("g c", "assign/claim"),
+		),
 		Focus: key.NewBinding(
 			key.WithKeys("f"),
 			key.WithHelp("f", "toggle focus"),
@@ -259,7 +264,7 @@ func (k KeyMap) ViewBindings() []key.Binding {
 func (k KeyMap) ActionBindings() []key.Binding {
 	return []key.Binding{
 		k.Advance, k.Revert, k.Edit, k.Build, k.Block, k.Unblock,
-		k.Focus, k.Open, k.Yank, k.Decide, k.Push, k.Sync,
+		k.Assign, k.Focus, k.Open, k.Yank, k.Decide, k.Push, k.Sync,
 		k.Archive, k.Restore, k.ToggleArchive,
 	}
 }

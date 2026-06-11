@@ -851,6 +851,13 @@ func (m specDetailModel) viewOverview() string {
 	b.WriteString(m.styles.Muted.Render(Indent(1) + metaLine))
 	b.WriteString("\n")
 
+	// ── Assignees line ──
+	if len(m.meta.Assignees) > 0 {
+		assigned := truncate(strings.Join(m.meta.Assignees, ", "), contentWidth-12)
+		b.WriteString(m.styles.Subtitle.Render(Indent(1)+"Assigned  ") + m.styles.Accent.Render(assigned))
+		b.WriteString("\n")
+	}
+
 	// ── Build status line ──
 	if m.buildLine != "" {
 		b.WriteString(m.styles.Subtitle.Render(Indent(1) + truncate(m.buildLine, contentWidth)))
@@ -905,7 +912,11 @@ func (m specDetailModel) viewOverview() string {
 	// ── Spec blocked block ───────────────────────────────────────────────────
 	if m.meta.Status == pipeline.StatusBlocked {
 		b.WriteString("\n")
-		b.WriteString(m.styles.Error.Bold(true).Render(Indent(1)+IconBlocked+" Blocked") + "\n")
+		header := IconBlocked + " Blocked"
+		if m.meta.BlockedFrom != "" {
+			header += " from " + m.meta.BlockedFrom
+		}
+		b.WriteString(m.styles.Error.Bold(true).Render(Indent(1)+header) + "\n")
 		if reason := latestEscapeReason(m.sections); reason != "" {
 			b.WriteString(m.styles.Error.Render(Indent(2)+truncate(reason, contentWidth-8)) + "\n")
 		}

@@ -18,12 +18,13 @@ import (
 
 // DashboardItem represents a single item in a dashboard section.
 type DashboardItem struct {
-	SpecID  string `json:"spec_id"`
-	Title   string `json:"title"`
-	Stage   string `json:"stage"`
-	Detail  string `json:"detail"`
-	Urgency string `json:"urgency"` // "normal", "stale", "critical"
-	URL     string `json:"url,omitempty"`
+	SpecID   string `json:"spec_id"`
+	Title    string `json:"title"`
+	Stage    string `json:"stage"`
+	Detail   string `json:"detail"`
+	Urgency  string `json:"urgency"` // "normal", "stale", "critical"
+	URL      string `json:"url,omitempty"`
+	Assignee string `json:"assignee,omitempty"` // assignee label or "unclaimed" for DO rows
 }
 
 // DashboardData holds all dashboard sections.
@@ -60,7 +61,11 @@ func Render(data *DashboardData, userName, role, cycle string) {
 			if item.Urgency == "stale" {
 				icon = "⏰"
 			}
-			fmt.Printf("%s %-10s  %-30s  %s\n", icon, item.SpecID, truncStr(item.Title, 30), item.Stage)
+			stage := item.Stage
+			if item.Assignee != "" {
+				stage += "  ·  " + item.Assignee
+			}
+			fmt.Printf("%s %-10s  %-30s  %s\n", icon, item.SpecID, truncStr(item.Title, 30), stage)
 			if item.Detail != "" {
 				fmt.Printf("   %s\n", item.Detail)
 			}
@@ -137,9 +142,10 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 				}
 				if VisibleInDo(pl, view, viewer) {
 					data.Do = append(data.Do, DashboardItem{
-						SpecID: s.ID,
-						Title:  s.Title,
-						Stage:  s.Status,
+						SpecID:   s.ID,
+						Title:    s.Title,
+						Stage:    s.Status,
+						Assignee: doAssigneeLabel(pl, s),
 					})
 				}
 			}
@@ -269,6 +275,32 @@ func loadTriageItems(rc *config.ResolvedConfig) ([]triageInfo, error) {
 		})
 	}
 	return items, nil
+}
+
+// doAssigneeLabel returns the DO-row assignee indicator: a compact assignee
+// label when the spec is claimed, or "unclaimed" when an assignee-scoped stage
+// is still waiting for someone to pick it up. Role-scoped, unassigned specs get
+// no label.
+func doAssigneeLabel(pl config.PipelineConfig, s specInfo) string {
+	if len(s.Assignees) > 0 {
+		return assigneeLabel(s.Assignees)
+	}
+	if stage := pl.StageByName(s.Status); stage != nil && stage.Dashboard.Scope() == config.DoScopeAssignee {
+		return "unclaimed"
+	}
+	return ""
+}
+
+// assigneeLabel renders assignees compactly: the first name, plus "+N" when
+// there are more.
+func assigneeLabel(assignees []string) string {
+	if len(assignees) == 0 {
+		return ""
+	}
+	if len(assignees) == 1 {
+		return assignees[0]
+	}
+	return fmt.Sprintf("%s +%d", assignees[0], len(assignees)-1)
 }
 
 func countCompletedSpecs(data *DashboardData) int {
