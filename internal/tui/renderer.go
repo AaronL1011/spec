@@ -10,7 +10,10 @@ import (
 
 	"charm.land/glamour/v2"
 	"charm.land/glamour/v2/styles"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 )
 
 // Renderer renders markdown content into ANSI-styled terminal text.
@@ -42,17 +45,44 @@ func colourDisabled() bool {
 // The TermRenderer is constructed once per (style, width) pair and cached, so
 // termenv.HasDarkBackground is never called on the hot render path.
 type GlamourRenderer struct {
-	mu    sync.Mutex
-	style string
-	cache map[int]*glamour.TermRenderer // keyed by word-wrap width
+	mu       sync.Mutex
+	style    string
+	border   lipgloss.Style
+	cells    cellStyles
+	mdParser goldmark.Markdown
+	cache    map[int]*glamour.TermRenderer // keyed by word-wrap width
+}
+
+// cellStyles holds the lipgloss styles applied to inline markdown elements
+// inside table cells.
+type cellStyles struct {
+	code   lipgloss.Style
+	bold   lipgloss.Style
+	italic lipgloss.Style
+	strike lipgloss.Style
+	link   lipgloss.Style
+	url    lipgloss.Style
 }
 
 // NewGlamourRenderer creates a renderer whose style is derived from the
 // already-resolved Theme.  No terminal I/O is performed at construction time.
 func NewGlamourRenderer(theme Theme) Renderer {
 	return &GlamourRenderer{
-		style: glamourStyleForTheme(theme),
-		cache: make(map[int]*glamour.TermRenderer),
+		style:  glamourStyleForTheme(theme),
+		border: lipgloss.NewStyle().Foreground(theme.Overlay),
+		cells: cellStyles{
+			code:   lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.Surface),
+			bold:   lipgloss.NewStyle().Bold(true),
+			italic: lipgloss.NewStyle().Italic(true),
+			strike: lipgloss.NewStyle().Strikethrough(true),
+			link:   lipgloss.NewStyle().Foreground(theme.Accent).Underline(true),
+			url:    lipgloss.NewStyle().Foreground(theme.Muted),
+		},
+		// Strikethrough is the only non-CommonMark inline element needed;
+		// the full GFM bundle would register table/tasklist block parsers
+		// that are useless at cell level.
+		mdParser: goldmark.New(goldmark.WithExtensions(extension.Strikethrough)),
+		cache:    make(map[int]*glamour.TermRenderer),
 	}
 }
 
@@ -72,10 +102,48 @@ func (g *GlamourRenderer) Render(ctx context.Context, md string, width int) (str
 	}
 	md = stripHTMLComments(md)
 
+	segments := splitTableSegments(md)
+	hasTable := false
+	for _, seg := range segments {
+		if seg.table {
+			hasTable = true
+			break
+		}
+	}
+	if !hasTable {
+		out, err := g.glamourRender(md, width)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimRight(out, "\n"), nil
+	}
+
+	parts := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		var out string
+		if seg.table {
+			out = g.renderTableBlock(seg.text, width)
+		} else {
+			if strings.TrimSpace(seg.text) == "" {
+				continue
+			}
+			rendered, err := g.glamourRender(seg.text, width)
+			if err != nil {
+				return "", err
+			}
+			out = rendered
+		}
+		parts = append(parts, strings.Trim(out, "\n"))
+	}
+	return "\n" + strings.Join(parts, "\n\n"), nil
+}
+
+// glamourRender renders one markdown chunk through the cached glamour
+// renderer, falling back to unstyled text rather than blocking the user.
+func (g *GlamourRenderer) glamourRender(md string, width int) (string, error) {
 	r, err := g.rendererForWidth(width)
 	if err != nil {
-		// Fall back to unstyled text rather than block the user.
-		return stripHTMLComments(md), nil
+		return md, nil
 	}
 
 	g.mu.Lock()
@@ -85,7 +153,7 @@ func (g *GlamourRenderer) Render(ctx context.Context, md string, width int) (str
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimRight(out, "\n"), nil
+	return out, nil
 }
 
 // rendererForWidth returns a cached TermRenderer for the given width,
