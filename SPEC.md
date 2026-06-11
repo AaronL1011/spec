@@ -201,7 +201,7 @@ Its core responsibilities:
 7. **Decision capture** - structured CLI for recording questions, decisions, and rationale to the spec's decision log - the institutional memory that survives team turnover.
 8. **Review coordination** - aggregate stacked PRs across repos and post structured review requests.
 9. **Deployment** - trigger deploys via CI/CD adapters and track specs through staging to production without leaving the terminal.
-10. **Knowledge base** - the specs repo is a searchable archive of every spec, decision, and rationale the team has ever produced. Semantic search makes it queryable.
+10. **Knowledge base** - the specs repo is a searchable archive of every spec, decision, and rationale the team has ever produced. Keyword and full-text search make it queryable today; semantic/indexed search is a future enhancement.
 11. **Async ceremonies** - auto-generate standups from real activity; capture retrospective metrics from pipeline data.
 12. **Passive awareness** - a "you have mail" status line on every `spec` invocation so pending items surface when the dev is ready, not when a notification interrupts flow state.
 13. **AI-assisted drafting** - optionally use an LLM to draft spec sections, PR descriptions, triage summaries, and PR stack plans. Every AI feature follows the same contract: draft → human review (accept / edit / skip). AI is never required - omitting the `ai` integration is a first-class configuration.
@@ -887,13 +887,13 @@ Each version is independently useful. Nobody has to buy the whole vision to star
 | **v0.1** | `spec new`, `spec list`, `spec advance`, `spec decide`, `spec validate`, `spec whoami`, `spec status`, `spec edit` | Local spec lifecycle with markdown files. Works with zero config beyond `spec config init --user`. A team can manage specs in a git repo with structured pipeline stages immediately. |
 | **v0.2** | `spec` (dashboard), `spec pull`, `spec build`, `spec do`, `spec intake`, `spec promote`, `spec draft` | The agent integration, personal dashboard, and AI drafting layer. This is where the DX magic starts - one command to resume work, one command to see your queue, AI-drafted content where configured. Still works local-only; AI is optional. |
 | **v0.3** | `spec sync`, `spec review`, `spec link`, comms/docs/repo adapters | The integration layer. Connect to the tools the team already uses. PMs contribute from Confluence. Review requests post to Slack. AI-enriched review messages. The external tools become invisible. |
-| **v0.4** | `spec standup`, `spec watch`, `spec context`, `spec retro`, `spec metrics`, `spec deploy`, deploy/intake adapters | The "never leave the terminal" features. Async standups, live pipeline view, semantic knowledge search, deployment orchestration. Full control plane. |
+| **v0.4** | `spec standup`, `spec watch`, `spec context`, `spec retro`, `spec metrics`, `spec deploy`, deploy/intake adapters | The "never leave the terminal" features. Async standups, live pipeline view, keyword knowledge search (`spec context`/`spec search`; semantic search is a future enhancement), deployment orchestration. Full control plane. |
 
 ### 4.13 AI Service Layer - Deep Dive
 
 #### Design principle: progressive enhancement, not dependency
 
-Every feature in `spec` works without an LLM. If you configure one, things get better - drafts appear, summaries sharpen, search gets semantic. If you don't, or the provider is down, or you're offline, everything functions via templates, deterministic logic, and manual input. **AI is a drafting assistant, not a decision maker.**
+Every feature in `spec` works without an LLM. If you configure one, things get better - drafts appear, summaries sharpen. (Search stays keyword/full-text either way; semantic search is a future enhancement.) If you don't, or the provider is down, or you're offline, everything functions via templates, deterministic logic, and manual input. **AI is a drafting assistant, not a decision maker.**
 
 #### Two distinct agent concepts
 
