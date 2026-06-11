@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 
@@ -94,9 +95,13 @@ func (a *Agent) invokeInteractive(ctx context.Context, req adapter.InvokeRequest
 	return &adapter.InvokeResult{}, nil
 }
 
-// invokeHeadless runs pi autonomously (`-p --mode json`) and streams its output
-// through. Completion is reconciled from the node ledger by the engine after pi
-// exits, so there is nothing to parse out of the stream here.
+// invokeHeadless runs pi autonomously (`-p --mode json`) and tees its event
+// stream: every line still reaches the user's stdout while a parser distils the
+// session-level signal (exit reason, error class, token usage) into the result.
+// Per-node progress is reconciled separately from the ledger by the engine.
+//
+// Parsing is best-effort: a stream we cannot interpret yields a zero-value
+// result, never an error, so output-format drift never fails the build session.
 func (a *Agent) invokeHeadless(ctx context.Context, req adapter.InvokeRequest) (*adapter.InvokeResult, error) {
 	args := append(a.args(req), "-p", "--mode", "json")
 	if req.Prompt != "" {
@@ -106,11 +111,36 @@ func (a *Agent) invokeHeadless(ctx context.Context, req adapter.InvokeRequest) (
 	cmd := exec.CommandContext(ctx, a.Command, args...)
 	cmd.Dir = req.WorkDir
 	cmd.Env = os.Environ()
-	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("pi exited with error: %w", err)
+	// Tee stdout: the user still sees the live stream while we parse a copy.
+	pr, pw := io.Pipe()
+	cmd.Stdout = io.MultiWriter(os.Stdout, pw)
+
+	resultCh := make(chan adapter.InvokeResult, 1)
+	go func() {
+		resultCh <- parseHeadlessStream(pr)
+	}()
+
+	runErr := cmd.Run()
+	_ = pw.Close() // unblock the parser; flushes any buffered tail.
+	res := <-resultCh
+
+	if runErr != nil {
+		// A non-zero exit is authoritative over anything the stream implied.
+		if res.ExitReason == "" || res.ExitReason == "completed" {
+			res.ExitReason = "error"
+		}
+		if res.ErrorClass == "" {
+			res.ErrorClass = "nonzero_exit"
+		}
+		if res.ErrorMessage == "" {
+			res.ErrorMessage = runErr.Error()
+		}
+		return &res, fmt.Errorf("pi exited with error: %w", runErr)
 	}
-	return &adapter.InvokeResult{}, nil
+	if res.ExitReason == "" {
+		res.ExitReason = "completed"
+	}
+	return &res, nil
 }

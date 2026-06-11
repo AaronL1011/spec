@@ -79,7 +79,9 @@ func (e *Engine) StartOrResume(ctx context.Context, specID, specPath, startDir s
 	}
 
 	_ = LogActivity(specID, "Build session invoked (DAG handoff)")
-	if _, err := e.agent.Invoke(ctx, req); err != nil {
+	result, err := e.agent.Invoke(ctx, req)
+	logInvokeResult(specID, result)
+	if err != nil {
 		return fmt.Errorf("agent exited with error: %w", err)
 	}
 
