@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/store"
 )
 
@@ -274,4 +275,42 @@ func LogActivity(specID, entry string) error {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	_, err = fmt.Fprintf(f, "[%s] %s\n", timestamp, entry)
 	return err
+}
+
+// logInvokeResult records a build_result activity event carrying the
+// session-level signal the agent reported (exit reason, error class, token
+// usage). It is best-effort: a nil result (interactive run, or a harness that
+// reports nothing) is skipped, and the structured detail rides in the event
+// metadata so `spec fix --auto` runs stay debuggable from the activity log.
+func logInvokeResult(specID string, result *adapter.InvokeResult) {
+	if result == nil {
+		return
+	}
+
+	summary := invokeResultSummary(result)
+	if activityDB != nil {
+		metadata := ""
+		if b, err := json.Marshal(result); err == nil {
+			metadata = string(b)
+		}
+		_ = activityDB.ActivityLog(specID, "build_result", summary, metadata, "spec")
+	}
+	_ = LogActivity(specID, summary)
+}
+
+// invokeResultSummary renders a one-line human summary of an InvokeResult for
+// the activity log.
+func invokeResultSummary(r *adapter.InvokeResult) string {
+	reason := r.ExitReason
+	if reason == "" {
+		reason = "unknown"
+	}
+	summary := "Build session ended: " + reason
+	if r.ErrorClass != "" {
+		summary += " (" + r.ErrorClass + ")"
+	}
+	if r.Tokens.Total > 0 {
+		summary += fmt.Sprintf(" — %d tokens (in %d / out %d)", r.Tokens.Total, r.Tokens.Input, r.Tokens.Output)
+	}
+	return summary
 }

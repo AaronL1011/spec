@@ -524,13 +524,13 @@ narrows DO to the person actually responsible, using two spec concepts:
 | `role` (default) | Anyone whose role owns the stage. Today's behaviour. |
 | `assignee` | The spec's assignee(s) only. While unassigned the spec falls back to the whole owning role (a shared "claimable" queue) unless `claimable: false`. |
 | `author` | The spec author only, regardless of role. |
-| `none` | Nobody — the spec is visible only in `spec watch` / `spec list`, never in DO. |
+| `none` | Nobody — the spec is visible only in the dashboard / `spec list`, never in DO. |
 
 **`claimable`** (default `true`) only applies to `assignee` scope. `true`
 surfaces unassigned specs to the whole owning role so anyone can pick them up;
 `false` hides them from everyone until someone is explicitly assigned.
 
-The full pipeline stays visible to everyone via `spec watch` and `spec list` —
+The full pipeline stays visible to everyone via the dashboard and `spec list` —
 scope only narrows the focused DO section, never hides work outright.
 
 **Identity matching.** Assignees and author are matched against the user's

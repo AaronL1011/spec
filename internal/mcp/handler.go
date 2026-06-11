@@ -162,7 +162,7 @@ func (h *GenericHandler) ListTools() []Tool {
 		},
 		{
 			Name:        "spec_search",
-			Description: "Search across all specs for matching content",
+			Description: "Keyword search across all specs (literal substring match, not semantic/vector search)",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

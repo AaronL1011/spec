@@ -90,6 +90,9 @@ pipeline:
 
 func TestEnvVarInterpolation(t *testing.T) {
 	t.Setenv("TEST_TOKEN", "secret123")
+	// Pin the alias side so an ambient SPEC_TEST_TOKEN can't shadow the exact
+	// var under test (lookupEnvWithAlias resolves *_TOKEN aliases).
+	t.Setenv("SPEC_TEST_TOKEN", "")
 	content := `
 version: "1"
 team:
@@ -112,7 +115,9 @@ specs_repo:
 	}
 
 	if cfg.SpecsRepo.Token != "secret123" {
-		t.Errorf("token = %q, want %q", cfg.SpecsRepo.Token, "secret123")
+		// Never echo the resolved token value (AC-2): a regression in isolation
+		// could otherwise print a developer's real exported secret.
+		t.Errorf("interpolated specs_repo token did not match expected value (redacted)")
 	}
 }
 

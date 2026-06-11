@@ -1,0 +1,15 @@
+{
+  "total_count": 1,
+  "incomplete_results": false,
+  "items": [
+    {
+      "number": 101,
+      "title": "spec-042: add token bucket limiter",
+      "html_url": "https://github.com/o/auth-service/pull/101",
+      "repository_url": "https://api.github.com/repos/o/auth-service",
+      "user": { "login": "alice" },
+      "created_at": "2026-01-02T10:00:00Z",
+      "pull_request": { "url": "https://api.github.com/repos/o/auth-service/pulls/101" }
+    }
+  ]
+}

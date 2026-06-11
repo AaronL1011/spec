@@ -9,9 +9,15 @@ import (
 
 var contextCmd = &cobra.Command{
 	Use:   "context <question>",
-	Short: "Semantic search — find relevant specs and decisions for a question",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runContext,
+	Short: "Keyword search — find specs and decisions matching words in a question",
+	Long: `Find specs whose content matches the keywords in your question.
+
+This is a literal keyword search, not semantic/vector search: the question is
+split into words (short words are dropped) and specs containing those words are
+listed. It does not rank by meaning or embeddings. For exact substring matching
+across active and archived specs, use 'spec search' instead.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runContext,
 }
 
 func init() {

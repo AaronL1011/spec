@@ -15,14 +15,26 @@ import (
 // to learn "what's going on right now" (SPEC-016); it occupies the fixed slot
 // formerly held by the scattered pending/spinner/banner/toast surfaces.
 type StatusBar struct {
-	viewLabel   string
-	scrollPos   string // e.g. "3/12" — set by the active view
-	lastRefresh time.Time
+	viewLabel string
+	scrollPos string // e.g. "3/12" — set by the active view
+	// refreshedAt records the last successful data load per tab (keyed by the
+	// app's refresh key). Each tab carries its own data-age clock so the
+	// staleness indicator reflects the tab the user is actually looking at,
+	// not a global last-refresh.
+	refreshedAt map[string]time.Time
+	activeKey   string // refresh key of the active tab, drives the indicator
+	staleAfter  time.Duration
+	offline     bool
 	width       int
 	exitArmed   bool // true while the first esc has been pressed at the top level
 	status      Status
 	styles      StatusBarStyles
 }
+
+// defaultStaleAfter is the age past which a tab's data is flagged "stale · r to
+// refresh". It is a fallback used until the app sets its own threshold from the
+// configured refresh interval.
+const defaultStaleAfter = 60 * time.Second
 
 // StatusBarStyles holds the styles for the status bar.
 type StatusBarStyles struct {
@@ -40,7 +52,8 @@ type StatusBarStyles struct {
 func NewStatusBar(styles StatusBarStyles) StatusBar {
 	return StatusBar{
 		styles:      styles,
-		lastRefresh: time.Now(),
+		refreshedAt: make(map[string]time.Time),
+		staleAfter:  defaultStaleAfter,
 		status:      NewStatus(styles.Status),
 	}
 }
@@ -54,8 +67,31 @@ func (s *StatusBar) SetView(label string) { s.viewLabel = label }
 // the bar carries one status surface instead of two.
 func (s *StatusBar) SetPending(count int) { s.status.SetRestingCount(count) }
 
-// SetRefresh updates the last refresh time.
-func (s *StatusBar) SetRefresh(t time.Time) { s.lastRefresh = t }
+// SetRefresh records a successful data load for the given tab's refresh key.
+// An empty key is ignored so callers without a key never reset every tab.
+func (s *StatusBar) SetRefresh(key string, t time.Time) {
+	if key == "" {
+		return
+	}
+	if s.refreshedAt == nil {
+		s.refreshedAt = make(map[string]time.Time)
+	}
+	s.refreshedAt[key] = t
+}
+
+// SetActiveRefreshKey selects which tab's data-age clock the indicator shows.
+func (s *StatusBar) SetActiveRefreshKey(key string) { s.activeKey = key }
+
+// SetStaleAfter sets the age past which the active tab is flagged stale.
+func (s *StatusBar) SetStaleAfter(d time.Duration) {
+	if d > 0 {
+		s.staleAfter = d
+	}
+}
+
+// SetOffline toggles the offline affordance, which renders the data-age
+// indicator in a muted "cached · offline" form.
+func (s *StatusBar) SetOffline(offline bool) { s.offline = offline }
 
 // SetScroll updates the scroll position indicator (e.g. "3/12").
 func (s *StatusBar) SetScroll(pos string) { s.scrollPos = pos }
@@ -115,9 +151,40 @@ func (s StatusBar) StatusLabel() string { return s.status.Label() }
 // pending cues such as a background refresh.
 func (s StatusBar) ShowingOutcome() bool { return s.status.ShowingOutcome() }
 
+// freshnessIndicator renders the active tab's data-age affordance (§5.2):
+//   - offline:        "cached · offline" in the muted style
+//   - within staleAfter: "fresh"
+//   - past staleAfter:   "stale · r to refresh"
+//   - otherwise:         "Ns ago" / "Nm ago"
+//
+// It returns the empty string when the active tab has never loaded, so a
+// just-opened tab shows nothing until its first fetch lands.
+func (s StatusBar) freshnessIndicator() string {
+	if s.offline {
+		return s.styles.Stale.Render(" " + glyph.Clock + " cached · offline ")
+	}
+
+	t, ok := s.refreshedAt[s.activeKey]
+	if !ok || t.IsZero() {
+		return ""
+	}
+
+	age := time.Since(t)
+	switch {
+	case age >= s.staleAfter:
+		return s.styles.Stale.Render(" " + glyph.Clock + " stale · r to refresh ")
+	case age < 5*time.Second:
+		return s.styles.Stale.Render(" " + glyph.Clock + " fresh ")
+	case age < time.Minute:
+		return s.styles.Stale.Render(fmt.Sprintf(" %s %ds ago ", glyph.Clock, int(age.Seconds())))
+	default:
+		return s.styles.Stale.Render(fmt.Sprintf(" %s %dm ago ", glyph.Clock, int(age.Minutes())))
+	}
+}
+
 // View renders the status bar. The canonical status element sits immediately
-// after the view label and sizes to its content; the freshness ("Ns ago")
-// indicator lives in the right-hand cluster, only appearing once data is stale.
+// after the view label and sizes to its content; the freshness indicator lives
+// in the right-hand cluster.
 func (s StatusBar) View() string {
 	viewPart := s.styles.Label.Render(" " + s.viewLabel + " ")
 
@@ -126,16 +193,9 @@ func (s StatusBar) View() string {
 	// override it and decay back.
 	statusPart := s.status.View()
 
-	// Freshness indicator — show age if last refresh was >60s ago. Lives on the
-	// right so it reads as ambient metadata, not part of the live status.
-	var stalePart string
-	if age := time.Since(s.lastRefresh); age > 60*time.Second {
-		staleLabel := fmt.Sprintf("%ds ago", int(age.Seconds()))
-		if age > 120*time.Second {
-			staleLabel = fmt.Sprintf("%dm ago", int(age.Minutes()))
-		}
-		stalePart = s.styles.Stale.Render(" " + glyph.Clock + " " + staleLabel + " ")
-	}
+	// Per-tab freshness indicator. Lives on the right so it reads as ambient
+	// metadata, not part of the live status.
+	stalePart := s.freshnessIndicator()
 
 	var scrollPart string
 	if s.scrollPos != "" {

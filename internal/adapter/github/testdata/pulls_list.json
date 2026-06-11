@@ -1,0 +1,20 @@
+[
+  {
+    "number": 101,
+    "title": "spec-042: add token bucket limiter",
+    "state": "open",
+    "html_url": "https://github.com/o/auth-service/pull/101",
+    "user": { "login": "alice" },
+    "head": { "ref": "spec-042/step-1-limiter", "sha": "abc123" },
+    "created_at": "2026-01-02T10:00:00Z"
+  },
+  {
+    "number": 102,
+    "title": "unrelated change",
+    "state": "open",
+    "html_url": "https://github.com/o/auth-service/pull/102",
+    "user": { "login": "bob" },
+    "head": { "ref": "chore/cleanup", "sha": "def456" },
+    "created_at": "2026-01-02T11:00:00Z"
+  }
+]

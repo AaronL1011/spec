@@ -43,12 +43,12 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if showTriage {
-		return listTriage(p, rc)
-	}
-
 	if err := requireTeamConfig(rc); err != nil {
 		return err
+	}
+
+	if showTriage {
+		return listTriage(p, rc)
 	}
 
 	// Ensure specs repo is fresh
