@@ -421,6 +421,7 @@ auto_advance:
 	aa := stage.AutoAdvance
 	if aa == nil {
 		t.Fatal("AutoAdvance should not be nil")
+		return
 	}
 
 	if !aa.IsEnabled() {

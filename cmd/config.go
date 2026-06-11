@@ -29,12 +29,64 @@ var configTestCmd = &cobra.Command{
 	RunE:  runConfigTest,
 }
 
+var configCheckCmd = &cobra.Command{
+	Use:   "check",
+	Short: "Preflight-validate live integrations (PM credentials, project, board, workflow)",
+	Long: `Validate configured integrations against their live APIs before they are
+used. For Jira, this verifies authentication, the project, the configured
+issue types, and the board, then prints the project's workflow statuses so you
+can author an accurate pm.status_map.`,
+	RunE: runConfigCheck,
+}
+
 func init() {
 	configInitCmd.Flags().Bool("user", false, "initialise personal user config (~/.spec/config.yaml)")
 	configInitCmd.Flags().String("preset", "", "pipeline preset (minimal, startup, product, platform, kanban)")
 	configCmd.AddCommand(configInitCmd)
 	configCmd.AddCommand(configTestCmd)
+	configCmd.AddCommand(configCheckCmd)
 	rootCmd.AddCommand(configCmd)
+}
+
+func runConfigCheck(cmd *cobra.Command, args []string) error {
+	rc, err := resolveConfig()
+	if err != nil {
+		return err
+	}
+	if err := requireTeamConfig(rc); err != nil {
+		return err
+	}
+
+	fmt.Println("Preflight checks:")
+	fmt.Println()
+
+	if !rc.HasIntegration("pm") {
+		fmt.Println("  · PM: not configured")
+		return nil
+	}
+
+	reg := buildRegistry(rc)
+	pm := reg.PM()
+	if err := pm.Validate(ctx()); err != nil {
+		fmt.Printf("  ✗ PM: %v\n", err)
+		return fmt.Errorf("PM preflight failed")
+	}
+	fmt.Println("  ✓ PM: credentials, project, issue types, and board OK")
+
+	// Print the live workflow statuses so the user can seed pm.status_map.
+	if inspector, ok := pm.(pmWorkflowInspector); ok {
+		statuses, err := inspector.WorkflowStatuses(ctx())
+		if err != nil {
+			warnf("could not fetch workflow statuses: %v", err)
+		} else if len(statuses) > 0 {
+			fmt.Println()
+			fmt.Println("  Jira workflow statuses (map your pipeline stages to these in pm.status_map):")
+			for _, s := range statuses {
+				fmt.Printf("    - %s\n", s)
+			}
+		}
+	}
+	return nil
 }
 
 func runConfigInit(cmd *cobra.Command, args []string) error {

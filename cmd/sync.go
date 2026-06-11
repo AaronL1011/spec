@@ -30,6 +30,7 @@ func init() {
 	syncCmd.Flags().Bool("dry-run", false, "preview changes without applying")
 	syncCmd.Flags().Bool("force", false, "force inbound changes on conflict")
 	syncCmd.Flags().Bool("skip", false, "skip conflicting sections")
+	syncCmd.Flags().Bool("pm", false, "reconcile the PM (Jira) retry queue and realign drifted board status")
 	syncLogCmd.Flags().Int("limit", 20, "number of audit entries to show")
 	syncCmd.AddCommand(syncLogCmd)
 	rootCmd.AddCommand(syncCmd)
@@ -65,6 +66,10 @@ func runSyncLog(cmd *cobra.Command, args []string) error {
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
+	if pmOnly, _ := cmd.Flags().GetBool("pm"); pmOnly {
+		return runSyncPM(args)
+	}
+
 	specID, err := resolveSpecIDArg(args, "spec sync <id>")
 	if err != nil {
 		return err
@@ -147,6 +152,54 @@ func runSync(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		printSyncReport(prepared.Report)
+	}
+	return nil
+}
+
+// runSyncPM replays the PM retry queue, pushing any deferred epic links and
+// status transitions so the board realigns with spec state. An optional spec
+// id argument scopes the reconciliation to one spec.
+func runSyncPM(args []string) error {
+	rc, err := resolveConfig()
+	if err != nil {
+		return err
+	}
+	if err := requireTeamConfig(rc); err != nil {
+		return err
+	}
+	if !rc.HasIntegration("pm") {
+		return fmt.Errorf("PM integration not configured — set integrations.pm in spec.config.yaml")
+	}
+
+	specID := ""
+	if len(args) > 0 {
+		specID = strings.ToUpper(args[0])
+	}
+
+	db, err := openDB()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	pending, err := db.PMQueuePending(specID)
+	if err != nil {
+		return err
+	}
+	if len(pending) == 0 {
+		fmt.Println("✓ PM board in sync — no deferred operations.")
+		return nil
+	}
+
+	reg := buildRegistry(rc)
+	resolved, err := reconcilePM(rc, reg, db, specID)
+	if err != nil {
+		return err
+	}
+	remaining := len(pending) - resolved
+	fmt.Printf("✓ PM reconcile: %d resolved, %d still pending\n", resolved, remaining)
+	if remaining > 0 {
+		fmt.Println("  Remaining items will retry on the next 'spec sync --pm'. Run 'spec sync log' for detail.")
 	}
 	return nil
 }

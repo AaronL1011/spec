@@ -190,7 +190,7 @@ integrations:
     # Map spec pipeline stages to Jira board statuses. A stage that is absent
     # makes no Jira call (clean no-op). Status sync is on by default once this
     # map is set; run `spec config check` to print your workflow statuses.
-    status_map:1
+    status_map:
       draft: "To Do"
       engineering: "In Progress"
       build: "In Progress"

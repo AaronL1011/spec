@@ -176,6 +176,7 @@ func TestTriageModel_FindItemByID(t *testing.T) {
 	found := m.findItemByID("TRIAGE-002")
 	if found == nil {
 		t.Fatal("should find TRIAGE-002")
+		return
 	}
 	if found.Title != "Second" {
 		t.Errorf("Title = %q, want Second", found.Title)

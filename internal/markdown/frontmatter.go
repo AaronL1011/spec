@@ -63,6 +63,10 @@ type BuildStep struct {
 	// PR is the pull request number once created.
 	PR int `yaml:"pr,omitempty"`
 
+	// StoryKey is the linked PM story key for this step (e.g. "PLAT-201"),
+	// set when story sync is enabled so board analytics track build progress.
+	StoryKey string `yaml:"story_key,omitempty"`
+
 	// Status tracks the step's progress: pending, in-progress, complete, blocked.
 	Status string `yaml:"status"`
 

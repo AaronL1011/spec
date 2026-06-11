@@ -80,6 +80,7 @@ func TestEngine_CurrentStep(t *testing.T) {
 	current := e.CurrentStep(meta)
 	if current == nil {
 		t.Fatal("CurrentStep should not be nil")
+		return
 	}
 	if current.Index != 2 {
 		t.Errorf("CurrentStep.Index = %d, want 2", current.Index)
@@ -231,6 +232,7 @@ func TestEngine_GetNextStep(t *testing.T) {
 	}
 	if next == nil {
 		t.Fatal("next should not be nil")
+		return
 	}
 
 	if next.Index != 2 {

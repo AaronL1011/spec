@@ -95,21 +95,11 @@ func runPromote(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Create PM epic if configured
+	// Find-or-create the PM epic if configured (idempotent, crash-safe).
 	var epicKey string
 	if rc.HasIntegration("pm") {
-		key, pmErr := reg.PM().CreateEpic(ctx(), adapter.SpecMeta{
-			ID:    newSpecID,
-			Title: title,
-		})
-		if pmErr != nil {
-			p.Warn("could not create PM epic: %v", pmErr)
-		} else if key != "" {
-			epicKey = key
-			if err := persistEpicKey(rc, newSpecID, epicKey); err != nil {
-				p.Warn("could not persist PM epic key: %v", err)
-			}
-		}
+		sm := pmSpecMeta(rc, newSpecID, title, &markdownMeta{Status: "draft"})
+		epicKey = ensureEpic(rc, reg, newSpecID, sm)
 	}
 
 	// Notify — non-fatal, warn on failure

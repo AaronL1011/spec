@@ -21,11 +21,17 @@ func (Comms) FetchMentions(ctx context.Context, since time.Time) ([]adapter.Ment
 // PM is a no-op PMAdapter.
 type PM struct{}
 
+func (PM) FindEpic(ctx context.Context, specID string) (string, error)           { return "", nil }
 func (PM) CreateEpic(ctx context.Context, spec adapter.SpecMeta) (string, error) { return "", nil }
+func (PM) LinkEpic(ctx context.Context, epicKey, specID, specURL string) error   { return nil }
 func (PM) UpdateStatus(ctx context.Context, epicKey string, status string) error { return nil }
 func (PM) FetchUpdates(ctx context.Context, epicKey string) (*adapter.PMUpdate, error) {
 	return nil, nil
 }
+func (PM) SyncStories(ctx context.Context, epicKey string, stories []adapter.StorySpec) ([]adapter.StoryLink, error) {
+	return nil, nil
+}
+func (PM) Validate(ctx context.Context) error { return nil }
 
 // Docs is a no-op DocsAdapter.
 type Docs struct{}

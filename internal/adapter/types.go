@@ -38,6 +38,34 @@ type SpecMeta struct {
 	Status  string
 	EpicKey string
 	Repos   []string
+
+	// Problem is a short excerpt of the problem statement, used to give the
+	// PM epic meaningful context instead of just an id.
+	Problem string
+	// Labels are applied to the created issue (in addition to config labels).
+	Labels []string
+	// Cycle is the team cycle/iteration label.
+	Cycle string
+	// URL is a back-link to the canonical spec document.
+	URL string
+}
+
+// StorySpec describes a build step to reconcile into a PM story under an epic.
+type StorySpec struct {
+	// StepID is a stable identifier for the step, used as the idempotency key.
+	StepID      string
+	Repo        string
+	Description string
+	// Status is the spec step status: pending | in-progress | complete | blocked.
+	Status string
+}
+
+// StoryLink is the result of reconciling a StorySpec: the PM story key and the
+// status it was left in.
+type StoryLink struct {
+	StepID   string
+	StoryKey string
+	Status   string
 }
 
 // PMUpdate represents status changes from a PM tool.
