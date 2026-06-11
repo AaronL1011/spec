@@ -1,0 +1,8 @@
+{
+  "state": "success",
+  "total_count": 2,
+  "statuses": [
+    { "state": "success", "context": "ci/build" },
+    { "state": "success", "context": "ci/test" }
+  ]
+}
