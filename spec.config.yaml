@@ -34,6 +34,7 @@ integrations:
 sync:
   outbound_on_advance: true
   conflict_strategy: warn
+  auto_push: auto # auto | prompt | off — publish edits & comments automatically
 
 archive:
   directory: archive

@@ -8,10 +8,15 @@ import (
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/config"
+	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/aaronl1011/spec/internal/thread"
 )
+
+// mcpSurface labels sync activity attributed to the MCP server in the audit log
+// (mirrors store.SurfaceMCP without coupling this package to the store).
+const mcpSurface = "mcp"
 
 // GenericHandler provides spec resources and tools without requiring a build session.
 // It serves as the default MCP handler, providing access to specs, pipeline info,
@@ -19,14 +24,35 @@ import (
 type GenericHandler struct {
 	config   *config.ResolvedConfig
 	specsDir string // Path to specs repo
+	// publisher pushes agent-authored comments/decisions to the specs repo in
+	// the background so a tool call never blocks on the network. nil when
+	// auto-push is disabled; its methods are nil-safe.
+	publisher *gitpkg.Publisher
 }
 
 // NewGenericHandler creates a handler that serves generic spec resources.
 func NewGenericHandler(cfg *config.ResolvedConfig, specsDir string) *GenericHandler {
 	return &GenericHandler{
-		config:   cfg,
-		specsDir: specsDir,
+		config:    cfg,
+		specsDir:  specsDir,
+		publisher: newMCPPublisher(cfg),
 	}
+}
+
+// newMCPPublisher builds the background auto-push publisher for the MCP server,
+// or nil when auto-push is disabled or no specs repo is configured.
+func newMCPPublisher(cfg *config.ResolvedConfig) *gitpkg.Publisher {
+	if cfg == nil || cfg.Team == nil || !cfg.AutoPushEnabled() {
+		return nil
+	}
+	opts := gitpkg.SyncOptions{Surface: mcpSurface, Trigger: "comment"}
+	return gitpkg.NewPublisher(&cfg.Team.SpecsRepo, opts, 0)
+}
+
+// Close flushes any pending background pushes. Call it when the MCP server
+// stops so agent-authored edits are not left unpublished.
+func (h *GenericHandler) Close() {
+	h.publisher.Close()
 }
 
 // ListResources returns available resources.
@@ -507,11 +533,13 @@ func (h *GenericHandler) toolDecide(args json.RawMessage) (*ToolResult, error) {
 		return nil, err
 	}
 
-	path := h.specPath(strings.ToUpper(params.ID))
+	specID := strings.ToUpper(params.ID)
+	path := h.specPath(specID)
 	num, err := markdown.AppendDecision(path, params.Question, "agent")
 	if err != nil {
 		return &ToolResult{Success: false, Message: err.Error()}, nil
 	}
+	h.publisher.Notify(specID)
 
 	return &ToolResult{
 		Success: true,
@@ -530,10 +558,12 @@ func (h *GenericHandler) toolDecideResolve(args json.RawMessage) (*ToolResult, e
 		return nil, err
 	}
 
-	path := h.specPath(strings.ToUpper(params.ID))
+	specID := strings.ToUpper(params.ID)
+	path := h.specPath(specID)
 	if err := markdown.ResolveDecision(path, params.Number, params.Decision, params.Rationale, "agent"); err != nil {
 		return &ToolResult{Success: false, Message: err.Error()}, nil
 	}
+	h.publisher.Notify(specID)
 
 	return &ToolResult{
 		Success: true,
@@ -727,6 +757,7 @@ func (h *GenericHandler) toolReplyThread(args json.RawMessage) (*ToolResult, err
 	if err != nil {
 		return &ToolResult{Success: false, Message: err.Error()}, nil
 	}
+	h.publisher.Notify(specID)
 	return &ToolResult{
 		Success: true,
 		Message: fmt.Sprintf("Replied to %s on %s (§%s).", t.ID, specID, t.Section),

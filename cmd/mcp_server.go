@@ -106,6 +106,7 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 
 	// Generic mode - serve all specs
 	handler := mcp.NewGenericHandler(rc, specsDir)
+	defer handler.Close()
 	return mcp.Serve(context.Background(), handler, os.Stdin, os.Stdout, os.Stderr)
 }
 
@@ -136,6 +137,7 @@ func runBuildMCPServer(cmd *cobra.Command, specID string, rc *config.ResolvedCon
 			}
 		}
 		handler := mcp.NewGenericHandler(rc, specsDir)
+		defer handler.Close()
 		return mcp.Serve(context.Background(), handler, os.Stdin, os.Stdout, os.Stderr)
 	}
 
@@ -157,8 +159,10 @@ func runBuildMCPServer(cmd *cobra.Command, specID string, rc *config.ResolvedCon
 
 	buildServer := build.NewMCPServer(session, buildCtx, db, specPath, buildEngineOptions(rc, false)).
 		WithRepo(buildRegistry(rc).Repo())
+	generic := mcp.NewGenericHandler(rc, filepath.Dir(specPath))
+	defer generic.Close()
 	handler := &combinedHandler{
-		generic: mcp.NewGenericHandler(rc, filepath.Dir(specPath)),
+		generic: generic,
 		build:   buildServer,
 		specID:  specID,
 	}
