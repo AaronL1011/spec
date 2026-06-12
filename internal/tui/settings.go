@@ -579,7 +579,7 @@ func (m settingsModel) layoutLines() []settingsLine {
 	appendLine(m.styles.SectionTitle.Render("  Identity")+"\n", fieldCount, false)
 	appendLine(m.renderEditableRow("Name", fieldName)+"\n", fieldName, true)
 	appendLine(m.renderEditableRow("Role", fieldRole)+"\n", fieldRole, true)
-	appendLine(m.renderEditableRow("Handle", fieldHandle)+"\n", fieldHandle, true)
+	appendLine(m.renderEditableRow("Spec handle", fieldHandle)+"\n", fieldHandle, true)
 	if m.rc.TeamName() != "" {
 		appendLine(m.renderReadOnlyRow("Team", m.rc.TeamName()), fieldCount, false)
 	}
@@ -724,15 +724,29 @@ func (m settingsModel) renderReadOnlyRow(label, value string) string {
 	)
 }
 
+// identityRelevantCategories are the integrations that act on behalf of the
+// user and therefore resolve to a per-provider handle worth surfacing.
+var identityRelevantCategories = map[string]bool{
+	"repo": true, "comms": true, "pm": true, "docs": true, "design": true, "deploy": true,
+}
+
 func (m settingsModel) renderIntegrationRow(name, category string) string {
 	provider := "—"
 	status := m.styles.Muted
+	identity := ""
 	if m.rc.HasIntegration(category) {
 		provider = m.integrationProvider(category)
 		status = m.styles.Success
+		if identityRelevantCategories[category] {
+			identity = m.rc.IdentityForCategory(category)
+		}
 	}
 	label := fmt.Sprintf("    %-10s", name)
-	return m.styles.RowNormal.Render(label) + status.Render(provider) + "\n"
+	row := m.styles.RowNormal.Render(label) + status.Render(provider)
+	if identity != "" {
+		row += m.styles.Muted.Render(fmt.Sprintf("  as %s", identity))
+	}
+	return row + "\n"
 }
 
 func (m settingsModel) integrationProvider(category string) string {

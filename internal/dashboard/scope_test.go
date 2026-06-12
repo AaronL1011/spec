@@ -129,3 +129,37 @@ func TestDoAssigneeLabel(t *testing.T) {
 		}
 	}
 }
+
+// TestVisibleInDo_IdentitySet proves a spec authored or assigned under any of
+// the viewer's known identities (canonical handle, name, or a per-provider
+// handle) is recognised as theirs — display-name vs login drift across teams
+// no longer hides a user's own work.
+func TestVisibleInDo_IdentitySet(t *testing.T) {
+	pl := scopePipeline()
+	// Canonical handle "aaron", GitHub login "AaronL1011", display name "Aaron Lewis".
+	aaron := Viewer{
+		Role:       "engineer",
+		Name:       "Aaron Lewis",
+		Handle:     "aaron",
+		Identities: []string{"aaron", "Aaron Lewis", "AaronL1011", "@aaron"},
+	}
+
+	tests := []struct {
+		name string
+		spec SpecView
+		want bool
+	}{
+		{"assigned by github login", SpecView{Status: "engineering", Assignees: []string{"AaronL1011"}}, true},
+		{"assigned by canonical handle", SpecView{Status: "engineering", Assignees: []string{"aaron"}}, true},
+		{"assigned by display name", SpecView{Status: "engineering", Assignees: []string{"Aaron Lewis"}}, true},
+		{"authored by github login", SpecView{Status: "authoring", Author: "AaronL1011"}, true},
+		{"assigned to someone else", SpecView{Status: "engineering", Assignees: []string{"someone-else"}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := VisibleInDo(pl, tt.spec, aaron); got != tt.want {
+				t.Errorf("VisibleInDo = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

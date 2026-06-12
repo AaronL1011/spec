@@ -121,10 +121,14 @@ func runUserConfigInit() error {
 	}
 	cfg.User.OwnerRole = role
 
-	// Handle
-	fmt.Print("Your comms handle (e.g., @aaron or aaron@org.com): ")
+	// Handle (spec-canonical identity)
+	fmt.Print("Your spec handle — how you're identified inside spec (e.g., alice): ")
 	handle, _ := reader.ReadString('\n')
 	cfg.User.Handle = strings.TrimSpace(handle)
+
+	// Per-provider identities: only prompt for providers the joined team has
+	// actually configured, since a handle differs on every service.
+	promptProviderIdentities(reader, cfg)
 
 	// Editor
 	editor := os.Getenv("EDITOR")
@@ -146,6 +150,52 @@ func runUserConfigInit() error {
 
 	fmt.Printf("\n✓ User config written to %s\n", path)
 	return nil
+}
+
+// identityPromptCategories is the stable order in which init asks for
+// per-provider handles. Each maps to the team's configured provider, if any.
+var identityPromptCategories = []string{"repo", "comms", "pm", "docs", "design", "deploy"}
+
+// promptProviderIdentities asks for the user's handle on each provider the
+// joined team has configured. It is a no-op when no team config is found, and
+// every prompt is optional (blank input falls back to the canonical handle).
+func promptProviderIdentities(reader *bufio.Reader, cfg *config.UserConfig) {
+	// Use the full resolution chain (cwd → repo root → joined clone under
+	// ~/.spec/repos) so identity setup works from anywhere, not only from
+	// inside a specs-repo checkout.
+	rc, err := config.Resolve()
+	if err != nil || rc.Team == nil {
+		return // No team config — skip per-provider identity setup.
+	}
+
+	seen := make(map[string]bool)
+	var prompted bool
+	for _, cat := range identityPromptCategories {
+		if !rc.HasIntegration(cat) {
+			continue
+		}
+		provider := strings.ToLower(rc.IntegrationProvider(cat))
+		if provider == "" || seen[provider] {
+			continue
+		}
+		seen[provider] = true
+
+		if !prompted {
+			fmt.Println()
+			fmt.Println("Your handle on each integration (press Enter to reuse your spec handle):")
+			prompted = true
+		}
+		fmt.Printf("  %s handle [%s]: ", provider, cfg.User.Handle)
+		line, _ := reader.ReadString('\n')
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if cfg.User.Identities == nil {
+			cfg.User.Identities = make(map[string]string)
+		}
+		cfg.User.Identities[provider] = line
+	}
 }
 
 func runTeamConfigInit(cmd *cobra.Command) error {

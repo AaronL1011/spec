@@ -50,25 +50,27 @@ func TestSummary_OneLiner(t *testing.T) {
 
 func TestCanReview(t *testing.T) {
 	tests := []struct {
-		name      string
-		reviewers []string
-		userName  string
-		userRole  string
-		want      bool
+		name       string
+		reviewers  []string
+		identities []string
+		userRole   string
+		want       bool
 	}{
-		{"direct name", []string{"alice"}, "Alice", "", true},
-		{"handle match", []string{"@bob"}, "Bob", "", true},
-		{"role match", []string{"tl"}, "Charlie", "tl", true},
-		{"no match", []string{"tl"}, "Dave", "engineer", false},
-		{"empty reviewers", []string{}, "Eve", "tl", false},
-		{"multiple reviewers", []string{"pm", "tl"}, "Frank", "tl", true},
+		{"direct name", []string{"alice"}, []string{"Alice"}, "", true},
+		{"handle match", []string{"@bob"}, []string{"Bob"}, "", true},
+		{"role match", []string{"tl"}, []string{"Charlie"}, "tl", true},
+		{"no match", []string{"tl"}, []string{"Dave"}, "engineer", false},
+		{"empty reviewers", []string{}, []string{"Eve"}, "tl", false},
+		{"multiple reviewers", []string{"pm", "tl"}, []string{"Frank"}, "tl", true},
+		{"per-provider identity", []string{"AaronL1011"}, []string{"aaron", "AaronL1011"}, "engineer", true},
+		{"reviewer @-prefixed against identity", []string{"@aaron"}, []string{"aaron", "AaronL1011"}, "", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := canReview(tt.reviewers, tt.userName, tt.userRole); got != tt.want {
-				t.Errorf("canReview(%v, %q, %q) = %v, want %v",
-					tt.reviewers, tt.userName, tt.userRole, got, tt.want)
+			if got := canReview(tt.reviewers, tt.identities, tt.userRole); got != tt.want {
+				t.Errorf("canReview(%v, %v, %q) = %v, want %v",
+					tt.reviewers, tt.identities, tt.userRole, got, tt.want)
 			}
 		})
 	}

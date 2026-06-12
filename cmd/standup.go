@@ -51,7 +51,7 @@ func runStandup(cmd *cobra.Command, args []string) error {
 	}
 
 	userName := rc.UserName()
-	userHandle := rc.UserHandle()
+	repoHandle := rc.IdentityForCategory("repo")
 	userRole := rc.OwnerRole("")
 	date := time.Now().Format("2006-01-02")
 
@@ -98,8 +98,8 @@ func runStandup(cmd *cobra.Command, args []string) error {
 	}
 
 	// PR review requests
-	if userHandle != "" && rc.HasIntegration("repo") {
-		reviews, err := reg.Repo().RequestedReviews(ctx(), userHandle)
+	if repoHandle != "" && rc.HasIntegration("repo") {
+		reviews, err := reg.Repo().RequestedReviews(ctx(), repoHandle)
 		if err == nil && len(reviews) > 0 {
 			fmt.Println("\nPR reviews requested:")
 			for _, pr := range reviews {

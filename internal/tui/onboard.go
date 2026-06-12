@@ -85,8 +85,8 @@ func runIdentityStep() (bool, error) {
 				Options(roleOptions...).
 				Value(&role),
 			huh.NewInput().
-				Title("Your comms handle").
-				Description("e.g. @ada or ada@org.com (optional)").
+				Title("Your spec handle").
+				Description("how you're identified inside spec, e.g. ada (optional)").
 				Value(&handle),
 		),
 	)
