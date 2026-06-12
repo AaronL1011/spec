@@ -336,6 +336,7 @@ Controls how spec sections stay in sync with the docs provider.
 sync:
   outbound_on_advance: true   # Push to docs platform whenever a spec advances (default: false)
   conflict_strategy: warn     # warn | overwrite | skip (default: warn)
+  auto_push: auto             # auto | prompt | off (default: auto)
 ```
 
 | `conflict_strategy` | Behaviour |
@@ -343,6 +344,15 @@ sync:
 | `warn` | Print a warning and leave the local version (default) |
 | `overwrite` | Remote wins; local changes are discarded |
 | `skip` | Silently skip conflicting sections |
+
+| `auto_push` | Behaviour |
+|---|---|
+| `auto` | Local edits (`spec edit`, `spec plan edit`) and comments (TUI/MCP threads & decisions) are committed and pushed to the specs repo automatically (default) |
+| `prompt` | Interactive commands confirm before publishing; async surfaces (TUI, MCP) behave as `auto` |
+| `off` | Edits stay local until you run `spec push` (the original manual model) |
+
+Use `spec edit --no-push` to keep a single edit local regardless of policy when
+batching several changes before one push.
 
 ---
 

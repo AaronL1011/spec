@@ -52,6 +52,7 @@ plan is ready for approval before build work begins.`,
 
 func init() {
 	planAddCmd.Flags().String("repo", "", "target repository for this step")
+	planEditCmd.Flags().Bool("no-push", false, "keep edits local; do not auto-publish to the specs repo")
 
 	planCmd.AddCommand(planEditCmd)
 	planCmd.AddCommand(planAddCmd)
@@ -198,7 +199,12 @@ func runPlanEdit(cmd *cobra.Command, args []string) error {
 	fmt.Println("Add or edit the 'steps:' section in the frontmatter.")
 	fmt.Println()
 
-	return editorCmd.Run()
+	if err := editorCmd.Run(); err != nil {
+		return err
+	}
+
+	// Publish the plan edit so it reaches the team without a separate push.
+	return publishEdits(cmd, rc, specID)
 }
 
 func runPlanAdd(cmd *cobra.Command, args []string) error {

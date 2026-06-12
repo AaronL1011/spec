@@ -37,6 +37,16 @@ func setTUIRecorder(db *store.DB) {
 	tuiRecorder = rec
 }
 
+// newTUIPublisher builds the background auto-push publisher for the TUI, or nil
+// when auto-push is disabled (AutoPushOff) or no specs repo is configured. A nil
+// publisher is valid — its methods are no-ops — so callers never nil-check.
+func newTUIPublisher(rc *config.ResolvedConfig) *gitpkg.Publisher {
+	if rc == nil || rc.Team == nil || !rc.AutoPushEnabled() {
+		return nil
+	}
+	return gitpkg.NewPublisher(&rc.Team.SpecsRepo, tuiSyncOpts("comment", ""), 0)
+}
+
 // tuiSyncOpts attributes a committing TUI action to the tui surface so the
 // audit log records which surface triggered each sync (SPEC-013 §Decision 007).
 func tuiSyncOpts(trigger, specID string) gitpkg.SyncOptions {

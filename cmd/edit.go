@@ -16,6 +16,7 @@ var editCmd = &cobra.Command{
 }
 
 func init() {
+	editCmd.Flags().Bool("no-push", false, "keep edits local; do not auto-publish to the specs repo")
 	rootCmd.AddCommand(editCmd)
 }
 
@@ -60,5 +61,10 @@ func runEdit(cmd *cobra.Command, args []string) error {
 	editorCmd.Stdout = os.Stdout
 	editorCmd.Stderr = os.Stderr
 
-	return editorCmd.Run()
+	if err := editorCmd.Run(); err != nil {
+		return err
+	}
+
+	// Publish the edit so it reaches the team without a separate 'spec push'.
+	return publishEdits(cmd, rc, specID)
 }

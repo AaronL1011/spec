@@ -398,7 +398,7 @@ func pushWithRecovery(ctx context.Context, cfg *config.SpecsRepoConfig, dir stri
 			return &sectionConflictError{desc: conflict}
 		}
 
-		if err := Rebase(ctx, dir, remoteRef); err != nil {
+		if err := rebaseWithSidecarUnion(ctx, dir, remoteRef); err != nil {
 			RebaseAbort(ctx, dir)
 			return fmt.Errorf("rebasing after push conflict — resolve manually in %s: %w", dir, err)
 		}

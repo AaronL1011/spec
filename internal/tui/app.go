@@ -10,6 +10,7 @@ import (
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
+	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/store"
 	"github.com/aaronl1011/spec/internal/tui/components"
 	"github.com/aaronl1011/spec/internal/tui/watch"
@@ -93,6 +94,10 @@ type App struct {
 	// File watcher for the open spec's markdown + thread sidecar (SPEC-007).
 	// nil when no spec is open. Bound to the detail view lifecycle.
 	watcher *watch.Watcher
+	// publisher pushes thread comments / inline edits to the specs repo in the
+	// background so the UI never blocks on the network. nil when auto-push is
+	// disabled (AutoPushOff); its methods are nil-safe.
+	publisher *gitpkg.Publisher
 	// watchRefreshPending marks that the next specDetailDataMsg was triggered
 	// by a file-change event, so a calm "updated" cue can be shown on a real
 	// content change.
@@ -160,6 +165,8 @@ func (a App) Close() error {
 	if a.watcher != nil {
 		_ = a.watcher.Close()
 	}
+	// Flush any debounced comment/edit pushes before exit.
+	a.publisher.Close()
 	if a.db == nil {
 		return nil
 	}
@@ -226,6 +233,7 @@ func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string,
 		reg:        reg,
 		role:       role,
 		db:         db,
+		publisher:  newTUIPublisher(rc),
 		theme:      theme,
 		styles:     styles,
 		keys:       keys,
@@ -418,8 +426,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.detail, cmd = a.detail.update(msg)
 		if msg.Err != nil {
 			a.statusBar.SetStatusError("Thread update failed", msg.Err.Error())
-		} else if msg.Toast != "" {
-			a.statusBar.SetStatusSuccess(msg.Toast, 2*time.Second)
+		} else {
+			// Publish the comment in the background so it reaches the team
+			// without a manual push; the UI never blocks on the network.
+			a.publisher.Notify(a.detail.specID)
+			if msg.Toast != "" {
+				a.statusBar.SetStatusSuccess(msg.Toast, 2*time.Second)
+			}
 		}
 		return a, cmd
 

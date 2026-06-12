@@ -211,7 +211,24 @@ type IntakeSource struct {
 type SyncConfig struct {
 	OutboundOnAdvance bool   `yaml:"outbound_on_advance"`
 	ConflictStrategy  string `yaml:"conflict_strategy"`
+	// AutoPush governs whether local edits and comments are published to the
+	// specs repo automatically. One of AutoPushAuto, AutoPushPrompt, AutoPushOff.
+	AutoPush string `yaml:"auto_push"`
 }
+
+// Auto-push policy values for SyncConfig.AutoPush. They govern whether a local
+// mutation (an editor edit, a thread comment) is published to the specs repo
+// without the user remembering to run 'spec push'.
+const (
+	// AutoPushAuto publishes local edits automatically (the default).
+	AutoPushAuto = "auto"
+	// AutoPushPrompt asks for confirmation before publishing on interactive
+	// surfaces; async surfaces (TUI, MCP) treat it as AutoPushAuto.
+	AutoPushPrompt = "prompt"
+	// AutoPushOff preserves the manual model: edits stay local until the user
+	// runs 'spec push'.
+	AutoPushOff = "off"
+)
 
 // DashboardConfig defines dashboard behaviour.
 type DashboardConfig struct {
@@ -367,6 +384,9 @@ func LoadTeamConfig(path string) (*TeamConfig, error) {
 	if cfg.Sync.ConflictStrategy == "" {
 		cfg.Sync.ConflictStrategy = "warn"
 	}
+	if cfg.Sync.AutoPush == "" {
+		cfg.Sync.AutoPush = AutoPushAuto
+	}
 
 	return &cfg, nil
 }
@@ -484,6 +504,22 @@ type ResolvedConfig struct {
 // Pipeline returns the effective pipeline config.
 func (r *ResolvedConfig) Pipeline() PipelineConfig {
 	return EffectivePipeline(r.Team)
+}
+
+// AutoPushPolicy returns the effective auto-push policy, defaulting to
+// AutoPushAuto when unset or no team config is present.
+func (r *ResolvedConfig) AutoPushPolicy() string {
+	if r == nil || r.Team == nil || r.Team.Sync.AutoPush == "" {
+		return AutoPushAuto
+	}
+	return r.Team.Sync.AutoPush
+}
+
+// AutoPushEnabled reports whether automatic publishing is active for async
+// surfaces (TUI, MCP). Only AutoPushOff disables it; AutoPushPrompt is treated
+// as enabled because those surfaces cannot prompt.
+func (r *ResolvedConfig) AutoPushEnabled() bool {
+	return r.AutoPushPolicy() != AutoPushOff
 }
 
 // EffectiveAgentConfig returns the coding-agent provider config to use,
