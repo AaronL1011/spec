@@ -25,11 +25,12 @@ const (
 	Filled   = "▣" // filled / complete box
 	Open     = "○" // open / not started
 
-	Bullet = "•" // list bullet
-	Cursor = "▸" // selection / focus cursor
-	Caret  = "▌" // text input caret
-	Clock  = "◷" // stale / age badge
-	Urgent = "▲" // urgent severity marker
+	Bullet  = "•" // list bullet
+	Cursor  = "▸" // selection / focus cursor
+	Caret   = "▌" // text input caret
+	Clock   = "◷" // stale / age badge
+	Urgent  = "▲" // urgent severity marker
+	Upgrade = "↑" // newer version available
 )
 
 // Toast icons.

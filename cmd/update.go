@@ -40,7 +40,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("locating the running binary: %w", err)
 	}
 
-	updater := update.NewUpdater(githubUpdateToken())
+	updater := update.NewUpdater(update.GitHubToken())
 	plan, err := updater.Plan(ctx(), update.Options{
 		CurrentVersion: resolveVersion(),
 		ExecPath:       execPath,
@@ -102,16 +102,4 @@ func mustBool(cmd *cobra.Command, name string) bool {
 func mustString(cmd *cobra.Command, name string) string {
 	v, _ := cmd.Flags().GetString(name)
 	return v
-}
-
-// githubUpdateToken returns an optional GitHub token to lift the anonymous API
-// rate limit. Public release lookups work without it; it is read best-effort
-// from the standard environment variables.
-func githubUpdateToken() string {
-	for _, key := range []string{"SPEC_GITHUB_TOKEN", "GITHUB_TOKEN"} {
-		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-			return v
-		}
-	}
-	return ""
 }

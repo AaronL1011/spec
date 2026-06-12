@@ -76,7 +76,7 @@ personal dashboard.`,
 		// Interactive terminal → launch the persistent TUI.
 		// Non-interactive (piped, redirected) → static dashboard render.
 		if !staticMode && tui.IsInteractive() {
-			app := tui.New(rc, reg, role)
+			app := tui.New(rc, reg, role, resolveVersion())
 			defer func() { _ = app.Close() }()
 			// In Bubble Tea v2 the alt-screen and mouse mode are declared on the
 			// model's View each render (see App.View), not as program options.
