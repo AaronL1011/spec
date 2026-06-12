@@ -53,9 +53,18 @@ func checkLatest(ctx context.Context, current string, u *Updater, cachePath stri
 
 	cache := readCheckCache(cachePath)
 
-	// Serve a fresh cache without any network call.
+	// Serve a fresh cache without any network call — but only when it is not
+	// provably stale. If we are running a version newer than the "latest" the
+	// cache recorded, the cache predates this binary (the user has upgraded
+	// since the last check), so its notion of "latest" cannot be trusted. In
+	// that case fall through to a live query; this is what lets a brand-new
+	// release surface within the TTL right after an upgrade, instead of staying
+	// hidden for up to 24h. A still-current cache (current <= cached latest) is
+	// served as before to keep startup fast and the GitHub API unhit.
 	if time.Since(cache.CheckedAt) < checkCacheTTL && cache.LatestVersion != "" {
-		return notice(current, cache.LatestVersion)
+		if cmp, err := compareVersions(current, cache.LatestVersion); err == nil && cmp <= 0 {
+			return notice(current, cache.LatestVersion)
+		}
 	}
 
 	plan, err := u.Plan(ctx, Options{CurrentVersion: current})
