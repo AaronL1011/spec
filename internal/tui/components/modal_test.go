@@ -4,8 +4,22 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
+
+// typeRunes feeds each rune to the modal's embedded text field as a key press,
+// mirroring how the app delegates keystrokes during input.
+func typeRunes(m *Modal, s string) {
+	for _, r := range s {
+		m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+}
+
+// pressBackspace sends a single backspace key press to the embedded field.
+func pressBackspace(m *Modal) {
+	m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+}
 
 func testModalStyles() ModalStyles {
 	return ModalStyles{
@@ -57,15 +71,14 @@ func TestModal_ShowInput(t *testing.T) {
 		t.Errorf("kind = %d, want ModalInput", m.Kind)
 	}
 
-	m.AppendInput("API")
-	m.AppendInput(" design")
-	if m.Input != "API design" {
-		t.Errorf("input = %q, want 'API design'", m.Input)
+	typeRunes(&m, "API design")
+	if m.Value() != "API design" {
+		t.Errorf("input = %q, want 'API design'", m.Value())
 	}
 
-	m.BackspaceInput()
-	if m.Input != "API desig" {
-		t.Errorf("after backspace: input = %q, want 'API desig'", m.Input)
+	pressBackspace(&m)
+	if m.Value() != "API desig" {
+		t.Errorf("after backspace: input = %q, want 'API desig'", m.Value())
 	}
 
 	got := m.View()
@@ -77,13 +90,13 @@ func TestModal_ShowInput(t *testing.T) {
 func TestModal_Hide(t *testing.T) {
 	m := NewModal(testModalStyles())
 	m.ShowInput("Test", "msg")
-	m.AppendInput("some text")
+	typeRunes(&m, "some text")
 	m.Hide()
 
 	if m.Visible {
 		t.Error("should not be visible after Hide")
 	}
-	if m.Input != "" {
+	if m.Value() != "" {
 		t.Error("input should be cleared after Hide")
 	}
 }
@@ -92,31 +105,31 @@ func TestModal_BackspaceEmpty(t *testing.T) {
 	m := NewModal(testModalStyles())
 	m.ShowInput("Test", "msg")
 	// Backspace on empty input should not panic.
-	m.BackspaceInput()
-	if m.Input != "" {
-		t.Errorf("input should still be empty, got %q", m.Input)
+	pressBackspace(&m)
+	if m.Value() != "" {
+		t.Errorf("input should still be empty, got %q", m.Value())
 	}
 }
 
 func TestModal_BackspaceInput_RuneSafe(t *testing.T) {
 	m := NewModal(testModalStyles())
 	m.ShowInput("Title", "Enter:")
-	m.AppendInput("café")
-	m.BackspaceInput()
-	if m.Input != "caf" {
-		t.Errorf("backspace = %q, want %q", m.Input, "caf")
+	typeRunes(&m, "café")
+	pressBackspace(&m)
+	if m.Value() != "caf" {
+		t.Errorf("backspace = %q, want %q", m.Value(), "caf")
 	}
 
-	m.Input = "日本"
-	m.BackspaceInput()
-	if m.Input != "日" {
-		t.Errorf("multibyte backspace = %q, want %q", m.Input, "日")
+	m.SetValue("日本")
+	pressBackspace(&m)
+	if m.Value() != "日" {
+		t.Errorf("multibyte backspace = %q, want %q", m.Value(), "日")
 	}
 
 	// Backspacing empty input must not panic or corrupt.
-	m.Input = ""
-	m.BackspaceInput()
-	if m.Input != "" {
-		t.Errorf("empty backspace = %q, want empty", m.Input)
+	m.SetValue("")
+	pressBackspace(&m)
+	if m.Value() != "" {
+		t.Errorf("empty backspace = %q, want empty", m.Value())
 	}
 }

@@ -10,6 +10,9 @@ import (
 	"os"
 	"sync"
 
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	catppuccin "github.com/catppuccin/go"
@@ -129,6 +132,71 @@ func NewStyles(t Theme) Styles {
 		Separator: lipgloss.NewStyle().
 			Foreground(t.Overlay),
 	}
+}
+
+// modalStyles assembles the modal component styles from the active theme,
+// including a themed text field (accent cursor, palette text) and a framed
+// input box so the prompt and field read as one tidy unit.
+func modalStyles(t Theme, styles Styles) components.ModalStyles {
+	return components.ModalStyles{
+		Border:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(t.Accent),
+		Title:   styles.Title,
+		Message: styles.Subtitle,
+		Input: lipgloss.NewStyle().
+			Foreground(t.Text),
+		Hint:       styles.Muted,
+		InputField: textInputStyles(t),
+	}
+}
+
+// textInputStyles builds bubbles textinput styles from the active theme so
+// inline fields read in the app palette (primary text, accent cursor, muted
+// placeholder) rather than the library's hardcoded ANSI defaults.
+func textInputStyles(t Theme) textinput.Styles {
+	var s textinput.Styles
+	s.Focused = textinput.StyleState{
+		Text:        lipgloss.NewStyle().Foreground(t.Text),
+		Placeholder: lipgloss.NewStyle().Foreground(t.Muted),
+		Suggestion:  lipgloss.NewStyle().Foreground(t.Muted),
+		Prompt:      lipgloss.NewStyle().Foreground(t.Accent),
+	}
+	s.Blurred = textinput.StyleState{
+		Text:        lipgloss.NewStyle().Foreground(t.SubText),
+		Placeholder: lipgloss.NewStyle().Foreground(t.Muted),
+		Suggestion:  lipgloss.NewStyle().Foreground(t.Muted),
+		Prompt:      lipgloss.NewStyle().Foreground(t.Accent),
+	}
+	s.Cursor = textinput.CursorStyle{
+		Color: t.Accent,
+		Shape: tea.CursorBlock,
+	}
+	return s
+}
+
+// textAreaStyles builds bubbles textarea styles from the active theme. The
+// library's default highlights the cursor line with a near-white background;
+// that reads as a glaring light band against the dark palette, so the cursor
+// line is left unstyled and the whole field blends into the pane background.
+// The accent block cursor alone marks the insertion point.
+func textAreaStyles(t Theme) textarea.Styles {
+	state := func() textarea.StyleState {
+		return textarea.StyleState{
+			Base:        lipgloss.NewStyle().Foreground(t.Text),
+			Text:        lipgloss.NewStyle().Foreground(t.Text),
+			CursorLine:  lipgloss.NewStyle().Foreground(t.Text),
+			Placeholder: lipgloss.NewStyle().Foreground(t.Muted),
+			Prompt:      lipgloss.NewStyle().Foreground(t.Accent),
+			EndOfBuffer: lipgloss.NewStyle().Foreground(t.Base),
+		}
+	}
+	var s textarea.Styles
+	s.Focused = state()
+	s.Blurred = state()
+	s.Cursor = textarea.CursorStyle{
+		Color: t.Accent,
+		Shape: tea.CursorBlock,
+	}
+	return s
 }
 
 // statusStyles builds the canonical status element's per-kind styles from the

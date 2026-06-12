@@ -20,6 +20,16 @@ func keyMsg(s string) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: code, Text: s}
 }
 
+// isQuit reports whether running cmd yields a tea.QuitMsg. Used to assert that
+// a keystroke captured by a text input did not also trigger an app quit.
+func isQuit(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(tea.QuitMsg)
+	return ok
+}
+
 // testResolvedConfig creates a minimal ResolvedConfig for testing.
 func testResolvedConfig() *config.ResolvedConfig {
 	rc := &config.ResolvedConfig{

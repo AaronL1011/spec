@@ -113,14 +113,15 @@ func TestApplyRefresh_ThreadSelectionFallbackWhenRemoved(t *testing.T) {
 
 func TestApplyRefresh_PreservesActiveInput(t *testing.T) {
 	m := loadedReader([]thread.Thread{openThread("T-1", "Why Redis?")})
-	m.input = threadInput{kind: "ask", section: "technical_implementation", buffer: "half-typed question"}
+	m.input = threadInput{kind: "ask", section: "technical_implementation", area: newThreadArea(m.theme)}
+	m.input.area.SetValue("half-typed question")
 
 	out, _ := m.handleDataMsg(refreshMsg("hash-v1", m.sections, m.threads))
 	if !out.input.active() {
 		t.Fatal("active ask input should survive a refresh")
 	}
-	if out.input.buffer != "half-typed question" {
-		t.Errorf("input buffer = %q, want preserved", out.input.buffer)
+	if out.input.body() != "half-typed question" {
+		t.Errorf("input body = %q, want preserved", out.input.body())
 	}
 }
 

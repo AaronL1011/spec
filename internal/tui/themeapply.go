@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/aaronl1011/spec/internal/tui/components"
 )
@@ -88,13 +87,7 @@ func (a *App) applyTheme(name string) {
 	a.statusBar.SetActiveRefreshKey(refreshKeyForView(a.activeView))
 	a.statusBar.SetStaleAfter(2 * a.refreshInterval)
 
-	a.modal = components.NewModal(components.ModalStyles{
-		Border:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(a.theme.Accent),
-		Title:   a.styles.Title,
-		Message: a.styles.Subtitle,
-		Input:   lipgloss.NewStyle().Foreground(a.theme.Text).Background(a.theme.Surface).Padding(0, 1),
-		Hint:    a.styles.Muted,
-	})
+	a.modal = components.NewModal(modalStyles(a.theme, a.styles))
 
 	// Propagate styles to all views.
 	a.dashboard.styles = a.styles
