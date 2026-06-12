@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/aaronl1011/spec/internal/config"
 )
 
@@ -20,7 +22,7 @@ func testPipeline() config.PipelineConfig {
 
 func TestRevertOverlay_OpenSetsTargets(t *testing.T) {
 	var r revertOverlay
-	err := r.openRevert("SPEC-001", "build", testPipeline())
+	err := r.openRevert("SPEC-001", "build", testPipeline(), 80, ResolveTheme("catppuccin-mocha"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -45,7 +47,7 @@ func TestRevertOverlay_OpenSetsTargets(t *testing.T) {
 
 func TestRevertOverlay_OpenFromFirstStage_ReturnsError(t *testing.T) {
 	var r revertOverlay
-	err := r.openRevert("SPEC-001", "draft", testPipeline())
+	err := r.openRevert("SPEC-001", "draft", testPipeline(), 80, ResolveTheme("catppuccin-mocha"))
 	if err == nil {
 		t.Error("opening revert from first stage should return an error")
 	}
@@ -53,7 +55,7 @@ func TestRevertOverlay_OpenFromFirstStage_ReturnsError(t *testing.T) {
 
 func TestRevertOverlay_OpenFromUnknownStage_ReturnsError(t *testing.T) {
 	var r revertOverlay
-	err := r.openRevert("SPEC-001", "nonexistent", testPipeline())
+	err := r.openRevert("SPEC-001", "nonexistent", testPipeline(), 80, ResolveTheme("catppuccin-mocha"))
 	if err == nil {
 		t.Error("opening revert from unknown stage should return an error")
 	}
@@ -61,7 +63,7 @@ func TestRevertOverlay_OpenFromUnknownStage_ReturnsError(t *testing.T) {
 
 func TestRevertOverlay_CycleStage(t *testing.T) {
 	var r revertOverlay
-	_ = r.openRevert("SPEC-001", "done", testPipeline())
+	_ = r.openRevert("SPEC-001", "done", testPipeline(), 80, ResolveTheme("catppuccin-mocha"))
 	// Stages: draft, review, build. Default idx=2 (build).
 	if r.selectedStage() != "build" {
 		t.Fatalf("initial = %q, want build", r.selectedStage())
@@ -80,7 +82,7 @@ func TestRevertOverlay_CycleStage(t *testing.T) {
 
 func TestRevertOverlay_CycleStageReverse(t *testing.T) {
 	var r revertOverlay
-	_ = r.openRevert("SPEC-001", "done", testPipeline())
+	_ = r.openRevert("SPEC-001", "done", testPipeline(), 80, ResolveTheme("catppuccin-mocha"))
 	// Default idx=2 (build).
 	r.cycleStageReverse()
 	if r.selectedStage() != "review" {
@@ -90,7 +92,7 @@ func TestRevertOverlay_CycleStageReverse(t *testing.T) {
 
 func TestRevertOverlay_FieldNavigation(t *testing.T) {
 	var r revertOverlay
-	_ = r.openRevert("SPEC-001", "build", testPipeline())
+	_ = r.openRevert("SPEC-001", "build", testPipeline(), 80, ResolveTheme("catppuccin-mocha"))
 
 	if r.field != revertFieldStage {
 		t.Errorf("initial field = %d, want stage", r.field)
@@ -121,31 +123,33 @@ func TestRevertOverlay_FieldNavigation(t *testing.T) {
 
 func TestRevertOverlay_ReasonInput(t *testing.T) {
 	var r revertOverlay
-	_ = r.openRevert("SPEC-001", "build", testPipeline())
+	_ = r.openRevert("SPEC-001", "build", testPipeline(), 80, ResolveTheme("catppuccin-mocha"))
 	r.nextField()
 
-	r.appendToReason("gate")
-	r.appendToReason(" failed")
-	if r.reason != "gate failed" {
-		t.Errorf("reason = %q, want 'gate failed'", r.reason)
+	// Drive the reason field through the textinput, as the app does.
+	r.updateReason(keyMsg("gate"))
+	r.updateReason(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	r.updateReason(keyMsg("failed"))
+	if r.reasonText() != "gate failed" {
+		t.Errorf("reason = %q, want 'gate failed'", r.reasonText())
 	}
 
-	r.backspaceReason()
-	if r.reason != "gate faile" {
-		t.Errorf("after backspace = %q, want 'gate faile'", r.reason)
+	r.updateReason(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if r.reasonText() != "gate faile" {
+		t.Errorf("after backspace = %q, want 'gate faile'", r.reasonText())
 	}
 }
 
 func TestRevertOverlay_Valid(t *testing.T) {
 	var r revertOverlay
-	_ = r.openRevert("SPEC-001", "build", testPipeline())
+	_ = r.openRevert("SPEC-001", "build", testPipeline(), 80, ResolveTheme("catppuccin-mocha"))
 
 	// Stage is set but no reason.
 	if r.valid() {
 		t.Error("should be invalid without reason")
 	}
 
-	r.reason = "needs rework"
+	r.reason.SetValue("needs rework")
 	if !r.valid() {
 		t.Error("should be valid with stage and reason")
 	}
@@ -153,7 +157,7 @@ func TestRevertOverlay_Valid(t *testing.T) {
 
 func TestRevertOverlay_Close(t *testing.T) {
 	var r revertOverlay
-	_ = r.openRevert("SPEC-001", "build", testPipeline())
+	_ = r.openRevert("SPEC-001", "build", testPipeline(), 80, ResolveTheme("catppuccin-mocha"))
 	r.close()
 	if r.active {
 		t.Error("overlay should be inactive after close")
@@ -162,8 +166,8 @@ func TestRevertOverlay_Close(t *testing.T) {
 
 func TestRenderRevert_ContainsFields(t *testing.T) {
 	var r revertOverlay
-	_ = r.openRevert("SPEC-001", "build", testPipeline())
-	r.reason = "gate failed"
+	_ = r.openRevert("SPEC-001", "build", testPipeline(), 80, ResolveTheme("catppuccin-mocha"))
+	r.reason.SetValue("gate failed")
 
 	styles := NewStyles(ResolveTheme("catppuccin-mocha"))
 	got := renderRevert(r, styles)

@@ -97,12 +97,41 @@ func TestThreadPane_InputCapturesTypingAndEscCancels(t *testing.T) {
 	for _, r := range "hi" {
 		m, _, _ = m.handleThreadInputKey(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
-	if m.input.buffer != "hi" {
-		t.Errorf("buffer = %q, want 'hi'", m.input.buffer)
+	if m.input.body() != "hi" {
+		t.Errorf("body = %q, want 'hi'", m.input.body())
 	}
 	m, _, handled := m.handleThreadInputKey(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if !handled || m.input.active() {
 		t.Error("esc should cancel the input")
+	}
+}
+
+// TestThreadPane_InputMultilineAndSubmit verifies Enter inserts a newline (the
+// textarea stays open) and ctrl+s submits the multi-line body.
+func TestThreadPane_InputMultilineAndSubmit(t *testing.T) {
+	m := readerWithThreads(nil)
+	m.setSize(120, 24)
+	m, _, _ = m.handleThreadActionKey(tea.KeyPressMsg{Text: "a"})
+	for _, r := range "line one" {
+		m, _, _ = m.handleThreadInputKey(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	// Enter inserts a newline rather than submitting.
+	m, _, _ = m.handleThreadInputKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "\n"})
+	if !m.input.active() {
+		t.Fatal("enter should insert a newline, not submit")
+	}
+	for _, r := range "line two" {
+		m, _, _ = m.handleThreadInputKey(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	if m.input.body() != "line one\nline two" {
+		t.Errorf("body = %q, want two lines", m.input.body())
+	}
+	m, cmd, handled := m.handleThreadInputKey(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	if !handled || m.input.active() {
+		t.Error("ctrl+s should submit and clear the input")
+	}
+	if cmd == nil {
+		t.Error("ctrl+s with text should produce a create-thread command")
 	}
 }
 
@@ -196,9 +225,14 @@ func TestThreadPane_InputAlwaysVisible(t *testing.T) {
 			if len(lines) > tc.height {
 				t.Fatalf("view overflows: %d lines > height %d", len(lines), tc.height)
 			}
+			// The multi-line input block (prompt row, textarea body, hint) and the
+			// typed text must remain on-screen — never pushed past the viewport.
+			if !strings.Contains(stripANSI(out), "why redis") {
+				t.Errorf("typed input not visible in view:\n%s", out)
+			}
 			last := lines[len(lines)-1]
-			if !strings.Contains(last, "why redis") {
-				t.Errorf("input not on the last visible row; got %q", last)
+			if !strings.Contains(last, "ctrl+s send") {
+				t.Errorf("input hint not on the last visible row; got %q", last)
 			}
 		})
 	}

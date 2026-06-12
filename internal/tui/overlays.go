@@ -82,34 +82,32 @@ func (a App) updateRevert(msg tea.KeyPressMsg) (App, tea.Cmd) {
 			// Submit from reason field when both fields are filled.
 			specID := a.revert.specID
 			stage := a.revert.selectedStage()
-			reason := a.revert.reason
+			reason := a.revert.reasonText()
 			a.revert.close()
 			return a, a.startAction("reverting "+specID, revertSpec(a.rc, specID, stage, reason, a.rc.UserName()))
 		}
+		return a, nil
 	case "backspace":
-		switch a.revert.field {
-		case revertFieldReason:
-			a.revert.backspaceReason()
-		case revertFieldStage:
+		if a.revert.field == revertFieldStage {
 			a.revert.cycleStageReverse()
+			return a, nil
 		}
-	case "space":
-		if a.revert.field == revertFieldReason {
-			a.revert.appendToReason(" ")
-		}
+		// Reason field: fall through to the textinput so backspace edits at the
+		// cursor position rather than always trimming the tail.
 	default:
-		if msg.Text == "" {
-			break
-		}
-		switch a.revert.field {
-		case revertFieldReason:
-			a.revert.appendToReason(msg.Text)
-		case revertFieldStage:
-			// On stage field, any rune cycles forward.
-			a.revert.cycleStage()
+		if a.revert.field == revertFieldStage {
+			// On the stage field, any printable rune cycles the stage forward;
+			// non-printing keys (arrows, etc.) are ignored.
+			if msg.Text != "" {
+				a.revert.cycleStage()
+			}
+			return a, nil
 		}
 	}
-	return a, nil
+
+	// Reason field: delegate to the textinput (arrows, home/end, backspace,
+	// word jumps, rune entry).
+	return a, a.revert.updateReason(msg)
 }
 
 // renderIntakeForm draws the inline triage intake form.

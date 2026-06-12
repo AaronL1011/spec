@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/config"
@@ -63,6 +64,7 @@ type settingsModel struct {
 	focused   settingsField
 	mode      settingsEditMode
 	draft     string
+	input     textinput.Model // backs text-field editing (cursor nav, mid-text edits)
 	enumIdx   int
 	dirty     bool
 	fieldErr  string
@@ -75,10 +77,13 @@ type settingsModel struct {
 }
 
 func newSettings(rc *config.ResolvedConfig, styles Styles, keys KeyMap) settingsModel {
+	ti := textinput.New()
+	ti.Prompt = ""
 	return settingsModel{
 		rc:        rc,
 		styles:    styles,
 		keys:      keys,
+		input:     ti,
 		snapshots: make(map[settingsField]string),
 	}
 }
@@ -146,35 +151,33 @@ func (m settingsModel) updateEditing(msg tea.KeyPressMsg) (settingsModel, tea.Cm
 		return m.cancelEdit()
 	case key.Matches(msg, m.keys.Enter):
 		return m.confirmEdit()
-	case msg.String() == "space":
-		if m.isEnumField(m.focused) {
+	case m.isEnumField(m.focused):
+		// Enum fields cycle on space/l/h; all other keys are ignored.
+		switch msg.String() {
+		case "space", "l":
 			m.cycleEnumForward()
 			return m, m.themePreviewCmd()
-		} else if m.isTextField(m.focused) {
-			m.appendDraft(" ")
+		case "h":
+			m.cycleEnumReverse()
+			return m, m.themePreviewCmd()
 		}
-	case msg.Text != "":
-		runes := msg.Text
-		// l/h cycle enum fields (Role/Theme); for text fields they are
-		// ordinary characters and must be inserted like any other rune.
-		if m.isEnumField(m.focused) {
-			switch runes {
-			case " ", "l":
-				m.cycleEnumForward()
-				return m, m.themePreviewCmd()
-			case "h":
-				m.cycleEnumReverse()
-				return m, m.themePreviewCmd()
-			}
-		} else if m.isTextField(m.focused) {
-			m.appendDraft(runes)
-		}
-	case msg.String() == "backspace":
-		if m.isTextField(m.focused) {
-			m.backspaceDraft()
-		}
+		return m, nil
+	case m.isTextField(m.focused):
+		// Delegate to the text input: arrows, home/end, backspace, word jumps,
+		// and rune entry are handled natively. Sync the canonical draft after.
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.syncDraftFromInput()
+		return m, cmd
 	}
 	return m, nil
+}
+
+// syncDraftFromInput mirrors the text input's value into the canonical draft
+// and refreshes the dirty flag, so validation/display logic stays unchanged.
+func (m *settingsModel) syncDraftFromInput() {
+	m.draft = m.input.Value()
+	m.dirty = m.draft != m.snapshots[m.focused]
 }
 
 // themePreviewCmd previews the current Theme draft, or nil for other fields.
@@ -200,6 +203,15 @@ func (m *settingsModel) beginEdit() (settingsModel, tea.Cmd) {
 	m.enumIdx = m.enumIndexForValue(m.focused, m.draft)
 	m.dirty = false
 	m.snapshots[m.focused] = m.draft
+	if m.isTextField(m.focused) {
+		m.input.SetValue(m.draft)
+		m.input.CursorEnd()
+		// The blink command is intentionally discarded so the caret renders
+		// statically while editing.
+		_ = m.input.Focus()
+	} else {
+		m.input.Blur()
+	}
 	return *m, nil
 }
 
@@ -214,6 +226,7 @@ func (m settingsModel) cancelEdit() (settingsModel, tea.Cmd) {
 	m.fieldErr = ""
 	m.draft = ""
 	m.dirty = false
+	m.input.Blur()
 	return m, cmd
 }
 
@@ -230,6 +243,7 @@ func (m settingsModel) confirmEdit() (settingsModel, tea.Cmd) {
 	m.fieldErr = ""
 	m.draft = ""
 	m.dirty = false
+	m.input.Blur()
 	m.snapshots[m.focused] = value
 
 	applied := func() tea.Msg {
@@ -396,19 +410,6 @@ func onOff(b bool) string {
 		return "on"
 	}
 	return "off"
-}
-
-func (m *settingsModel) appendDraft(s string) {
-	m.draft += s
-	m.dirty = m.draft != m.snapshots[m.focused]
-}
-
-func (m *settingsModel) backspaceDraft() {
-	if m.draft == "" {
-		return
-	}
-	m.draft = dropLastRune(m.draft)
-	m.dirty = m.draft != m.snapshots[m.focused]
 }
 
 func (m *settingsModel) cycleEnumForward() {
@@ -685,8 +686,9 @@ func (m settingsModel) renderEditableRow(label string, field settingsField) stri
 
 	var valuePart strings.Builder
 	if editing && m.isTextField(field) {
-		valuePart.WriteString(m.styles.RowNormal.Render(value))
-		valuePart.WriteString(m.styles.Accent.Render(IconCaret))
+		// Render the text input directly so its own cursor (and mid-text caret
+		// position) is preserved.
+		valuePart.WriteString(m.input.View())
 	} else {
 		valuePart.WriteString(m.styles.RowNormal.Render(value))
 	}

@@ -154,7 +154,7 @@ func TestDetailInput_CapturesHotkeyChars(t *testing.T) {
 
 	// Enter reader mode and open an ask prompt.
 	app.detail.readerMode = true
-	app.detail.input = threadInput{kind: "ask", section: "problem_statement"}
+	app.detail.input = threadInput{kind: "ask", section: "problem_statement", area: newThreadArea(app.detail.theme)}
 
 	if app.help.visible {
 		t.Fatal("precondition: help should not be visible")
@@ -170,8 +170,8 @@ func TestDetailInput_CapturesHotkeyChars(t *testing.T) {
 	if app.help.visible {
 		t.Error("'?' toggled help instead of being captured as input text")
 	}
-	if app.detail.input.buffer != "why redis?" {
-		t.Errorf("input buffer = %q, want \"why redis?\"", app.detail.input.buffer)
+	if app.detail.input.body() != "why redis?" {
+		t.Errorf("input body = %q, want \"why redis?\"", app.detail.input.body())
 	}
 }
 

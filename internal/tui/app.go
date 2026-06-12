@@ -6,7 +6,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
@@ -229,32 +228,26 @@ func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string,
 	sb.SetStaleAfter(2 * parseRefreshInterval(rc))
 
 	return App{
-		rc:         rc,
-		reg:        reg,
-		role:       role,
-		db:         db,
-		publisher:  newTUIPublisher(rc),
-		theme:      theme,
-		styles:     styles,
-		keys:       keys,
-		header:     header,
-		tabs:       tabs,
-		statusBar:  sb,
-		activeView: ViewDashboard,
-		dashboard:  newDashboard(rc, reg, role, styles, keys),
-		pipeline:   newPipeline(rc, styles, keys),
-		specs:      newSpecList(rc, styles, keys),
-		triage:     newTriage(rc, styles, keys),
-		reviews:    newReview(rc, reg, styles, keys),
-		settings:   newSettings(rc, styles, keys),
-		help:       newHelp(keys, styles),
-		modal: components.NewModal(components.ModalStyles{
-			Border:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(theme.Accent),
-			Title:   styles.Title,
-			Message: styles.Subtitle,
-			Input:   lipgloss.NewStyle().Foreground(theme.Text).Background(theme.Surface).Padding(0, 1),
-			Hint:    styles.Muted,
-		}),
+		rc:              rc,
+		reg:             reg,
+		role:            role,
+		db:              db,
+		publisher:       newTUIPublisher(rc),
+		theme:           theme,
+		styles:          styles,
+		keys:            keys,
+		header:          header,
+		tabs:            tabs,
+		statusBar:       sb,
+		activeView:      ViewDashboard,
+		dashboard:       newDashboard(rc, reg, role, styles, keys),
+		pipeline:        newPipeline(rc, styles, keys),
+		specs:           newSpecList(rc, styles, keys),
+		triage:          newTriage(rc, styles, keys),
+		reviews:         newReview(rc, reg, styles, keys),
+		settings:        newSettings(rc, styles, keys),
+		help:            newHelp(keys, styles),
+		modal:           components.NewModal(modalStyles(theme, styles)),
 		refreshInterval: parseRefreshInterval(rc),
 		refreshInFlight: make(map[string]bool),
 		focusedSpecID:   loadFocusedSpec(db),

@@ -398,8 +398,8 @@ func TestApp_ModalInputFlow(t *testing.T) {
 	// Type a reason.
 	model, _ = a.Update(tea.KeyPressMsg{Text: "API blocked"})
 	a = model.(App)
-	if a.modal.Input != "API blocked" {
-		t.Errorf("modal input = %q, want 'API blocked'", a.modal.Input)
+	if a.modal.Value() != "API blocked" {
+		t.Errorf("modal input = %q, want 'API blocked'", a.modal.Value())
 	}
 
 	// Escape cancels.
@@ -1100,18 +1100,19 @@ func TestApp_RevertOverlayCapturesKeys(t *testing.T) {
 	app.propagateSize()
 
 	// Open revert overlay directly.
-	_ = app.revert.openRevert("SPEC-001", "build", app.rc.Pipeline())
+	_ = app.revert.openRevert("SPEC-001", "build", app.rc.Pipeline(), app.width, app.theme)
 	app.revert.nextField() // move to reason
 
 	// Type a reason — should go to the overlay, not trigger hotkeys.
 	model, cmd := app.Update(keyMsg("q"))
 	a := model.(App)
-	if a.revert.reason != "q" {
-		t.Errorf("reason = %q, want 'q'", a.revert.reason)
+	if a.revert.reasonText() != "q" {
+		t.Errorf("reason = %q, want 'q'", a.revert.reasonText())
 	}
-	// 'q' should not quit.
-	if cmd != nil {
-		t.Error("'q' during revert overlay should not produce a command")
+	// 'q' should be captured as text, not quit. The textinput may return a
+	// cursor command; the only forbidden outcome is a quit.
+	if cmd != nil && isQuit(cmd) {
+		t.Error("'q' during revert overlay should not quit")
 	}
 }
 
@@ -1121,7 +1122,7 @@ func TestApp_RevertRendersInView(t *testing.T) {
 	app.height = 24
 	app.propagateSize()
 
-	_ = app.revert.openRevert("SPEC-001", "build", app.rc.Pipeline())
+	_ = app.revert.openRevert("SPEC-001", "build", app.rc.Pipeline(), app.width, app.theme)
 	got := app.View().Content
 	if !strings.Contains(got, "Revert") {
 		t.Error("view should contain Revert overlay")
@@ -1177,13 +1178,13 @@ func TestApp_ModalInputAcceptsSpaces(t *testing.T) {
 		t.Fatal("modal should be visible")
 	}
 
-	// Type text with a space.
+	// Type text with a space. A real space key press carries Text " ".
 	model, _ = a.Update(keyMsg("API"))
-	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	model, _ = model.Update(keyMsg("down"))
+	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	model, _ = model.Update(keyMsg("v2"))
 	a = model.(App)
-	if a.modal.Input != "API down" {
-		t.Errorf("modal input = %q, want 'API down'", a.modal.Input)
+	if a.modal.Value() != "API v2" {
+		t.Errorf("modal input = %q, want 'API v2'", a.modal.Value())
 	}
 }
 
@@ -1217,15 +1218,15 @@ func TestApp_RevertReasonAcceptsSpaces(t *testing.T) {
 	app.height = 24
 	app.propagateSize()
 
-	_ = app.revert.openRevert("SPEC-001", "build", app.rc.Pipeline())
+	_ = app.revert.openRevert("SPEC-001", "build", app.rc.Pipeline(), app.width, app.theme)
 	app.revert.nextField() // move to reason
 
 	model, _ := app.Update(keyMsg("gate"))
-	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	model, _ = model.Update(keyMsg("failed"))
 	a := model.(App)
-	if a.revert.reason != "gate failed" {
-		t.Errorf("reason = %q, want 'gate failed'", a.revert.reason)
+	if a.revert.reasonText() != "gate failed" {
+		t.Errorf("reason = %q, want 'gate failed'", a.revert.reasonText())
 	}
 }
 

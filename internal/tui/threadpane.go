@@ -6,21 +6,46 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/thread"
 )
 
-// threadInput tracks an in-progress ask or reply within the reader.
-// kind is "" when no input is active.
+// inputBodyHeight bounds the comment/reply textarea so the pinned-bottom pane
+// stays within its height budget while still allowing multi-line entry.
+const inputBodyHeight = 4
+
+// threadInput tracks an in-progress ask or reply within the reader. kind is ""
+// when no input is active. The body is a bubbles textarea so the user gets full
+// cursor navigation and multi-line editing (Enter inserts a newline; ctrl+s
+// submits) rather than an append-only single-line buffer.
 type threadInput struct {
 	kind     string // "ask" | "reply" | ""
-	buffer   string
+	area     textarea.Model
 	threadID string // target thread for a reply
 	section  string // anchor section for an ask
 }
 
 func (i threadInput) active() bool { return i.kind != "" }
+
+// body returns the trimmed text currently in the input area.
+func (i threadInput) body() string { return strings.TrimSpace(i.area.Value()) }
+
+// newThreadArea builds a focused, multi-line textarea for comment/reply entry,
+// themed so the cursor-line fill matches the app palette rather than the
+// library's near-white default.
+func newThreadArea(theme Theme) textarea.Model {
+	ta := textarea.New()
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.SetStyles(textAreaStyles(theme))
+	ta.SetHeight(inputBodyHeight)
+	// Focus drives the active styling; the blink command is intentionally
+	// discarded so the caret renders statically within the pane.
+	_ = ta.Focus()
+	return ta
+}
 
 // ── Thread queries ──────────────────────────────────────────────────────────
 
@@ -90,24 +115,15 @@ func (m specDetailModel) handleThreadInputKey(msg tea.KeyPressMsg) (specDetailMo
 	case "esc":
 		m.input = threadInput{}
 		return m, nil, true
-	case "enter":
+	case "ctrl+s":
 		return m.submitInput()
-	case "backspace":
-		if n := len(m.input.buffer); n > 0 {
-			// Trim one UTF-8 rune from the end.
-			r := []rune(m.input.buffer)
-			m.input.buffer = string(r[:len(r)-1])
-		}
-		return m, nil, true
-	case "space":
-		m.input.buffer += " "
-		return m, nil, true
 	default:
-		// Absorb everything else (e.g. arrow keys) while typing.
-		if msg.Text != "" {
-			m.input.buffer += msg.Text
-		}
-		return m, nil, true
+		// Delegate to the textarea: arrows, home/end, backspace, word jumps,
+		// rune entry, and Enter (newline) are all handled natively. Absorbing
+		// every key here keeps reader hotkeys from firing while typing.
+		var cmd tea.Cmd
+		m.input.area, cmd = m.input.area.Update(msg)
+		return m, cmd, true
 	}
 }
 
@@ -138,12 +154,14 @@ func (m specDetailModel) handleThreadActionKey(msg tea.KeyPressMsg) (specDetailM
 	case "a":
 		// Ask re-shows the pane so an action is never silently lost.
 		m.paneVisible = true
-		m.input = threadInput{kind: "ask", section: m.currentSectionSlug()}
+		m.input = threadInput{kind: "ask", section: m.currentSectionSlug(), area: newThreadArea(m.theme)}
+		m.sizeInputArea()
 		return m, nil, true
 	case "r":
 		if t, ok := m.selectedThread(); ok {
 			m.paneVisible = true
-			m.input = threadInput{kind: "reply", threadID: t.ID}
+			m.input = threadInput{kind: "reply", threadID: t.ID, area: newThreadArea(m.theme)}
+			m.sizeInputArea()
 			return m, nil, true
 		}
 		return m, nil, true
@@ -189,8 +207,8 @@ func (m specDetailModel) selectThread(delta int) specDetailModel {
 
 // submitInput commits the active ask/reply prompt.
 func (m specDetailModel) submitInput() (specDetailModel, tea.Cmd, bool) {
-	body := strings.TrimSpace(m.input.buffer)
 	in := m.input
+	body := in.body()
 	m.input = threadInput{}
 	if body == "" {
 		return m, nil, true // empty submit is ignored, not an error
@@ -284,18 +302,31 @@ func (m specDetailModel) renderThreadPane(w, maxHeight int) []string {
 	// count — overflowing the viewport and pushing the input off-screen.
 	header := m.styles.Accent.Bold(true).Render(fmt.Sprintf(" %s Threads (%d open)", GlyphSection, open))
 
-	var footer string
+	var footer []string
 	if m.input.active() {
-		footer = m.renderInputLine(w)
+		// Fit the textarea height to the budget: reserve the separator, header,
+		// the prompt/hint chrome, and at least one body row, then cap at the
+		// preferred multi-line height. Sizing here (value receiver) mutates only
+		// the render-local copy.
+		areaHeight := maxHeight - 2 - 1 - 1
+		if areaHeight > inputBodyHeight {
+			areaHeight = inputBodyHeight
+		}
+		if areaHeight < 1 {
+			areaHeight = 1
+		}
+		m.input.area.SetHeight(areaHeight)
+		footer = m.renderInputBlock()
 	} else {
-		footer = m.styles.Muted.Render(threadHintLine(m.paneFocused))
+		footer = []string{m.styles.Muted.Render(threadHintLine(m.paneFocused))}
 	}
 
 	body := flattenLines(m.threadBodyLines(threads, w))
 
-	// Budget for the scrollable body = maxHeight minus the 3 fixed chrome rows
-	// (separator, header, footer). Keep at least one body row.
-	bodyBudget := maxHeight - 3
+	// Budget for the scrollable body = maxHeight minus the fixed chrome rows
+	// (separator, header, and the footer block which may span several rows for
+	// the multi-line input). Keep at least one body row.
+	bodyBudget := maxHeight - 2 - len(footer)
 	if bodyBudget < 1 {
 		bodyBudget = 1
 	}
@@ -325,8 +356,27 @@ func (m specDetailModel) renderThreadPane(w, maxHeight int) []string {
 	}
 
 	out := append([]string{sep, header}, window...)
-	out = append(out, footer)
+	out = append(out, footer...)
 	return flattenLines(out)
+}
+
+// sizeInputArea fits the active input textarea to the current pane geometry so
+// its wrapping matches the rendered width and its height stays within budget.
+func (m *specDetailModel) sizeInputArea() {
+	if !m.input.active() {
+		return
+	}
+	w := max(m.width, 20)
+	if m.width >= readerSidebarMinWidth {
+		w = max(m.width-readerSidebarWidth-1, 20)
+	}
+	label := inputLabel(m.input)
+	prefix := " " + label + " › "
+	areaWidth := w - len([]rune(prefix))
+	if areaWidth < 8 {
+		areaWidth = 8
+	}
+	m.input.area.SetWidth(areaWidth)
 }
 
 // threadBodyLines renders the scrollable body of the pane: collapsed one-line
@@ -455,30 +505,38 @@ func flattenLines(in []string) []string {
 	return out
 }
 
-// renderInputLine renders the active ask/reply prompt with a cursor. The typed
-// text scrolls horizontally so the cursor stays visible and the line never
-// wraps (a wrap would add a row and break the pinned-bottom layout).
-func (m specDetailModel) renderInputLine(w int) string {
+// inputLabel returns the prompt label for the active ask/reply input.
+func inputLabel(in threadInput) string {
 	label := "ask"
-	if m.input.kind == "reply" {
+	if in.kind == "reply" {
 		label = "reply"
 	}
-	if m.input.kind == "ask" && m.input.section != "" {
-		label = "ask §" + m.input.section
+	if in.kind == "ask" && in.section != "" {
+		label = "ask §" + in.section
 	}
-	prefix := " " + label + " › "
-	cursor := "▌"
+	return label
+}
 
-	// Budget for the typed text = pane width minus prefix and cursor.
-	budget := w - len([]rune(prefix)) - 1
-	if budget < 4 {
-		budget = 4
+// renderInputBlock renders the active ask/reply prompt as a labelled,
+// multi-line textarea block. The first row carries the prompt label; the
+// textarea body (with full cursor navigation) follows, then a one-line hint.
+// Returns one string per visual row so the pane can budget its height. The
+// textarea is pre-sized by the caller, so width is not needed here.
+func (m specDetailModel) renderInputBlock() []string {
+	prefix := " " + inputLabel(m.input) + " › "
+	areaView := strings.Split(m.input.area.View(), "\n")
+
+	rows := make([]string, 0, len(areaView)+1)
+	for i, line := range areaView {
+		if i == 0 {
+			rows = append(rows, m.styles.Accent.Render(prefix)+line)
+			continue
+		}
+		// Indent continuation rows under the textarea body.
+		rows = append(rows, strings.Repeat(" ", len([]rune(prefix)))+line)
 	}
-	buf := []rune(m.input.buffer)
-	if len(buf) > budget {
-		buf = buf[len(buf)-budget:] // show the tail nearest the cursor
-	}
-	return m.styles.Accent.Render(prefix) + string(buf) + m.styles.Accent.Render(cursor)
+	rows = append(rows, m.styles.Muted.Render(" enter newline · ctrl+s send · esc cancel"))
+	return rows
 }
 
 func threadHintLine(focused bool) string {

@@ -76,16 +76,21 @@ func TestIntakeBackspace_RuneSafe(t *testing.T) {
 }
 
 func TestRevertBackspace_RuneSafe(t *testing.T) {
-	r := &revertOverlay{reason: "naïve"}
-	r.backspaceReason()
-	if r.reason != "naïv" || !utf8.ValidString(r.reason) {
-		t.Errorf("reason backspace = %q, want %q (valid=%v)", r.reason, "naïv", utf8.ValidString(r.reason))
+	var r revertOverlay
+	_ = r.openRevert("SPEC-001", "build", testPipeline(), 80, ResolveTheme("catppuccin-mocha"))
+	r.nextField() // focus reason
+	r.reason.SetValue("naïve")
+	r.reason.CursorEnd()
+
+	r.updateReason(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if r.reasonText() != "naïv" || !utf8.ValidString(r.reasonText()) {
+		t.Errorf("reason backspace = %q, want %q (valid=%v)", r.reasonText(), "naïv", utf8.ValidString(r.reasonText()))
 	}
 
-	r.reason = ""
-	r.backspaceReason() // no-op, no panic
-	if r.reason != "" {
-		t.Errorf("empty reason backspace = %q, want empty", r.reason)
+	r.reason.SetValue("")
+	r.updateReason(tea.KeyPressMsg{Code: tea.KeyBackspace}) // no-op, no panic
+	if r.reasonText() != "" {
+		t.Errorf("empty reason backspace = %q, want empty", r.reasonText())
 	}
 }
 

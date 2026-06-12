@@ -240,7 +240,7 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyPressMsg) (tea.Cmd, boo
 		return nil, true
 	case key.Matches(msg, a.keys.Revert) && isSpecID(specID):
 		stage := a.selectedSpecStage()
-		if err := a.revert.openRevert(specID, stage, a.rc.Pipeline()); err != nil {
+		if err := a.revert.openRevert(specID, stage, a.rc.Pipeline(), a.width, a.theme); err != nil {
 			a.statusBar.SetStatusError("Revert unavailable", err.Error())
 			return nil, true
 		}

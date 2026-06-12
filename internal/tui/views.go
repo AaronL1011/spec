@@ -112,6 +112,9 @@ func (a *App) propagateSize() {
 	if a.triageEdit.active {
 		a.triageEdit.setSize(a.width, ch)
 	}
+	if a.revert.active {
+		a.revert.setWidth(a.width)
+	}
 }
 
 func (a App) contentHeight() int {

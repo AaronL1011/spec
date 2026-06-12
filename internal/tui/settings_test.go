@@ -189,10 +189,10 @@ func TestSettings_ConfirmNameDispatchesPersist(t *testing.T) {
 
 func TestSettings_TypeHLIntoTextField(t *testing.T) {
 	rc := testResolvedConfig()
+	rc.User.User.Name = ""
 	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
-	m.mode = settingsEditing
 	m.focused = fieldName
-	m.draft = ""
+	m, _ = m.beginEdit()
 
 	for _, r := range []rune{'h', 'e', 'l', 'l', 'o'} {
 		m, _ = m.update(tea.KeyPressMsg{Code: r, Text: string(r)})
@@ -204,12 +204,12 @@ func TestSettings_TypeHLIntoTextField(t *testing.T) {
 
 func TestSettings_SpaceIntoTextField(t *testing.T) {
 	rc := testResolvedConfig()
+	rc.User.User.Name = "John"
 	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
-	m.mode = settingsEditing
 	m.focused = fieldName
-	m.draft = "John"
+	m, _ = m.beginEdit()
 
-	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeySpace})
+	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	m, _ = m.update(tea.KeyPressMsg{Code: 'D', Text: "D"})
 	if m.draft != "John D" {
 		t.Errorf("draft = %q, want %q", m.draft, "John D")

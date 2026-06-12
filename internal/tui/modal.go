@@ -39,20 +39,17 @@ func (a App) updateModal(msg tea.KeyPressMsg) (App, tea.Cmd) {
 			a.modal.Hide()
 			return a, nil
 		case "enter":
-			if a.modal.Input != "" {
+			if a.modal.Value() != "" {
 				// Capture input before Hide() clears it.
-				input := a.modal.Input
+				input := a.modal.Value()
 				a.modal.Hide()
 				return a, a.executeActionWithInput(input)
 			}
-		case "backspace":
-			a.modal.BackspaceInput()
-		case "space":
-			a.modal.AppendInput(" ")
+			return a, nil
 		default:
-			if msg.Text != "" {
-				a.modal.AppendInput(msg.Text)
-			}
+			// Delegate to the embedded text field: arrows, home/end, backspace,
+			// word jumps, and rune entry are all handled natively.
+			return a, a.modal.Update(msg)
 		}
 	}
 	return a, nil
@@ -70,7 +67,7 @@ func (a *App) armAssignModal(specID string) {
 	a.pendingAction = "assign"
 	a.pendingSpecID = specID
 	a.modal.ShowInput("Assign "+specID, "Space-separated handles · '-' to unassign:")
-	a.modal.Input = selfAssignIdentity(a.rc)
+	a.modal.SetValue(selfAssignIdentity(a.rc))
 	a.modal.SetSize(a.width, a.contentHeight())
 }
 
