@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/aaronl1011/spec/internal/tui/glyph"
 )
@@ -25,16 +26,26 @@ type StatusBar struct {
 	activeKey   string // refresh key of the active tab, drives the indicator
 	staleAfter  time.Duration
 	offline     bool
-	width       int
-	exitArmed   bool // true while the first esc has been pressed at the top level
-	status      Status
-	styles      StatusBarStyles
+	// updateNotice holds the latest available version when a newer release
+	// exists, surfaced as an ambient affordance in the right-hand cluster. It is
+	// persistent metadata (the "you have mail" model), distinct from the
+	// canonical status element which owns transient operation outcomes.
+	updateNotice string
+	width        int
+	exitArmed    bool // true while the first esc has been pressed at the top level
+	status       Status
+	styles       StatusBarStyles
 }
 
 // defaultStaleAfter is the age past which a tab's data is flagged "stale · r to
 // refresh". It is a fallback used until the app sets its own threshold from the
 // configured refresh interval.
 const defaultStaleAfter = 60 * time.Second
+
+// minLabelWidth is the fewest text cells a truncated view label may occupy
+// before it is dropped entirely. Below this a label is illegible noise, so the
+// space is better spent on the status element.
+const minLabelWidth = 4
 
 // StatusBarStyles holds the styles for the status bar.
 type StatusBarStyles struct {
@@ -96,6 +107,11 @@ func (s *StatusBar) SetOffline(offline bool) { s.offline = offline }
 // SetScroll updates the scroll position indicator (e.g. "3/12").
 func (s *StatusBar) SetScroll(pos string) { s.scrollPos = pos }
 
+// SetUpdateAvailable records that a newer release (latest) is available, which
+// renders a persistent "update" affordance in the right-hand cluster. An empty
+// latest clears the notice.
+func (s *StatusBar) SetUpdateAvailable(latest string) { s.updateNotice = latest }
+
 // SetWidth updates the status bar width.
 func (s *StatusBar) SetWidth(w int) { s.width = w }
 
@@ -151,83 +167,193 @@ func (s StatusBar) StatusLabel() string { return s.status.Label() }
 // pending cues such as a background refresh.
 func (s StatusBar) ShowingOutcome() bool { return s.status.ShowingOutcome() }
 
-// freshnessIndicator renders the active tab's data-age affordance (§5.2):
+// freshnessIndicator renders the active tab's data-age affordance (§5.2) at
+// full verbosity:
 //   - offline:        "cached · offline" in the muted style
 //   - within staleAfter: "fresh"
 //   - past staleAfter:   "stale · r to refresh"
 //   - otherwise:         "Ns ago" / "Nm ago"
 //
 // It returns the empty string when the active tab has never loaded, so a
-// just-opened tab shows nothing until its first fetch lands.
+// just-opened tab shows nothing until its first fetch lands. The richest form
+// is forms[0] of freshnessForms; narrower terminals fall back to sparser forms.
 func (s StatusBar) freshnessIndicator() string {
+	return firstForm(s.freshnessForms())
+}
+
+// freshnessForms returns the data-age affordance from richest to sparsest, so
+// the layout can trade detail for width: full label → short label → glyph only.
+func (s StatusBar) freshnessForms() []string {
+	st := s.styles.Stale
+	glyphOnly := st.Render(" " + glyph.Clock + " ")
+
 	if s.offline {
-		return s.styles.Stale.Render(" " + glyph.Clock + " cached · offline ")
+		return []string{
+			st.Render(" " + glyph.Clock + " cached · offline "),
+			st.Render(" " + glyph.Clock + " offline "),
+			glyphOnly,
+		}
 	}
 
 	t, ok := s.refreshedAt[s.activeKey]
 	if !ok || t.IsZero() {
-		return ""
+		return nil
 	}
 
 	age := time.Since(t)
 	switch {
 	case age >= s.staleAfter:
-		return s.styles.Stale.Render(" " + glyph.Clock + " stale · r to refresh ")
+		return []string{
+			st.Render(" " + glyph.Clock + " stale · r to refresh "),
+			st.Render(" " + glyph.Clock + " stale "),
+			glyphOnly,
+		}
 	case age < 5*time.Second:
-		return s.styles.Stale.Render(" " + glyph.Clock + " fresh ")
+		return []string{st.Render(" " + glyph.Clock + " fresh "), glyphOnly}
 	case age < time.Minute:
-		return s.styles.Stale.Render(fmt.Sprintf(" %s %ds ago ", glyph.Clock, int(age.Seconds())))
+		return []string{st.Render(fmt.Sprintf(" %s %ds ago ", glyph.Clock, int(age.Seconds()))), glyphOnly}
 	default:
-		return s.styles.Stale.Render(fmt.Sprintf(" %s %dm ago ", glyph.Clock, int(age.Minutes())))
+		return []string{st.Render(fmt.Sprintf(" %s %dm ago ", glyph.Clock, int(age.Minutes()))), glyphOnly}
 	}
 }
 
-// View renders the status bar. The canonical status element sits immediately
-// after the view label and sizes to its content; the freshness indicator lives
-// in the right-hand cluster.
-func (s StatusBar) View() string {
-	viewPart := s.styles.Label.Render(" " + s.viewLabel + " ")
-
-	// The single canonical status element — always present, content-width.
-	// In its resting state it reports pending-spec count; in-flight operations
-	// override it and decay back.
-	statusPart := s.status.View()
-
-	// Per-tab freshness indicator. Lives on the right so it reads as ambient
-	// metadata, not part of the live status.
-	stalePart := s.freshnessIndicator()
-
-	var scrollPart string
-	if s.scrollPos != "" {
-		scrollPart = s.styles.Hint.Render(" " + s.scrollPos + " ")
+// updateForms returns the "newer version available" affordance from richest to
+// sparsest: "↑ v0.4.0 · spec update" → "↑ v0.4.0" → "↑". Styled with the pending
+// (amber) tone so it reads as gently actionable, not as an error.
+func (s StatusBar) updateForms() []string {
+	if s.updateNotice == "" {
+		return nil
 	}
-	var hint string
+	st := s.styles.Pending
+	return []string{
+		st.Render(fmt.Sprintf(" %s %s · spec update ", glyph.Upgrade, s.updateNotice)),
+		st.Render(fmt.Sprintf(" %s %s ", glyph.Upgrade, s.updateNotice)),
+		st.Render(" " + glyph.Upgrade + " "),
+	}
+}
+
+// scrollForms returns the scroll-position indicator. It has a single form.
+func (s StatusBar) scrollForms() []string {
+	if s.scrollPos == "" {
+		return nil
+	}
+	return []string{s.styles.Hint.Render(" " + s.scrollPos + " ")}
+}
+
+// hintForms returns the help/exit hint from richest to sparsest. While exit is
+// armed it shows the double-esc safety prompt (kept legible, so only lightly
+// abbreviated); otherwise it advertises help and exit.
+func (s StatusBar) hintForms() []string {
 	if s.exitArmed {
-		hint = s.styles.Pending.Render(" esc again to quit ")
-	} else {
-		hint = s.styles.Hint.Render(" ? help · esc/esc exit ")
+		st := s.styles.Pending
+		return []string{st.Render(" esc again to quit "), st.Render(" esc to quit ")}
 	}
-	clock := s.styles.Clock.Render(time.Now().Format(" 15:04 "))
+	st := s.styles.Hint
+	return []string{
+		st.Render(" ? help · esc/esc exit "),
+		st.Render(" ? help "),
+		st.Render(" ? "),
+	}
+}
 
-	left := viewPart + " " + statusPart
-	right := stalePart + scrollPart + hint + clock
+// clockForms returns the wall clock. It has a single form.
+func (s StatusBar) clockForms() []string {
+	return []string{s.styles.Clock.Render(time.Now().Format(" 15:04 "))}
+}
 
-	// Lay the bar out inside the style's content box. The Bar style adds
-	// horizontal padding, so the usable width is narrower than s.width;
-	// filling to the full width would overflow and wrap onto a second line,
-	// which the app's single-row status budget cannot absorb.
+// fit returns the richest form that fits within budget and the budget left
+// after reserving it. When no form fits (or the slot is absent) it returns ""
+// and leaves the budget untouched, dropping the slot.
+func fit(forms []string, budget int) (string, int) {
+	for _, f := range forms {
+		if w := lipgloss.Width(f); w <= budget {
+			return f, budget - w
+		}
+	}
+	return "", budget
+}
+
+// firstForm returns the richest (first) form, or empty when there are none.
+func firstForm(forms []string) string {
+	if len(forms) == 0 {
+		return ""
+	}
+	return forms[0]
+}
+
+// fitLabel renders the view label, truncating it to fit the budget rather than
+// dropping it outright — the active view's name is high-value context. It
+// vanishes only when the budget cannot hold a legible stub (minLabelWidth).
+func (s StatusBar) fitLabel(budget int) (string, int) {
+	if s.viewLabel == "" || budget <= 0 {
+		return "", budget
+	}
+	full := " " + s.viewLabel + " "
+	if w := lipgloss.Width(full); w <= budget {
+		return s.styles.Label.Render(full), budget - w
+	}
+	// Reserve two cells for the surrounding padding before truncating the text.
+	textBudget := budget - 2
+	if textBudget < minLabelWidth {
+		return "", budget
+	}
+	rendered := " " + ansi.Truncate(s.viewLabel, textBudget, "…") + " "
+	return s.styles.Label.Render(rendered), budget - lipgloss.Width(rendered)
+}
+
+// View renders the status bar within a single row. The canonical status element
+// is the mandatory anchor; every other slot is fitted by descending importance
+// into the remaining width, taking the richest form that fits and vanishing
+// before any higher-priority slot does (measure-and-fit). This keeps the wide
+// view fully detailed while small windows degrade to a tidy, clipped-free bar.
+func (s StatusBar) View() string {
+	// The Bar style adds horizontal padding, so the usable width is narrower
+	// than s.width; filling the full width would overflow and wrap onto a
+	// second line, which the app's single-row status budget cannot absorb.
 	inner := s.width - s.styles.Bar.GetHorizontalFrameSize()
 	if inner < 0 {
 		inner = 0
 	}
 
-	gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
+	// The status element is always present and content-sized. In its resting
+	// state it reports pending-spec count; in-flight operations override it and
+	// decay back. Reserve its width plus one cell for the gap before it.
+	statusPart := s.status.View()
+	remaining := inner - lipgloss.Width(statusPart) - 1
+
+	// Allocate the optional slots by descending importance. Each consumes the
+	// richest form that still fits; lower-priority slots vanish first. The hint
+	// occupies one visual position but two priorities: while exit is armed it is
+	// a safety prompt allocated ahead of everything else, otherwise it is a
+	// low-value help reminder allocated after the ambient signals.
+	var hintPart string
+	if s.exitArmed {
+		hintPart, remaining = fit(s.hintForms(), remaining)
+	}
+	viewPart, remaining := s.fitLabel(remaining)
+	scrollPart, remaining := fit(s.scrollForms(), remaining)
+	freshPart, remaining := fit(s.freshnessForms(), remaining)
+	updatePart, remaining := fit(s.updateForms(), remaining)
+	if !s.exitArmed {
+		hintPart, remaining = fit(s.hintForms(), remaining)
+	}
+	clockPart, _ := fit(s.clockForms(), remaining)
+
+	// Assemble in fixed left-to-right visual order, independent of the
+	// importance order used for allocation above.
+	leftCluster := statusPart
+	if viewPart != "" {
+		leftCluster = viewPart + " " + statusPart
+	}
+	right := updatePart + freshPart + scrollPart + hintPart + clockPart
+
+	gap := inner - lipgloss.Width(leftCluster) - lipgloss.Width(right)
 	if gap < 0 {
 		gap = 0
 	}
 
 	// MaxHeight(1) keeps the status bar a single row even if content is
 	// wider than the box; the app reserves exactly one row for it.
-	bar := left + strings.Repeat(" ", gap) + right
+	bar := leftCluster + strings.Repeat(" ", gap) + right
 	return s.styles.Bar.Width(s.width).MaxHeight(1).Render(bar)
 }

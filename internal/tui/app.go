@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/aaronl1011/spec/internal/store"
 	"github.com/aaronl1011/spec/internal/tui/components"
 	"github.com/aaronl1011/spec/internal/tui/watch"
+	"github.com/aaronl1011/spec/internal/update"
 )
 
 // watchDebounce coalesces a burst of writes (e.g. an agent editing a spec in a
@@ -44,6 +46,10 @@ type spinnerTickMsg time.Time
 // changed on disk and the reader should re-read and re-render (SPEC-007).
 type fileChangedMsg struct{ Paths []string }
 
+// updateAvailableMsg is emitted by the startup update check when a newer
+// release exists, carrying the version to surface in the status bar.
+type updateAvailableMsg struct{ Latest string }
+
 // App is the top-level Bubble Tea model. It owns the tab strip, header,
 // status bar, and delegates to the active view.
 type App struct {
@@ -51,6 +57,10 @@ type App struct {
 	reg  *adapter.Registry
 	role string
 	db   *store.DB
+	// version is the running binary's resolved version, injected from cmd. It
+	// drives the passive "update available" check on startup; an empty or dev
+	// version disables the check.
+	version string
 
 	// Layout
 	width  int
@@ -129,9 +139,10 @@ type App struct {
 
 // New creates a new App ready to run as a tea.Program. The caller is
 // responsible for invoking Close once the program exits.
-func New(rc *config.ResolvedConfig, reg *adapter.Registry, role string) App {
+func New(rc *config.ResolvedConfig, reg *adapter.Registry, role, version string) App {
 	db, err := store.Open(store.DefaultDBPath())
 	app := newAppWithDB(rc, reg, role, db)
+	app.version = version
 	if err != nil {
 		// Degrade gracefully: focus and standup persistence are unavailable,
 		// but the rest of the TUI still works. Tell the user why.
@@ -273,7 +284,23 @@ func (a App) Init() tea.Cmd {
 		a.dashboard.init(),
 		a.tick(),
 		a.spinnerTick(),
+		a.checkForUpdate(),
 	)
+}
+
+// checkForUpdate runs the passive update check off the UI thread, emitting an
+// updateAvailableMsg only when a newer release exists. It returns a nil message
+// otherwise (and on any error), so a down network or dev build is a silent
+// no-op rather than a disruption.
+func (a App) checkForUpdate() tea.Cmd {
+	version := a.version
+	return func() tea.Msg {
+		latest, available := update.CheckLatest(context.Background(), version)
+		if !available {
+			return nil
+		}
+		return updateAvailableMsg{Latest: latest}
+	}
 }
 
 // Update handles all messages.
@@ -343,6 +370,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.notifyStaleRefresh(msg.Err, a.reviews.loaded)
 		a.markDataFresh(refreshKeyReviews, msg.Err)
 		return a, cmd
+
+	case updateAvailableMsg:
+		a.statusBar.SetUpdateAvailable(msg.Latest)
+		return a, nil
 
 	case fileChangedMsg:
 		// A watched file changed. Re-read the open spec (hash-gated, position-
