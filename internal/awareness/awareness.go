@@ -47,7 +47,7 @@ func Gather(rc *config.ResolvedConfig) (*Summary, error) {
 		return &Summary{}, nil
 	}
 
-	userName := rc.UserName()
+	identities := rc.UserIdentities()
 	userRole := ""
 	if rc.User != nil {
 		userRole = rc.User.User.OwnerRole
@@ -67,8 +67,10 @@ func Gather(rc *config.ResolvedConfig) (*Summary, error) {
 			continue
 		}
 
-		// Check if user owns this spec (Author field)
-		isOwner := strings.EqualFold(meta.Author, userName)
+		// Check if user owns this spec (Author field). Match against every
+		// identity the user is known by so display-name vs handle drift across
+		// teams does not hide their own work.
+		isOwner := matchesAnyIdentity(meta.Author, identities)
 
 		if isOwner {
 			summary.SpecsTotal++
@@ -89,7 +91,7 @@ func Gather(rc *config.ResolvedConfig) (*Summary, error) {
 
 		// Check for pending plan reviews (if user is a reviewer)
 		if meta.Review != nil && meta.Review.Status == "pending" {
-			if canReview(meta.Review.Reviewers, userName, userRole) {
+			if canReview(meta.Review.Reviewers, identities, userRole) {
 				summary.ReviewsNeeded++
 			}
 		}
@@ -98,15 +100,12 @@ func Gather(rc *config.ResolvedConfig) (*Summary, error) {
 	return summary, nil
 }
 
-// canReview checks if the user can review based on reviewers list.
-func canReview(reviewers []string, userName, userRole string) bool {
+// canReview checks if the user can review based on the reviewers list. A
+// reviewer entry matches any of the user's identities (name, canonical handle,
+// or a per-provider handle) or their role.
+func canReview(reviewers, identities []string, userRole string) bool {
 	for _, r := range reviewers {
-		// Direct name match
-		if strings.EqualFold(r, userName) {
-			return true
-		}
-		// Handle match (e.g., @mike)
-		if strings.HasPrefix(r, "@") && strings.EqualFold(r[1:], userName) {
+		if matchesAnyIdentity(r, identities) {
 			return true
 		}
 		// Role match (e.g., "tl")
@@ -115,6 +114,25 @@ func canReview(reviewers []string, userName, userRole string) bool {
 		}
 	}
 	return false
+}
+
+// matchesAnyIdentity reports whether candidate names any of the user's
+// identities. Matching is case-insensitive and tolerates a leading '@'.
+func matchesAnyIdentity(candidate string, identities []string) bool {
+	c := normaliseIdentity(candidate)
+	if c == "" {
+		return false
+	}
+	for _, id := range identities {
+		if c == normaliseIdentity(id) {
+			return true
+		}
+	}
+	return false
+}
+
+func normaliseIdentity(s string) string {
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(s)), "@")
 }
 
 // Print outputs the awareness line to stdout if there are items.

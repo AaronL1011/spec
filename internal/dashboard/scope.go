@@ -6,13 +6,17 @@ import (
 	"github.com/aaronl1011/spec/internal/config"
 )
 
-// Viewer identifies the person the dashboard is being rendered for. Name and
-// Handle are both matched against spec author/assignees so display-name vs
-// @handle drift across teams does not hide a user's own work.
+// Viewer identifies the person the dashboard is being rendered for. Name,
+// Handle, and every per-provider identity are matched against spec
+// author/assignees so display-name vs @handle drift across teams does not hide
+// a user's own work.
 type Viewer struct {
 	Role   string
 	Name   string
 	Handle string
+	// Identities is the full set of handles the viewer is known by (canonical
+	// handle, name, and per-provider handles). Matching checks all of them.
+	Identities []string
 }
 
 // SpecView is the minimal projection of a spec the visibility rules need. It
@@ -86,14 +90,23 @@ func anyIdentity(candidates []string, v Viewer) bool {
 	return false
 }
 
-// matchesIdentity reports whether candidate names the viewer, by display name
-// or handle. Matching is case-insensitive and tolerates a leading '@'.
+// matchesIdentity reports whether candidate names the viewer, by display name,
+// canonical handle, or any per-provider handle. Matching is case-insensitive
+// and tolerates a leading '@'.
 func matchesIdentity(candidate string, v Viewer) bool {
 	c := normaliseIdentity(candidate)
 	if c == "" {
 		return false
 	}
-	return c == normaliseIdentity(v.Name) || c == normaliseIdentity(v.Handle)
+	if c == normaliseIdentity(v.Name) || c == normaliseIdentity(v.Handle) {
+		return true
+	}
+	for _, id := range v.Identities {
+		if c == normaliseIdentity(id) {
+			return true
+		}
+	}
+	return false
 }
 
 func normaliseIdentity(s string) string {

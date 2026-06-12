@@ -748,11 +748,33 @@ Personal identity and preferences. Never committed. Created by `spec config init
 user:
   owner_role: engineer    # Your role: pm | tl | designer | qa | engineer
   name: "Ada Lovelace"    # Display name
-  handle: "ada"          # @mention handle
+  handle: "ada"           # Spec-canonical handle (stable, user-chosen)
+  identities:             # Optional: your handle on each integration
+    github: adalovelace   #   a handle differs on every service
+    slack: "@ada"
+    jira: ada.lovelace
 ```
 
 `owner_role` drives all role-aware commands (`spec list`, dashboard queue, passive awareness).
 Missing `owner_role` prints a setup prompt on any role-aware command.
+
+**`handle`** is your *spec-canonical* identity — a stable token that identifies
+you inside spec (frontmatter author/assignees, thread author, decision log). It
+never leaves spec, so it can be anything you like.
+
+**`identities`** maps an integration **provider** (`github`, `slack`, `teams`,
+`jira`, …) to your handle on that service. Because a person's handle differs on
+every platform, adapter calls (e.g. "PRs awaiting my review" on GitHub) resolve
+through this map. It is optional and additive: any provider you don't list
+falls back to `handle`, so existing configs keep working unchanged. `spec
+config init --user` only prompts for the providers your team actually
+configured, and `spec config lint` warns about identity keys no integration
+uses.
+
+**Identity matching.** A spec authored or assigned under *any* of your
+identities (canonical handle, display name, or a per-provider handle) is
+recognised as yours in the dashboard and awareness line — so display-name vs
+`@handle` vs login drift across teams never hides your own work.
 
 ### `preferences`
 
@@ -819,19 +841,26 @@ workspaces:
 | `spec config init` | Interactive wizard to create/update `spec.config.yaml` |
 | `spec config init --user` | Interactive wizard to create/update `~/.spec/config.yaml` |
 | `spec config test` | Ping every configured integration and report pass/fail |
-| `spec whoami` | Show resolved identity: role, name, handle, config file paths |
+| `spec whoami` | Show resolved identity: role, name, handle, per-integration identities, config file paths |
 | `spec join <repo>` | Clone a specs repo and bootstrap local config |
 
 ### `spec whoami` output
 
 ```
-Role:        engineer
-Name:        Ada Lovelace
-Handle:      ada
-User config: ~/.spec/config.yaml
+Name:   Ada Lovelace
+Role:   engineer
+Handle: ada
+Config: ~/.spec/config.yaml
+Team:   Platform Team
+Cycle:  Cycle 7
 Team config: ~/code/specs/spec.config.yaml
-Specs repo:  ~/.spec/repos/acme/specs/specs/
+Identities:
+  repo    (github): adalovelace
+  comms   (slack): @ada
 ```
+
+The `Identities` block shows the exact handle each adapter receives. When a
+provider is unmapped, the canonical handle is shown in its place.
 
 If `owner_role` is missing:
 

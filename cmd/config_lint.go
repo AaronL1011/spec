@@ -39,6 +39,15 @@ func runConfigLint(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// Cross-reference the user's per-provider identities against the team's
+	// configured integrations. Advisory only (warnings) and best-effort — a
+	// missing or unreadable user config is not a lint failure.
+	if rc.UserConfigPath != "" {
+		if userRes, uerr := config.LintUserIdentitiesFile(rc.UserConfigPath, rc.Team); uerr == nil {
+			result.Diagnostics = append(result.Diagnostics, userRes.Diagnostics...)
+		}
+	}
+
 	if p.JSONEnabled() {
 		if err := p.JSON(result); err != nil {
 			return err

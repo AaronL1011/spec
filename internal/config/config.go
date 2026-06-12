@@ -519,12 +519,114 @@ func (r *ResolvedConfig) UserName() string {
 	return "unknown"
 }
 
-// UserHandle returns the configured user handle.
+// UserHandle returns the configured spec-canonical handle. Retained as an
+// alias of CanonicalHandle for callers that predate per-integration identity
+// resolution; spec-internal identity (frontmatter, threads) uses this.
 func (r *ResolvedConfig) UserHandle() string {
-	if r.User != nil {
-		return r.User.User.Handle
+	return r.CanonicalHandle()
+}
+
+// CanonicalHandle returns the user's spec-internal identity token, falling
+// back to the display name when no handle is configured.
+func (r *ResolvedConfig) CanonicalHandle() string {
+	if r.User == nil {
+		return ""
 	}
-	return ""
+	if h := strings.TrimSpace(r.User.User.Handle); h != "" {
+		return h
+	}
+	return strings.TrimSpace(r.User.User.Name)
+}
+
+// ProviderHandle returns the user's handle for a named integration provider
+// (e.g. "github", "slack"), falling back to the canonical handle when the
+// provider is unmapped. An empty or "none" provider yields the canonical
+// handle.
+func (r *ResolvedConfig) ProviderHandle(provider string) string {
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	if r.User != nil && provider != "" && provider != "none" {
+		if h, ok := r.User.User.Identities[provider]; ok {
+			if h = strings.TrimSpace(h); h != "" {
+				return h
+			}
+		}
+	}
+	return r.CanonicalHandle()
+}
+
+// IdentityForCategory resolves the handle to use for an integration category
+// ("repo", "comms", "pm", "docs", "agent", "ai", "design", "deploy"): it maps
+// the category to the team's configured provider, then resolves that
+// provider's handle. Falls back to the canonical handle when the category has
+// no provider or no mapping exists.
+func (r *ResolvedConfig) IdentityForCategory(category string) string {
+	return r.ProviderHandle(r.providerForCategory(category))
+}
+
+// IntegrationProvider returns the team's configured provider name for an
+// integration category (e.g. "repo" -> "github"), or "" when no team config or
+// category is set.
+func (r *ResolvedConfig) IntegrationProvider(category string) string {
+	return r.providerForCategory(category)
+}
+
+// providerForCategory returns the team's configured provider name for an
+// integration category, or "" when no team config or category is set.
+func (r *ResolvedConfig) providerForCategory(category string) string {
+	if r.Team == nil {
+		return ""
+	}
+	in := r.Team.Integrations
+	switch strings.ToLower(category) {
+	case "comms":
+		return in.Comms.Provider
+	case "pm":
+		return in.PM.Provider
+	case "docs":
+		return in.Docs.Provider
+	case "repo":
+		return in.Repo.Provider
+	case "agent":
+		return in.Agent.Provider
+	case "ai":
+		return in.AI.Provider
+	case "design":
+		return in.Design.Provider
+	case "deploy":
+		return in.Deploy.Provider
+	default:
+		return ""
+	}
+}
+
+// UserIdentities returns every identity the user is known by — the canonical
+// handle, the display name, and every per-provider handle — de-duplicated.
+// Identity-matching callers (dashboard scope, awareness) use this so a spec
+// authored or assigned under any of the user's handles is recognised as theirs.
+func (r *ResolvedConfig) UserIdentities() []string {
+	if r.User == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return
+		}
+		key := strings.TrimPrefix(strings.ToLower(v), "@")
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, v)
+	}
+	add(r.User.User.Handle)
+	add(r.User.User.Name)
+	for _, h := range r.User.User.Identities {
+		add(h)
+	}
+	return out
 }
 
 // CycleLabel returns the current cycle label.

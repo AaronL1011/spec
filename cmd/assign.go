@@ -167,7 +167,8 @@ func maybeAutoClaim(cmd *cobra.Command, rc *config.ResolvedConfig, specID string
 }
 
 // selfIdentity returns the current user's preferred assignment identity,
-// favouring the comms handle over the display name.
+// favouring the spec-canonical handle over the display name. Assignment is
+// spec-internal (written to frontmatter), so it uses the canonical handle.
 func selfIdentity(rc *config.ResolvedConfig) string {
 	if h := strings.TrimSpace(rc.UserHandle()); h != "" {
 		return h

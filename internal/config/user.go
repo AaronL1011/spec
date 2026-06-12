@@ -13,7 +13,19 @@ type UserConfig struct {
 	User struct {
 		OwnerRole string `yaml:"owner_role"`
 		Name      string `yaml:"name"`
-		Handle    string `yaml:"handle"`
+		// Handle is the spec-canonical identity token — a stable, user-chosen
+		// name that identifies the person inside spec (frontmatter author and
+		// assignees, thread author, decision log). It never leaves spec, so it
+		// can be anything the user likes. It is also the universal fallback for
+		// any per-integration identity that is not explicitly mapped.
+		Handle string `yaml:"handle"`
+		// Identities maps an integration provider name (e.g. "github", "slack",
+		// "teams", "jira") to the user's handle on that service. A person's
+		// handle differs on every service, so adapter calls must receive the
+		// service-specific value, not the canonical handle. Optional and
+		// additive: an absent or partial map falls back to Handle, so existing
+		// configs behave identically.
+		Identities map[string]string `yaml:"identities,omitempty"`
 	} `yaml:"user"`
 
 	Preferences PreferencesConfig `yaml:"preferences"`

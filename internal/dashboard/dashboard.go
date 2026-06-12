@@ -165,7 +165,7 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 
 	// REVIEW section: from repo adapter
 	if reg != nil {
-		prs, err := reg.Repo().RequestedReviews(ctx, rc.UserHandle())
+		prs, err := reg.Repo().RequestedReviews(ctx, rc.IdentityForCategory("repo"))
 		if err == nil {
 			for _, pr := range prs {
 				data.Review = append(data.Review, DashboardItem{
@@ -202,7 +202,12 @@ func (s specInfo) view() SpecView {
 
 // viewerFor builds a Viewer from resolved config and the active role.
 func viewerFor(rc *config.ResolvedConfig, role string) Viewer {
-	return Viewer{Role: role, Name: rc.UserName(), Handle: rc.UserHandle()}
+	return Viewer{
+		Role:       role,
+		Name:       rc.UserName(),
+		Handle:     rc.CanonicalHandle(),
+		Identities: rc.UserIdentities(),
+	}
 }
 
 // blockedConfig returns the team BLOCKED-section config, or the zero value

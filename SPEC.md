@@ -215,7 +215,7 @@ The defining design principle of `spec` is: **every interaction a developer has 
 ```
 $ spec
 
-Good morning, Aaron.                           engineer · Cycle 7
+Good morning, Alice.                           engineer · Cycle 7
 
 ─── DO ──────────────────────────────────────────────────────────
 ⚡ SPEC-042  Auth refactor            build          PR 2/4 in progress
@@ -274,7 +274,7 @@ Every `spec` invocation includes a one-line indicator if something is pending. N
 ```
 $ spec standup
 
-Your standup - Aaron Lewis - 2026-04-21
+Your standup - Alice G - 2026-04-21
 ────────────────────────────────────────────────
 Yesterday:
   • SPEC-042: Completed PR #415 (Redis integration)
@@ -582,8 +582,12 @@ pipeline:
 
 user:
   owner_role: engineer               # pm | tl | designer | qa | engineer | custom
-  name: "Aaron Lewis"
-  handle: ${COMMS_HANDLE}           # e.g. @aaron on Slack, aaron@org.com on Teams
+  name: "Alice G"
+  handle: alice                      # spec-canonical handle (stable, user-chosen; identifies you inside spec)
+  identities:                        # optional: your handle on each integration provider
+    github: aliceG001               # a handle differs on every service; adapter calls resolve through this map
+    slack: "@alice"                  # unlisted providers fall back to `handle`
+    teams: alice@org.com
 
 preferences:
   editor: $EDITOR                    # default editor for `spec edit`
