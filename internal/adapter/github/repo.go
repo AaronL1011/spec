@@ -115,6 +115,52 @@ func (r *RepoClient) SetPRDescription(ctx context.Context, repo string, prNumber
 // RequestedReviews returns PRs where the given user is a requested reviewer.
 func (r *RepoClient) RequestedReviews(ctx context.Context, user string) ([]adapter.PullRequest, error) {
 	query := fmt.Sprintf("is:pr is:open review-requested:%s org:%s", user, r.owner)
+	return r.searchPRs(ctx, query, fmt.Sprintf("searching review requests for %s", user))
+}
+
+// InvolvedPRs returns open PRs that involve the user in any capacity. GitHub's
+// involves: qualifier is only author OR assignee OR mentions OR commenter, so it
+// excludes PRs where the user is merely a requested reviewer (directly or via a
+// team). To keep this a superset of RequestedReviews, we union both queries and
+// dedupe, giving the Review screen every PR the user touches.
+func (r *RepoClient) InvolvedPRs(ctx context.Context, user string) ([]adapter.PullRequest, error) {
+	involved, err := r.searchPRs(ctx,
+		fmt.Sprintf("is:pr is:open involves:%s org:%s", user, r.owner),
+		fmt.Sprintf("searching PRs involving %s", user))
+	if err != nil {
+		return nil, err
+	}
+	requested, err := r.searchPRs(ctx,
+		fmt.Sprintf("is:pr is:open review-requested:%s org:%s", user, r.owner),
+		fmt.Sprintf("searching review requests for %s", user))
+	if err != nil {
+		return nil, err
+	}
+	return dedupePRs(involved, requested), nil
+}
+
+// dedupePRs merges PR slices, keeping the first occurrence of each PR keyed by
+// repo and number. Input order is preserved so the involves: results (sorted by
+// recency) lead, with any review-requested PRs not already present appended.
+func dedupePRs(groups ...[]adapter.PullRequest) []adapter.PullRequest {
+	seen := make(map[string]struct{})
+	var merged []adapter.PullRequest
+	for _, group := range groups {
+		for _, pr := range group {
+			key := fmt.Sprintf("%s#%d", pr.Repo, pr.Number)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged = append(merged, pr)
+		}
+	}
+	return merged
+}
+
+// searchPRs runs a GitHub issue search and maps the matching PRs. errContext is
+// the operation prefix used to wrap any error (the access hint is appended).
+func (r *RepoClient) searchPRs(ctx context.Context, query, errContext string) ([]adapter.PullRequest, error) {
 	result, _, err := r.client.Search.Issues(ctx, query, &gh.SearchOptions{
 		Sort:  "updated",
 		Order: "desc",
@@ -123,7 +169,7 @@ func (r *RepoClient) RequestedReviews(ctx context.Context, user string) ([]adapt
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("searching review requests for %s: %w — token needs repository metadata and Pull Requests read access", user, err)
+		return nil, fmt.Errorf("%s: %w — token needs repository metadata and Pull Requests read access", errContext, err)
 	}
 
 	var prs []adapter.PullRequest
@@ -131,11 +177,10 @@ func (r *RepoClient) RequestedReviews(ctx context.Context, user string) ([]adapt
 		if issue.PullRequestLinks == nil {
 			continue
 		}
-		repo := extractRepoFromURL(issue.GetRepositoryURL())
 		prs = append(prs, adapter.PullRequest{
 			Number:    issue.GetNumber(),
 			Title:     issue.GetTitle(),
-			Repo:      repo,
+			Repo:      extractRepoFromURL(issue.GetRepositoryURL()),
 			Author:    issue.GetUser().GetLogin(),
 			URL:       issue.GetHTMLURL(),
 			Status:    "open",

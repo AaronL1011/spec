@@ -57,6 +57,9 @@ func (Repo) SetPRDescription(ctx context.Context, repo string, prNumber int, bod
 func (Repo) RequestedReviews(ctx context.Context, user string) ([]adapter.PullRequest, error) {
 	return nil, nil
 }
+func (Repo) InvolvedPRs(ctx context.Context, user string) ([]adapter.PullRequest, error) {
+	return nil, nil
+}
 func (Repo) OpenDraftPR(ctx context.Context, repo, head, base, title, body string) (int, string, error) {
 	return 0, "", nil
 }

@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	gh "github.com/google/go-github/v62/github"
+
+	"github.com/aaronl1011/spec/internal/adapter"
 )
 
 // route maps a method+path-substring to a canned response. The harness matches
@@ -138,6 +140,53 @@ func TestRequestedReviews_ParsesSearchResults(t *testing.T) {
 	}
 	if prs[0].Repo != "auth-service" || prs[0].Number != 101 {
 		t.Errorf("PR = %+v, want auth-service #101", prs[0])
+	}
+}
+
+func TestInvolvedPRs_ParsesSearchResults(t *testing.T) {
+	repo, _ := fixtureServer(t, []route{
+		{method: http.MethodGet, contains: "/search/issues", file: "search_issues.json"},
+	})
+
+	prs, err := repo.InvolvedPRs(context.Background(), "alice")
+	if err != nil {
+		t.Fatalf("InvolvedPRs: %v", err)
+	}
+	if len(prs) != 1 {
+		t.Fatalf("got %d PRs, want 1", len(prs))
+	}
+	if prs[0].Repo != "auth-service" || prs[0].Number != 101 {
+		t.Errorf("PR = %+v, want auth-service #101", prs[0])
+	}
+}
+
+func TestDedupePRs_UnionsAndDedupes(t *testing.T) {
+	involved := []adapter.PullRequest{
+		{Repo: "auth-service", Number: 101, Title: "mine"},
+		{Repo: "billing", Number: 7, Title: "commented"},
+	}
+	requested := []adapter.PullRequest{
+		{Repo: "auth-service", Number: 101, Title: "mine (dupe)"},
+		{Repo: "gateway", Number: 42, Title: "review me"},
+	}
+
+	got := dedupePRs(involved, requested)
+	if len(got) != 3 {
+		t.Fatalf("got %d PRs, want 3 (deduped): %+v", len(got), got)
+	}
+	// involves: results lead in original order; new review-requested PRs append.
+	want := []struct {
+		repo string
+		num  int
+	}{{"auth-service", 101}, {"billing", 7}, {"gateway", 42}}
+	for i, w := range want {
+		if got[i].Repo != w.repo || got[i].Number != w.num {
+			t.Errorf("PR[%d] = %s#%d, want %s#%d", i, got[i].Repo, got[i].Number, w.repo, w.num)
+		}
+	}
+	// The first occurrence wins, so the duplicate's title is discarded.
+	if got[0].Title != "mine" {
+		t.Errorf("deduped PR kept title %q, want first occurrence %q", got[0].Title, "mine")
 	}
 }
 

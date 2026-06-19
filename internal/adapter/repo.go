@@ -12,6 +12,10 @@ type RepoAdapter interface {
 	SetPRDescription(ctx context.Context, repo string, prNumber int, body string) error
 	// RequestedReviews returns PRs where the current user is a requested reviewer.
 	RequestedReviews(ctx context.Context, user string) ([]PullRequest, error)
+	// InvolvedPRs returns open PRs that involve the user in any capacity —
+	// authored, assigned, review-requested, or mentioned. Unlike
+	// RequestedReviews, this includes the user's own PRs.
+	InvolvedPRs(ctx context.Context, user string) ([]PullRequest, error)
 	// OpenDraftPR opens a DRAFT pull request from head into base, returning its
 	// number and URL. Draft-only by design: merge stays a human action, so no
 	// merge call is exposed on this interface.
