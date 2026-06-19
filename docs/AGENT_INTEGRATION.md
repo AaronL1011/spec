@@ -79,6 +79,10 @@ is policy, not a baked-in requirement:
   `registry/v1` shape: `kind: layer|modifier`, `applies_to: ["<repo>", "layer:<tag>"]`
   (flat, prefixed), `path:` repo-root-relative, plus a top-level `modifiers:` list.
   The legacy nested `applies_to`/`modifier: true` forms are still accepted.
+  Modifiers compose for a repo's nodes whether or not a layer skill matches, so
+  a registry that declares only modifiers still routes them. A `registry.yaml`
+  may also carry a `conventions:` block (e.g. `pr_title`) that spec-cli applies
+  mechanically, independent of the active router.
 - **`none` / discovery.** Routes nothing; `skillPaths` is empty and the harness
   discovers skills itself (e.g. pi/Claude scanning `.agents/skills/`).
 
@@ -116,7 +120,7 @@ ref, so you never compute or pass one.
 | `spec_node_complete(node_id)` | Marks the node done and captures its diff into cumulative context. |
 | `spec_node_failed(node_id, reason)` | Records a failure for resume/reporting. Do not start downstream dependents of a failed node. |
 | `spec_push(node_id)` | Pushes the node's branch from its worktree. |
-| `spec_open_pr(node_id, title?, body?)` | Opens a **draft** PR (head = node branch, base = recorded base ref). Records `{number,url}` and annotates §7.3. *Finishing tool — gated by strategy.* |
+| `spec_open_pr(node_id, type?, summary?, title?, body?)` | Opens a **draft** PR (head = node branch, base = recorded base ref). Pass `type`+`summary` and spec-cli applies the node repo's `pr_title` convention, filling `{type}`/`{epic}`/`{desc}` (`{epic}` from the spec's `epic_key`); pass `title` to override entirely. Records `{number,url}` and annotates §7.3. *Finishing tool — gated by strategy.* |
 | `spec_link_prs()` / `spec_link_prs(node_id, base)` | Re-chains the stack, or retargets one node's base as parents merge. *Finishing tool — gated by strategy.* |
 
 Finishing tools (`spec_push`, `spec_open_pr`, `spec_link_prs`) are only present
