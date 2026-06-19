@@ -83,6 +83,9 @@ func TestRepo_AllNoops(t *testing.T) {
 	if prs, err := r.RequestedReviews(ctx, "user"); prs != nil || err != nil {
 		t.Errorf("RequestedReviews = (%v, %v), want (nil, nil)", prs, err)
 	}
+	if prs, err := r.InvolvedPRs(ctx, "user"); prs != nil || err != nil {
+		t.Errorf("InvolvedPRs = (%v, %v), want (nil, nil)", prs, err)
+	}
 }
 
 func TestAgent_AllNoops(t *testing.T) {

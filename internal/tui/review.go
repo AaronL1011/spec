@@ -220,7 +220,7 @@ func (m reviewModel) fetchData() tea.Cmd {
 		if reg == nil {
 			return reviewDataMsg{}
 		}
-		prs, err := reg.Repo().RequestedReviews(context.Background(), rc.IdentityForCategory("repo"))
+		prs, err := reg.Repo().InvolvedPRs(context.Background(), rc.IdentityForCategory("repo"))
 		if err != nil {
 			return reviewDataMsg{Err: err}
 		}
