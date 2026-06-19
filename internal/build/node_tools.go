@@ -59,9 +59,19 @@ func (s *MCPServer) toolProvisionNode(args json.RawMessage) (*MCPToolResult, err
 		return nil, err
 	}
 
+	// Ensure the repo's default branch is current with origin before a base is
+	// cut from it. Without this, a root node branches off a stale local default
+	// (e.g. local `main` behind `origin/main`) and the whole build inherits
+	// already-changed code and dead assumptions. The refreshed default is the
+	// remote-tracking ref so roots start from up-to-date code by construction.
+	defaultBranch, err := s.freshDefaultBranch(ctx, repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("refreshing base for node %s: %w", node.NodeID(), err)
+	}
+
 	branch := gitpkg.SpecBranchName(s.session.SpecID, node.Number, node.Description)
 	integrationName := fmt.Sprintf("%s-integrate", branch)
-	baseRef, err := gitpkg.ComputeBaseRef(ctx, repoPath, "", parentBranches, integrationName)
+	baseRef, err := gitpkg.ComputeBaseRef(ctx, repoPath, defaultBranch, parentBranches, integrationName)
 	if err != nil {
 		return nil, fmt.Errorf("computing base ref for node %s: %w", node.NodeID(), err)
 	}
@@ -114,6 +124,40 @@ func (s *MCPServer) parentBranchesInRepo(node PRStep) ([]string, error) {
 		branches = append(branches, branch)
 	}
 	return branches, nil
+}
+
+// freshDefaultBranch returns the ref a root node should branch from, after
+// bringing the repo's default branch up to date with origin. When the repo
+// tracks an origin remote it fetches once per session (memoised) and returns the
+// remote-tracking ref `origin/<default>`, so roots are cut from up-to-date code
+// by construction instead of a possibly-stale local branch. A fetch failure is
+// surfaced as an actionable error rather than silently falling back to stale
+// code. Purely-local repos (no origin) cannot be stale, so the local default is
+// used as-is.
+func (s *MCPServer) freshDefaultBranch(ctx context.Context, repoPath string) (string, error) {
+	defaultBranch := gitpkg.DefaultBranch(ctx, repoPath)
+	if !gitpkg.HasOriginRemote(ctx, repoPath) {
+		return defaultBranch, nil
+	}
+
+	s.fetchMu.Lock()
+	defer s.fetchMu.Unlock()
+	if !s.fetchedRepos[repoPath] {
+		if err := gitpkg.Fetch(ctx, repoPath); err != nil {
+			return "", fmt.Errorf(
+				"fetching origin for %s — the base may be stale; restore connectivity and retry: %w",
+				repoPath, err)
+		}
+		s.fetchedRepos[repoPath] = true
+	}
+
+	remoteRef := "origin/" + defaultBranch
+	if _, err := gitpkg.RevParse(ctx, repoPath, remoteRef); err != nil {
+		// Origin has no such branch yet (e.g. a brand-new repo not yet pushed) —
+		// the local default is the only base available.
+		return defaultBranch, nil
+	}
+	return remoteRef, nil
 }
 
 // toolNodeComplete marks a node complete and captures its diff keyed by node id.

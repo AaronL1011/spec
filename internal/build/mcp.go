@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/markdown"
@@ -25,6 +26,12 @@ type MCPServer struct {
 	// repo is the GitHub (or noop) adapter used by the PR tools. It may be nil
 	// in contexts that never call them; the tools guard against that.
 	repo adapter.RepoAdapter
+	// fetchedRepos memoises which source repos have had their base branch
+	// refreshed from origin this session, so provisioning fetches each repo at
+	// most once (the first node into it) rather than per node. Guarded by
+	// fetchMu because provision calls can interleave.
+	fetchedRepos map[string]bool
+	fetchMu      sync.Mutex
 }
 
 // WithRepo injects the repo adapter used by the draft-PR tools and returns the
@@ -41,12 +48,13 @@ func (s *MCPServer) WithRepo(r adapter.RepoAdapter) *MCPServer {
 // descriptive DAG resource rather than a panic.
 func NewMCPServer(session *SessionState, buildCtx *BuildContext, db *store.DB, specPath string, opts Options) *MCPServer {
 	s := &MCPServer{
-		session:  session,
-		ctx:      buildCtx,
-		db:       db,
-		specPath: specPath,
-		opts:     opts,
-		strategy: newBuildStrategy(opts),
+		session:      session,
+		ctx:          buildCtx,
+		db:           db,
+		specPath:     specPath,
+		opts:         opts,
+		strategy:     newBuildStrategy(opts),
+		fetchedRepos: map[string]bool{},
 	}
 	if session != nil {
 		if g, err := BuildGraph(session.Steps); err == nil {
@@ -346,12 +354,14 @@ var finishingToolSpecs = map[string]ToolSpec{
 	},
 	"spec_open_pr": {
 		Name:        "spec_open_pr",
-		Description: "Open a DRAFT PR for a node (head=node branch, base=its stack base). Returns { number, url, base }. Idempotent.",
+		Description: "Open a DRAFT PR for a node (head=node branch, base=its stack base). Pass type+summary and spec-cli applies the repo's pr_title convention ({type}/{epic}/{desc}); pass title to override it entirely. Returns { number, url, base }. Idempotent.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"node_id": map[string]interface{}{"type": "string", "description": "DAG node id"},
-				"title":   map[string]interface{}{"type": "string", "description": "Optional PR title"},
+				"type":    map[string]interface{}{"type": "string", "description": "Conventional-commit type (feat/fix/chore/...) for the repo's pr_title convention"},
+				"summary": map[string]interface{}{"type": "string", "description": "One-line description for the {desc} slot; defaults to the node description"},
+				"title":   map[string]interface{}{"type": "string", "description": "Optional explicit title; overrides the repo convention"},
 				"body":    map[string]interface{}{"type": "string", "description": "Optional PR body"},
 			},
 			"required": []string{"node_id"},

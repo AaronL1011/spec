@@ -165,17 +165,42 @@ func (e skillRegistryEntry) isModifier() bool {
 }
 
 // skillRegistryFile is the parsed registry.yaml. modifiers lists the names (or
-// paths) of cross-cutting skills always appended once a layer skill matches.
+// paths) of cross-cutting skills always appended for a repo's nodes.
 type skillRegistryFile struct {
-	Version   string               `yaml:"version"`
-	Skills    []skillRegistryEntry `yaml:"skills"`
-	Modifiers []string             `yaml:"modifiers"`
+	Version     string               `yaml:"version"`
+	Skills      []skillRegistryEntry `yaml:"skills"`
+	Modifiers   []string             `yaml:"modifiers"`
+	Conventions registryConventions  `yaml:"conventions"`
+}
+
+// registryConventions are repo-level build conventions declared in
+// registry.yaml. They are repo policy that spec-cli applies mechanically (it
+// owns the substitution mechanism, not the values' meaning), so the contract
+// stays agnostic of any particular build system. Conventions are independent of
+// the active skill router: they are read straight from the registry file, so
+// they apply even under router=none.
+type registryConventions struct {
+	// PRTitle is a template for draft-PR titles with {type}, {epic}, and {desc}
+	// placeholders. Empty means spec-cli uses its default title.
+	PRTitle string `yaml:"pr_title"`
+}
+
+// conventionsForRepo returns the build conventions declared in a repo's
+// registry.yaml, or the zero value when no registry is present. It does not go
+// through the SkillRouter: conventions are repo policy, not routing.
+func conventionsForRepo(repoPath string) registryConventions {
+	reg, _, ok := loadSkillRegistry(repoPath)
+	if !ok || reg == nil {
+		return registryConventions{}
+	}
+	return reg.Conventions
 }
 
 // skillRegistryForNode performs registry-driven, per-node skill routing. It
-// returns (paths, true) when a registry exists and the node matches at least
-// one layer skill; otherwise (nil, false) so the caller falls back to
-// discovery. An unmatched layer therefore degrades gracefully without error.
+// returns (paths, true) when a registry exists and routes at least one skill to
+// the node — a matched layer skill, an auto-composed modifier, or both;
+// otherwise (nil, false) so the caller falls back to discovery. A registry that
+// routes nothing to the node therefore degrades gracefully without error.
 func skillRegistryForNode(repoPath string, node PRStep) ([]string, bool) {
 	c, ok := composeRegistry(repoPath, node)
 	if !ok {
@@ -204,8 +229,10 @@ type composition struct {
 
 // composeRegistry resolves a node against the repo's registry, collecting both
 // the routed skill paths and the quality gates from the matched layer skill plus
-// any auto-composed modifiers. It returns ok=false when no registry is present
-// or the node matches no layer skill (so the caller falls back to discovery).
+// any auto-composed modifiers. Modifiers compose for the repo's nodes even when
+// no layer skill matches, so a modifier-only registry still routes. It returns
+// ok=false only when no registry is present or the registry routes nothing to
+// the node (so the caller falls back to discovery).
 func composeRegistry(repoPath string, node PRStep) (composition, bool) {
 	reg, skillsDir, ok := loadSkillRegistry(repoPath)
 	if !ok {
@@ -244,14 +271,15 @@ func composeRegistry(repoPath string, node PRStep) (composition, bool) {
 			addGates(e.QualityGates)
 		}
 	}
-	if !matched {
-		return composition{}, false
-	}
 
-	// Auto-composed modifiers ride along once a layer skill matched. Only the
-	// top-level `modifiers:` list (and legacy `modifier: true` entries) are
-	// auto-on; a bare `kind: modifier` entry is declared-but-opt-in (e.g. a
-	// glossary a human invokes), so it is not composed automatically.
+	// Auto-composed modifiers are repo-wide cross-cutting skills: they compose
+	// for any node routed to this repo's registry, whether or not a layer skill
+	// matched. This lets a repo whose registry declares only modifiers (no layer
+	// skill authored yet) still route them, instead of silently degrading to
+	// discovery and routing nothing. Only the top-level `modifiers:` list (and
+	// legacy `modifier: true` entries) are auto-on; a bare `kind: modifier` entry
+	// is declared-but-opt-in (e.g. a glossary a human invokes), so it is not
+	// composed automatically.
 	byName := make(map[string]skillRegistryEntry, len(reg.Skills))
 	for _, e := range reg.Skills {
 		byName[e.Name] = e
@@ -261,12 +289,24 @@ func composeRegistry(repoPath string, node PRStep) (composition, bool) {
 		}
 	}
 	for _, m := range reg.Modifiers {
-		addSkill(m)
 		if e, ok := byName[m]; ok {
+			// A modifier listed by name that is also declared in skills[] resolves
+			// through that entry's ref (its explicit path), not the bare name — so
+			// it loads even when registry.yaml and the skill dirs live in different
+			// locations (e.g. registry in .spec/agent/skills, dirs in .agents/skills).
+			addSkill(skillRef(e))
 			addGates(e.QualityGates)
+		} else {
+			addSkill(m)
 		}
 	}
 
+	// The registry contributes nothing when no layer matched and it declares no
+	// auto-composed modifiers — fall back to discovery rather than routing an
+	// empty set.
+	if !matched && len(c.skills) == 0 {
+		return composition{}, false
+	}
 	return c, true
 }
 

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/markdown"
 )
 
 // prResult is the JSON payload returned by spec_open_pr.
@@ -44,9 +46,11 @@ func (s *MCPServer) toolPush(args json.RawMessage) (*MCPToolResult, error) {
 // the ledger. Idempotent: a node that already has a PR returns it unchanged.
 func (s *MCPServer) toolOpenPR(args json.RawMessage) (*MCPToolResult, error) {
 	var p struct {
-		NodeID string `json:"node_id"`
-		Title  string `json:"title"`
-		Body   string `json:"body"`
+		NodeID  string `json:"node_id"`
+		Type    string `json:"type"`
+		Summary string `json:"summary"`
+		Title   string `json:"title"`
+		Body    string `json:"body"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
 		return nil, err
@@ -73,7 +77,7 @@ func (s *MCPServer) toolOpenPR(args json.RawMessage) (*MCPToolResult, error) {
 
 	title := p.Title
 	if title == "" {
-		title = fmt.Sprintf("%s %s: %s", s.session.SpecID, p.NodeID, node.Description)
+		title = s.composePRTitle(node, p.Type, p.Summary)
 	}
 	number, url, err := s.repo.OpenDraftPR(context.Background(), node.Repo, ledger.Branch, ledger.BaseRef, title, p.Body)
 	if err != nil {
@@ -142,6 +146,54 @@ func (s *MCPServer) toolLinkPRs(args json.RawMessage) (*MCPToolResult, error) {
 		count++
 	}
 	return &MCPToolResult{Success: true, Message: fmt.Sprintf("Linked %d PR(s) to their stack bases.", count)}, nil
+}
+
+// composePRTitle builds a draft-PR title for a node when the caller did not
+// supply an explicit one. spec-cli applies the node repo's pr_title convention,
+// filling the slots it owns deterministically: {type} (caller-supplied conv.
+// commit type), {epic} (the spec's epic_key), and {desc} (the caller's summary,
+// or the node description). With no convention configured it falls back to a
+// stable default so a build without registry conventions still names PRs
+// sensibly. The template's meaning lives in the repo's registry, not here, so
+// the title policy stays out of spec-cli.
+func (s *MCPServer) composePRTitle(node PRStep, typ, summary string) string {
+	desc := strings.TrimSpace(summary)
+	if desc == "" {
+		desc = node.Description
+	}
+	repoPath, err := s.repoPathForNode(node)
+	if err != nil || repoPath == "" {
+		repoPath = s.session.WorkDir
+	}
+	if title := renderPRTitle(conventionsForRepo(repoPath).PRTitle, strings.TrimSpace(typ), s.epicKey(), desc); title != "" {
+		return title
+	}
+	return fmt.Sprintf("%s %s: %s", s.session.SpecID, node.NodeID(), node.Description)
+}
+
+// epicKey returns the spec's epic_key for the {epic} convention slot, or ""
+// when the spec has none or cannot be read.
+func (s *MCPServer) epicKey() string {
+	if s.specPath == "" {
+		return ""
+	}
+	meta, err := markdown.ReadMeta(s.specPath)
+	if err != nil || meta == nil {
+		return ""
+	}
+	return meta.EpicKey
+}
+
+// renderPRTitle applies a pr_title convention template, substituting {type},
+// {epic}, and {desc}. An empty template yields "" so the caller falls back to
+// its default. Whitespace left by an empty slot (e.g. a missing epic in
+// "{type}: {epic} {desc}") is collapsed so the title stays tidy.
+func renderPRTitle(template, typ, epic, desc string) string {
+	if strings.TrimSpace(template) == "" {
+		return ""
+	}
+	replaced := strings.NewReplacer("{type}", typ, "{epic}", epic, "{desc}", desc).Replace(template)
+	return strings.Join(strings.Fields(replaced), " ")
 }
 
 // graphNode returns a node from the graph, falling back to a linear scan of the

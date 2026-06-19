@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -130,6 +132,79 @@ func TestLinkPRs_RetargetsStack(t *testing.T) {
 	}
 	if len(fake.retargets) != 1 || fake.retargets[0].base != "main" {
 		t.Errorf("expected single retarget to main, got %v", fake.retargets)
+	}
+}
+
+// TestRenderPRTitle covers the pr_title template substitution, including the
+// whitespace collapse that keeps a title tidy when a slot (e.g. epic) is empty.
+func TestRenderPRTitle(t *testing.T) {
+	cases := []struct{ name, tmpl, typ, epic, desc, want string }{
+		{"conventional", "{type}: {epic} {desc}", "feat", "PLAT-1", "do it", "feat: PLAT-1 do it"},
+		{"empty epic collapses", "{type}: {epic} {desc}", "fix", "", "patch", "fix: patch"},
+		{"bracketed epic", "[{epic}] {desc}", "", "EPIC-9", "ship", "[EPIC-9] ship"},
+		{"empty template falls back", "", "feat", "E", "d", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := renderPRTitle(c.tmpl, c.typ, c.epic, c.desc); got != c.want {
+				t.Errorf("renderPRTitle = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestOpenPR_AppliesRepoTitleConvention verifies spec_open_pr renders the node
+// repo's pr_title convention from type+summary, with {epic} taken from the
+// spec's epic_key — the contract pr-finisher relies on.
+func TestOpenPR_AppliesRepoTitleConvention(t *testing.T) {
+	srv, _ := newDAGServer(t)
+	fake := &fakeRepo{}
+	srv.WithRepo(fake)
+
+	repoPath := srv.opts.Workspaces["svc"]
+	skillsDir := filepath.Join(repoPath, ".agents", "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	registry := `version: "1"
+conventions:
+  pr_title: "{type}: {epic} {desc}"
+skills:
+  - name: svc-layer
+    kind: layer
+    path: svc-layer
+    applies_to: ["svc"]
+`
+	writeSkill(t, skillsDir, "svc-layer", "# svc")
+	if err := os.WriteFile(filepath.Join(skillsDir, "registry.yaml"), []byte(registry), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	specPath := filepath.Join(t.TempDir(), "SPEC-800.md")
+	if err := os.WriteFile(specPath, []byte("---\nid: SPEC-800\nepic_key: PLAT-42\n---\n# Spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv.specPath = specPath
+
+	provision(t, srv, "n1")
+	res, err := srv.CallTool("spec_open_pr", json.RawMessage(`{"node_id":"n1","type":"feat","summary":"add the widget"}`))
+	if err != nil || !res.Success {
+		t.Fatalf("open_pr: %v / %s", err, res.Message)
+	}
+	if len(fake.opened) != 1 {
+		t.Fatalf("want 1 PR opened, got %d", len(fake.opened))
+	}
+	if got, want := fake.opened[0].title, "feat: PLAT-42 add the widget"; got != want {
+		t.Errorf("PR title = %q, want %q", got, want)
+	}
+
+	// An explicit title overrides the convention.
+	provision(t, srv, "n2")
+	if _, err := srv.CallTool("spec_open_pr", json.RawMessage(`{"node_id":"n2","type":"feat","summary":"ignored","title":"Custom title"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.opened[1].title; got != "Custom title" {
+		t.Errorf("explicit title = %q, want %q", got, "Custom title")
 	}
 }
 

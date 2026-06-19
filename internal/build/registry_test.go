@@ -267,3 +267,116 @@ func TestSkillRegistry_LegacyModifierBool(t *testing.T) {
 		t.Errorf("legacy modifier bool routing = %v", names)
 	}
 }
+
+// TestSkillRegistry_ModifierOnlyRoutesWithoutLayer verifies a registry that
+// declares only modifiers (no layer skill yet) still routes those modifiers to
+// the repo's nodes instead of degrading to discovery. This is the nexl360 case:
+// frontend modifiers with no dedicated layer skill authored yet.
+func TestSkillRegistry_ModifierOnlyRoutesWithoutLayer(t *testing.T) {
+	repo := t.TempDir()
+	skillsDir := filepath.Join(repo, ".agents", "skills")
+	writeSkill(t, skillsDir, "tdd", "# tdd")
+	writeSkill(t, skillsDir, "css-layouts", "# css")
+	registry := `version: "1"
+modifiers:
+  - tdd
+  - css-layouts
+skills:
+  - name: tdd
+    kind: modifier
+    path: .agents/skills/tdd
+  - name: css-layouts
+    kind: modifier
+    path: .agents/skills/css-layouts
+`
+	if err := os.WriteFile(filepath.Join(skillsDir, "registry.yaml"), []byte(registry), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := skillRegistryForNode(repo, PRStep{Repo: "nexl360"})
+	if !ok {
+		t.Fatal("modifier-only registry should route its modifiers")
+	}
+	names := skillNames(got)
+	for _, want := range []string{"tdd", "css-layouts"} {
+		if !contains(names, want) {
+			t.Errorf("routed %v missing modifier %q", names, want)
+		}
+	}
+}
+
+// TestConventionsForRepo verifies the pr_title convention is parsed from a
+// repo's registry.yaml and that a repo without a registry yields the zero value.
+func TestConventionsForRepo(t *testing.T) {
+	repo := t.TempDir()
+	skillsDir := filepath.Join(repo, ".agents", "skills")
+	writeSkill(t, skillsDir, "layer", "# l")
+	registry := `version: "1"
+conventions:
+  pr_title: "[{epic}] {desc}"
+skills:
+  - name: layer
+    kind: layer
+    path: layer
+    applies_to: ["r"]
+`
+	if err := os.WriteFile(filepath.Join(skillsDir, "registry.yaml"), []byte(registry), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := conventionsForRepo(repo).PRTitle; got != "[{epic}] {desc}" {
+		t.Errorf("pr_title = %q, want \"[{epic}] {desc}\"", got)
+	}
+	if got := conventionsForRepo(t.TempDir()).PRTitle; got != "" {
+		t.Errorf("expected empty convention with no registry, got %q", got)
+	}
+}
+
+// TestSkillRegistry_ModifierByName_SplitLocation guards the real-world install
+// layout where registry.yaml lives in .spec/agent/skills but the skill dirs
+// live in .agents/skills, and the top-level modifiers: list references skills
+// by bare name. The named modifiers must resolve through their declared
+// skills[] path, not the bare name (which only the registry's own dir would
+// satisfy).
+func TestSkillRegistry_ModifierByName_SplitLocation(t *testing.T) {
+	repo := t.TempDir()
+	// Skill dirs under .agents/skills.
+	agentsSkills := filepath.Join(repo, ".agents", "skills")
+	writeSkill(t, agentsSkills, "hexagonal-architecture", "# hex")
+	writeSkill(t, agentsSkills, "test-driven-development", "# tdd")
+	writeSkill(t, agentsSkills, "deep-review", "# review")
+	// Registry under the legacy .spec/agent/skills location.
+	legacyDir := filepath.Join(repo, agentDir, "skills")
+	registry := `version: "1"
+modifiers:
+  - test-driven-development
+  - deep-review
+skills:
+  - name: hexagonal-architecture
+    kind: layer
+    path: .agents/skills/hexagonal-architecture
+    applies_to: ["nexl-ai-agent"]
+  - name: test-driven-development
+    kind: modifier
+    path: .agents/skills/test-driven-development
+  - name: deep-review
+    kind: modifier
+    path: .agents/skills/deep-review
+`
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "registry.yaml"), []byte(registry), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := skillRegistryForNode(repo, PRStep{Repo: "nexl-ai-agent"})
+	if !ok {
+		t.Fatal("expected routing")
+	}
+	names := skillNames(got)
+	for _, want := range []string{"hexagonal-architecture", "test-driven-development", "deep-review"} {
+		if !contains(names, want) {
+			t.Errorf("routed %v missing %q (named modifier failed to resolve across split locations)", names, want)
+		}
+	}
+}

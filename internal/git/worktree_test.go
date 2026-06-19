@@ -87,6 +87,24 @@ func TestAddAndRemoveWorktree(t *testing.T) {
 	}
 }
 
+func TestHasOriginRemote(t *testing.T) {
+	ctx := context.Background()
+
+	// A freshly-init'd repo has no remotes.
+	local := initWorktreeRepo(t)
+	if HasOriginRemote(ctx, local) {
+		t.Error("repo with no remote should report HasOriginRemote=false")
+	}
+
+	// Add an origin remote and it flips to true (no fetch required).
+	if _, err := Run(ctx, local, "remote", "add", "origin", "https://example.com/x.git"); err != nil {
+		t.Fatalf("remote add: %v", err)
+	}
+	if !HasOriginRemote(ctx, local) {
+		t.Error("repo with an origin remote should report HasOriginRemote=true")
+	}
+}
+
 func TestComputeBaseRef(t *testing.T) {
 	ctx := context.Background()
 	repo := initWorktreeRepo(t)

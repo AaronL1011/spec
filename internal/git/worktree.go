@@ -45,6 +45,14 @@ func DefaultBranch(ctx context.Context, repoPath string) string {
 	return "main"
 }
 
+// HasOriginRemote reports whether repoPath has an `origin` remote configured.
+// Purely-local repos (no origin) cannot be stale relative to a remote, so
+// callers skip the freshness fetch for them.
+func HasOriginRemote(ctx context.Context, repoPath string) bool {
+	out, err := Run(ctx, repoPath, "remote", "get-url", "origin")
+	return err == nil && strings.TrimSpace(out) != ""
+}
+
 // AddWorktree creates (or re-attaches) a git worktree for branch in repoPath and
 // returns its directory. When the branch does not yet exist it is created at
 // baseRef; an empty baseRef defaults to HEAD. If a worktree for the branch

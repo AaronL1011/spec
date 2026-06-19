@@ -58,7 +58,17 @@
     "modifiers": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Names (or paths) of cross-cutting skills auto-composed onto every node that matches at least one layer skill. This is the auto-compose selector: a kind:modifier skill not listed here is available but not auto-applied."
+      "description": "Names (or paths) of cross-cutting skills auto-composed onto the repo's nodes. They compose whether or not a layer skill matches, so a registry that declares only modifiers (no layer skill yet) still routes them. This is the auto-compose selector: a kind:modifier skill not listed here is available but not auto-applied."
+    },
+    "conventions": {
+      "type": "object",
+      "description": "Repo-level build conventions spec-cli applies mechanically. Independent of the active skill router (read even under router=none). Additive within registry/v1.",
+      "properties": {
+        "pr_title": {
+          "type": "string",
+          "description": "Template for draft-PR titles. spec-cli substitutes {type} (the conventional-commit type passed to spec_open_pr), {epic} (the spec's epic_key), and {desc} (the spec_open_pr summary, or the node description). Whitespace left by an empty slot is collapsed. Omit to use spec-cli's default title."
+        }
+      }
     }
   }
 }
