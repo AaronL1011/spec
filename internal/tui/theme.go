@@ -237,6 +237,17 @@ func ThemeNames() []string {
 		"solarized-dark",
 		"solarized-light",
 		"rose-pine",
+		// Curated clean & aesthetic additions (dark, then light).
+		"kanagawa",
+		"everforest-dark",
+		"everforest-light",
+		"github-dark",
+		"github-light",
+		"ayu-mirage",
+		"ayu-light",
+		"modus-vivendi",
+		"modus-operandi",
+		"graphite",
 	}
 }
 
@@ -266,6 +277,26 @@ func ResolveTheme(pref string) Theme {
 		return solarizedLight()
 	case "rose-pine", "rosé-pine":
 		return rosePine()
+	case "kanagawa", "kanagawa-wave":
+		return kanagawa()
+	case "everforest-dark", "everforest":
+		return everforestDark()
+	case "everforest-light":
+		return everforestLight()
+	case "github-dark":
+		return githubDark()
+	case "github-light", "github":
+		return githubLight()
+	case "ayu-mirage":
+		return ayuMirage()
+	case "ayu-light", "ayu":
+		return ayuLight()
+	case "modus-vivendi", "modus-dark":
+		return modusVivendi()
+	case "modus-operandi", "modus-light":
+		return modusOperandi()
+	case "graphite", "mono", "monochrome", "noir":
+		return graphite()
 	default:
 		return autoTheme()
 	}
@@ -495,5 +526,181 @@ func rosePine() Theme {
 		Warning: lipgloss.Color("#f6c177"),
 		Error:   lipgloss.Color("#eb6f92"),
 		Muted:   lipgloss.Color("#6e6a86"),
+	}
+}
+
+// --- Additional themes (curated clean & aesthetic palettes) -------------
+//
+// Each constructor carries a `source:` comment so the upstream palette is
+// auditable. Hex values are the upstream semantic tokens mapped onto spec's
+// 10-role Theme struct; no invented colours unless noted (graphite is bespoke).
+
+// source: https://github.com/rebelot/kanagawa.nvim (wave, default bg=sumiInk3)
+func kanagawa() Theme {
+	return Theme{
+		Base:    lipgloss.Color("#1f1f28"), // sumiInk3 (bg)
+		Surface: lipgloss.Color("#2a2a37"), // sumiInk4 (bg_p1)
+		Overlay: lipgloss.Color("#363646"), // sumiInk5 (bg_p2 / borders)
+		Text:    lipgloss.Color("#dcd7ba"), // fujiWhite
+		SubText: lipgloss.Color("#c8c093"), // oldWhite
+		Muted:   lipgloss.Color("#727169"), // fujiGray (comment)
+		Accent:  lipgloss.Color("#7e9cd8"), // crystalBlue
+		Success: lipgloss.Color("#98bb6c"), // springGreen
+		Warning: lipgloss.Color("#e6c384"), // carpYellow
+		Error:   lipgloss.Color("#c34043"), // autumnRed
+	}
+}
+
+// source: https://github.com/sainnhe/everforest (dark, medium background)
+func everforestDark() Theme {
+	return Theme{
+		Base:    lipgloss.Color("#2d353b"), // bg0
+		Surface: lipgloss.Color("#343f44"), // bg1
+		Overlay: lipgloss.Color("#3d484d"), // bg2
+		Text:    lipgloss.Color("#d3c6aa"), // fg
+		SubText: lipgloss.Color("#9da9a0"), // grey2
+		Muted:   lipgloss.Color("#7a8478"), // grey0
+		Accent:  lipgloss.Color("#7fbbb3"), // blue
+		Success: lipgloss.Color("#a7c080"), // green
+		Warning: lipgloss.Color("#dbbc7f"), // yellow
+		Error:   lipgloss.Color("#e67e80"), // red
+	}
+}
+
+// source: https://github.com/sainnhe/everforest (light, medium background)
+func everforestLight() Theme {
+	return Theme{
+		Base:    lipgloss.Color("#fdf6e3"), // bg0 (light)
+		Surface: lipgloss.Color("#f4f0d9"), // bg1 (light)
+		Overlay: lipgloss.Color("#e6e2cc"), // bg3 (light)
+		Text:    lipgloss.Color("#5c6a72"), // fg (light)
+		SubText: lipgloss.Color("#939f91"), // grey1 (light)
+		Muted:   lipgloss.Color("#a6b0a0"), // grey0 (light)
+		Accent:  lipgloss.Color("#3a94c5"), // blue (light)
+		Success: lipgloss.Color("#8da101"), // green (light)
+		Warning: lipgloss.Color("#dfa000"), // yellow (light)
+		Error:   lipgloss.Color("#f85552"), // red (light)
+	}
+}
+
+// source: https://github.com/primer/primitives (dark, v8 base scale)
+func githubDark() Theme {
+	return Theme{
+		Base:    lipgloss.Color("#0d1117"), // canvas.default
+		Surface: lipgloss.Color("#161b22"), // canvas.subtle
+		Overlay: lipgloss.Color("#30363d"), // border.default
+		Text:    lipgloss.Color("#c9d1d9"), // fg.default
+		SubText: lipgloss.Color("#8b949e"), // fg.muted
+		Muted:   lipgloss.Color("#6e7781"), // fg.subtle
+		Accent:  lipgloss.Color("#58a6ff"), // accent.fg (blue)
+		Success: lipgloss.Color("#3fb950"), // success.fg (green)
+		Warning: lipgloss.Color("#d29922"), // attention.fg (yellow)
+		Error:   lipgloss.Color("#f85149"), // danger.fg (red)
+	}
+}
+
+// source: https://github.com/primer/primitives (light, v8 base scale)
+func githubLight() Theme {
+	return Theme{
+		Base:    lipgloss.Color("#ffffff"), // canvas.default
+		Surface: lipgloss.Color("#f6f8fa"), // canvas.subtle
+		Overlay: lipgloss.Color("#d0d7de"), // border.default
+		Text:    lipgloss.Color("#24292f"), // fg.default
+		SubText: lipgloss.Color("#57606a"), // fg.muted
+		Muted:   lipgloss.Color("#6e7781"), // fg.subtle
+		Accent:  lipgloss.Color("#0969da"), // accent.fg (blue)
+		Success: lipgloss.Color("#1a7f37"), // success.fg (green)
+		Warning: lipgloss.Color("#9a6700"), // attention.fg (yellow)
+		Error:   lipgloss.Color("#cf222e"), // danger.fg (red)
+	}
+}
+
+// source: https://github.com/ayu-theme/ayu-vim (mirage variant)
+func ayuMirage() Theme {
+	return Theme{
+		Base:    lipgloss.Color("#212733"), // bg
+		Surface: lipgloss.Color("#272d38"), // panel
+		Overlay: lipgloss.Color("#3d4751"), // guide
+		Text:    lipgloss.Color("#d9d7ce"), // fg
+		SubText: lipgloss.Color("#607080"), // fg_idle
+		Muted:   lipgloss.Color("#5c6773"), // comment
+		Accent:  lipgloss.Color("#ffcc66"), // accent
+		Success: lipgloss.Color("#bbe67e"), // string
+		Warning: lipgloss.Color("#ffae57"), // keyword
+		Error:   lipgloss.Color("#ff3333"), // error
+	}
+}
+
+// source: https://github.com/ayu-theme/ayu-vim (light variant)
+func ayuLight() Theme {
+	return Theme{
+		Base:    lipgloss.Color("#fafafa"), // bg
+		Surface: lipgloss.Color("#ffffff"), // panel
+		Overlay: lipgloss.Color("#d9d8d7"), // guide
+		Text:    lipgloss.Color("#5c6773"), // fg
+		SubText: lipgloss.Color("#828c99"), // fg_idle
+		Muted:   lipgloss.Color("#abb0b6"), // comment
+		Accent:  lipgloss.Color("#ff6a00"), // accent
+		Success: lipgloss.Color("#86b300"), // string
+		Warning: lipgloss.Color("#ff7733"), // keyword
+		Error:   lipgloss.Color("#ff3333"), // error
+	}
+}
+
+// source: https://github.com/protesilaos/modus-themes (modus-vivendi)
+// Accessibility-first: pure-black bg, pure-white fg, max 7:1 contrast.
+func modusVivendi() Theme {
+	return Theme{
+		Base:    lipgloss.Color("#000000"), // bg-main
+		Surface: lipgloss.Color("#1e1e1e"), // bg-dim
+		Overlay: lipgloss.Color("#646464"), // border
+		Text:    lipgloss.Color("#ffffff"), // fg-main
+		SubText: lipgloss.Color("#989898"), // fg-dim
+		Muted:   lipgloss.Color("#595959"), // mid-neutral (disabled text)
+		Accent:  lipgloss.Color("#2fafff"), // blue
+		Success: lipgloss.Color("#44bc44"), // green
+		Warning: lipgloss.Color("#d0bc00"), // yellow
+		Error:   lipgloss.Color("#ff5f59"), // red
+	}
+}
+
+// source: https://github.com/protesilaos/modus-themes (modus-operandi)
+// Accessibility-first light theme: white bg, black fg, max 7:1 contrast.
+func modusOperandi() Theme {
+	return Theme{
+		Base:    lipgloss.Color("#ffffff"), // bg-main
+		Surface: lipgloss.Color("#f2f2f2"), // bg-dim
+		Overlay: lipgloss.Color("#9f9f9f"), // border
+		Text:    lipgloss.Color("#000000"), // fg-main
+		SubText: lipgloss.Color("#595959"), // fg-dim
+		Muted:   lipgloss.Color("#9f9f9f"), // border (light disabled text)
+		Accent:  lipgloss.Color("#0031a9"), // blue
+		Success: lipgloss.Color("#006800"), // green
+		Warning: lipgloss.Color("#6f5500"), // yellow
+		Error:   lipgloss.Color("#a60000"), // red
+	}
+}
+
+// graphite is a bespoke dark monochrome theme for spec. It is the sole theme
+// here with no upstream: this comment is its source of truth (see
+// docs/THEMES-PLAN.md §3.1). Every structural token is pure neutral gray
+// (R==G==B) so the palette reads as one achromatic family. Semantic tokens
+// are luminance steps of the same gray, ordered by alertness — Error
+// brightest, Warning dimmest — so status remains orderable without hue. spec
+// already conveys status by glyph shape and text colour alone (statusStyles),
+// so dropping hue costs minimal information. Muted sits below SubText so
+// disabled/stale items recede.
+func graphite() Theme {
+	return Theme{
+		Base:    lipgloss.Color("#0e0e0e"),
+		Surface: lipgloss.Color("#161616"),
+		Overlay: lipgloss.Color("#242424"),
+		Text:    lipgloss.Color("#d8d8d8"),
+		SubText: lipgloss.Color("#9a9a9a"),
+		Muted:   lipgloss.Color("#5c5c5c"),
+		Accent:  lipgloss.Color("#a6a6a6"),
+		Success: lipgloss.Color("#c8c8c8"),
+		Warning: lipgloss.Color("#868686"),
+		Error:   lipgloss.Color("#ececec"),
 	}
 }
