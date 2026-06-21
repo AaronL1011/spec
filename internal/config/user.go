@@ -52,7 +52,9 @@ type PreferencesConfig struct {
 	// Theme sets the TUI colour theme.
 	// Valid values: auto (default), catppuccin-mocha, catppuccin-latte,
 	// catppuccin-macchiato, catppuccin-frappe, gruvbox-dark, dracula,
-	// tokyo-night, nord, solarized-dark, solarized-light, rose-pine.
+	// tokyo-night, nord, solarized-dark, solarized-light, rose-pine,
+	// kanagawa, everforest-dark, everforest-light, github-dark, github-light,
+	// ayu-mirage, ayu-light, modus-vivendi, modus-operandi, graphite.
 	Theme string `yaml:"theme,omitempty"`
 
 	// RefreshInterval sets the TUI auto-refresh period (e.g. "30s", "1m").
