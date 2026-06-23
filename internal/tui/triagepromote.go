@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -42,7 +43,7 @@ func promoteTriageItem(rc *config.ResolvedConfig, item triageItem) tea.Cmd {
 		source := item.ID
 
 		// Build the spec content and inject the triage body into §1.
-		specContent := buildPromotedSpec(specID, item.Title, author, cycle, source, item.Body)
+		specContent := buildPromotedSpec(rc, specID, item.Title, author, cycle, source, item.Body)
 
 		err = gitpkg.WithSpecsRepoOpts(ctx, &rc.Team.SpecsRepo, tuiSyncOpts("triage/promote", specID), func(repoPath string) (string, error) {
 			sd := filepath.Join(repoPath, gitpkg.SpecsSubDir)
@@ -74,8 +75,9 @@ func promoteTriageItem(rc *config.ResolvedConfig, item triageItem) tea.Cmd {
 
 // buildPromotedSpec scaffolds a spec and injects the triage body into §1 Problem
 // Statement. If the body is blank the section is left empty (safe fallback).
-func buildPromotedSpec(id, title, author, cycle, source, triageBody string) string {
-	base := markdown.ScaffoldSpec(id, title, author, cycle, source)
+func buildPromotedSpec(rc *config.ResolvedConfig, id, title, author, cycle, source, triageBody string) string {
+	base := markdown.ScaffoldSpecFromConfig(rc.SpecsRepoRoot(), tuiTemplateConfig(rc),
+		markdown.SpecFields{ID: id, Title: title, Author: author, Cycle: cycle, Source: source, Date: time.Now().Format("2006-01-02")})
 	body := sanitiseBodyForSpec(strings.TrimSpace(triageBody))
 	if body == "" {
 		return base

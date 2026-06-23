@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -28,7 +29,8 @@ func createSpec(rc *config.ResolvedConfig, title string) tea.Cmd {
 
 		author := gitpkg.UserName(context.Background())
 		cycle := rc.CycleLabel()
-		content := markdown.ScaffoldSpec(specID, title, author, cycle, "tui")
+		content := markdown.ScaffoldSpecFromConfig(rc.SpecsRepoRoot(), tuiTemplateConfig(rc),
+			markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: "tui", Date: time.Now().Format("2006-01-02")})
 
 		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("new", specID), func(repoPath string) (string, error) {
 			sd := filepath.Join(repoPath, gitpkg.SpecsSubDir)

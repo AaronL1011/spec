@@ -41,6 +41,78 @@ type TeamConfig struct {
 
 	// Build configures the agentic build orchestration (DAG fan-out).
 	Build BuildConfig `yaml:"build,omitempty"`
+
+	// Templates configures custom spec/triage skeleton templates committed
+	// to the specs repo (SPEC-025). Empty falls back to embedded defaults.
+	Templates TemplatesConfig `yaml:"templates,omitempty"`
+}
+
+// TemplatesConfig names the spec/triage template paths inside the specs repo
+// and optional frontmatter defaults seeded into every scaffolded spec.
+//
+// Paths default to the conventional locations (templates/spec.md,
+// templates/triage.md) when left empty, so a team only commits the file to
+// opt in — no config block required.
+//
+// FrontmatterDefaults is an ordered list parsed from a YAML mapping so seeded
+// keys land in config declaration order, keeping frontmatter diffs stable
+// (no YAML round-trip). Computed scaffold fields (id, title, dates, …) always
+// win: a default whose key already appears in the rendered frontmatter is
+// skipped.
+type TemplatesConfig struct {
+	SpecPath   string `yaml:"spec,omitempty"`
+	TriagePath string `yaml:"triage,omitempty"`
+
+	FrontmatterDefaults FrontmatterDefaults `yaml:"frontmatter_defaults,omitempty"`
+}
+
+// KV is an ordered key/value pair. It mirrors markdown.KV without importing
+// the markdown package (config must not depend on internal/markdown), so
+// callers convert at the boundary.
+type KV struct {
+	Key   string
+	Value string
+}
+
+// FrontmatterDefaults is an ordered list of key/value pairs parsed from a YAML
+// mapping, preserving the config's declaration order.
+type FrontmatterDefaults []KV
+
+// UnmarshalYAML parses a YAML mapping into an ordered slice of KV pairs,
+// preserving key order so seeded frontmatter keys land deterministically.
+func (f *FrontmatterDefaults) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return fmt.Errorf("frontmatter_defaults must be a YAML mapping")
+	}
+	out := make(FrontmatterDefaults, 0, len(value.Content))
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		var k, v string
+		if err := value.Content[i].Decode(&k); err != nil {
+			return err
+		}
+		if err := value.Content[i+1].Decode(&v); err != nil {
+			return err
+		}
+		out = append(out, KV{Key: k, Value: v})
+	}
+	*f = out
+	return nil
+}
+
+// EffectiveSpecPath returns the configured spec template path or the default.
+func (t TemplatesConfig) EffectiveSpecPath() string {
+	if t.SpecPath != "" {
+		return t.SpecPath
+	}
+	return "templates/spec.md"
+}
+
+// EffectiveTriagePath returns the configured triage template path or the default.
+func (t TemplatesConfig) EffectiveTriagePath() string {
+	if t.TriagePath != "" {
+		return t.TriagePath
+	}
+	return "templates/triage.md"
 }
 
 // BuildConfig tunes the build engine's DAG orchestration.
@@ -752,4 +824,15 @@ func (r *ResolvedConfig) AIDraftsEnabled() bool {
 		return false
 	}
 	return r.HasIntegration("ai")
+}
+
+// SpecsRepoRoot returns the local path to the specs repo clone root (the
+// parent of the specs/ sub-directory), or "" when no specs repo is configured.
+// Template files (templates/spec.md, templates/triage.md) are resolved
+// relative to this root.
+func (r *ResolvedConfig) SpecsRepoRoot() string {
+	if r == nil || r.SpecsRepoDir == "" {
+		return ""
+	}
+	return filepath.Dir(r.SpecsRepoDir)
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
@@ -61,7 +62,8 @@ func runNew(cmd *cobra.Command, args []string) error {
 	author := gitpkg.UserName(ctx())
 	cycle := rc.CycleLabel()
 
-	content := markdown.ScaffoldSpec(specID, title, author, cycle, "direct")
+	content := markdown.ScaffoldSpecFromConfig(rc.SpecsRepoRoot(), teamTemplateConfig(rc),
+		markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: "direct", Date: time.Now().Format("2006-01-02")})
 
 	// Write to specs repo via WithSpecsRepo
 	err = gitpkg.WithSpecsRepoOpts(ctx(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
@@ -69,7 +70,8 @@ func runPromote(cmd *cobra.Command, args []string) error {
 	cycle := rc.CycleLabel()
 	source := triageID
 
-	content := markdown.ScaffoldSpec(specID, title, author, cycle, source)
+	content := markdown.ScaffoldSpecFromConfig(rc.SpecsRepoRoot(), teamTemplateConfig(rc),
+		markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: source, Date: time.Now().Format("2006-01-02")})
 
 	var newSpecID string
 
