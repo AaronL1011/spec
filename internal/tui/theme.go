@@ -237,7 +237,6 @@ func ThemeNames() []string {
 		"solarized-dark",
 		"solarized-light",
 		"rose-pine",
-		// Curated clean & aesthetic additions (dark, then light).
 		"kanagawa",
 		"everforest-dark",
 		"everforest-light",
@@ -529,13 +528,6 @@ func rosePine() Theme {
 	}
 }
 
-// --- Additional themes (curated clean & aesthetic palettes) -------------
-//
-// Each constructor carries a `source:` comment so the upstream palette is
-// auditable. Hex values are the upstream semantic tokens mapped onto spec's
-// 10-role Theme struct; no invented colours unless noted (graphite is bespoke).
-
-// source: https://github.com/rebelot/kanagawa.nvim (wave, default bg=sumiInk3)
 func kanagawa() Theme {
 	return Theme{
 		Base:    lipgloss.Color("#1f1f28"), // sumiInk3 (bg)
@@ -551,7 +543,6 @@ func kanagawa() Theme {
 	}
 }
 
-// source: https://github.com/sainnhe/everforest (dark, medium background)
 func everforestDark() Theme {
 	return Theme{
 		Base:    lipgloss.Color("#2d353b"), // bg0
@@ -567,7 +558,6 @@ func everforestDark() Theme {
 	}
 }
 
-// source: https://github.com/sainnhe/everforest (light, medium background)
 func everforestLight() Theme {
 	return Theme{
 		Base:    lipgloss.Color("#fdf6e3"), // bg0 (light)
@@ -583,7 +573,6 @@ func everforestLight() Theme {
 	}
 }
 
-// source: https://github.com/primer/primitives (dark, v8 base scale)
 func githubDark() Theme {
 	return Theme{
 		Base:    lipgloss.Color("#0d1117"), // canvas.default
@@ -599,7 +588,6 @@ func githubDark() Theme {
 	}
 }
 
-// source: https://github.com/primer/primitives (light, v8 base scale)
 func githubLight() Theme {
 	return Theme{
 		Base:    lipgloss.Color("#ffffff"), // canvas.default
@@ -615,7 +603,6 @@ func githubLight() Theme {
 	}
 }
 
-// source: https://github.com/ayu-theme/ayu-vim (mirage variant)
 func ayuMirage() Theme {
 	return Theme{
 		Base:    lipgloss.Color("#212733"), // bg
@@ -631,7 +618,6 @@ func ayuMirage() Theme {
 	}
 }
 
-// source: https://github.com/ayu-theme/ayu-vim (light variant)
 func ayuLight() Theme {
 	return Theme{
 		Base:    lipgloss.Color("#fafafa"), // bg
@@ -647,7 +633,6 @@ func ayuLight() Theme {
 	}
 }
 
-// source: https://github.com/protesilaos/modus-themes (modus-vivendi)
 // Accessibility-first: pure-black bg, pure-white fg, max 7:1 contrast.
 func modusVivendi() Theme {
 	return Theme{
@@ -664,7 +649,6 @@ func modusVivendi() Theme {
 	}
 }
 
-// source: https://github.com/protesilaos/modus-themes (modus-operandi)
 // Accessibility-first light theme: white bg, black fg, max 7:1 contrast.
 func modusOperandi() Theme {
 	return Theme{
@@ -681,15 +665,6 @@ func modusOperandi() Theme {
 	}
 }
 
-// graphite is a bespoke dark monochrome theme for spec. It is the sole theme
-// here with no upstream: this comment is its source of truth (see
-// docs/THEMES-PLAN.md §3.1). Every structural token is pure neutral gray
-// (R==G==B) so the palette reads as one achromatic family. Semantic tokens
-// are luminance steps of the same gray, ordered by alertness — Error
-// brightest, Warning dimmest — so status remains orderable without hue. spec
-// already conveys status by glyph shape and text colour alone (statusStyles),
-// so dropping hue costs minimal information. Muted sits below SubText so
-// disabled/stale items recede.
 func graphite() Theme {
 	return Theme{
 		Base:    lipgloss.Color("#0e0e0e"),
