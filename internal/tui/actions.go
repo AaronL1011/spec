@@ -58,6 +58,22 @@ func tuiSyncOpts(trigger, specID string) gitpkg.SyncOptions {
 	}
 }
 
+// tuiTemplateConfig builds the markdown-local template config from the
+// resolved team config (SPEC-025). Mirrors cmd.teamTemplateConfig; both are
+// trivial boundary converters kept separate because cmd and tui cannot import
+// each other.
+func tuiTemplateConfig(rc *config.ResolvedConfig) markdown.TemplateConfig {
+	var tc markdown.TemplateConfig
+	if rc != nil && rc.Team != nil {
+		tc.SpecPath = rc.Team.Templates.EffectiveSpecPath()
+		tc.TriagePath = rc.Team.Templates.EffectiveTriagePath()
+		for _, kv := range rc.Team.Templates.FrontmatterDefaults {
+			tc.FrontmatterDefaults = append(tc.FrontmatterDefaults, markdown.KV{Key: kv.Key, Value: kv.Value})
+		}
+	}
+	return tc
+}
+
 // pushOutcome maps a committing-action error to an inline status string and a
 // flag for whether the action otherwise succeeded. A queued/offline push is
 // NOT an error in the new model — the commit is durable and the work survives.

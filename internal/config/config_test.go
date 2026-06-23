@@ -699,3 +699,56 @@ func TestUserConfigAgentOverrideRoundTrips(t *testing.T) {
 		t.Errorf("skill = %q (dropped on marshal?)", got.Agent.Get("skill"))
 	}
 }
+
+func TestLoadTeamConfig_TemplatesBlock(t *testing.T) {
+	content := `
+version: "1"
+team:
+  name: "T"
+specs_repo:
+  provider: github
+  owner: o
+  repo: r
+templates:
+  spec: custom/spec.md
+  triage: custom/triage.md
+  frontmatter_defaults:
+    service_area: payments
+    compliance: "sox"
+    priority: high
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadTeamConfig(path)
+	if err != nil {
+		t.Fatalf("LoadTeamConfig: %v", err)
+	}
+	if got := cfg.Templates.EffectiveSpecPath(); got != "custom/spec.md" {
+		t.Errorf("EffectiveSpecPath = %q, want custom/spec.md", got)
+	}
+	if got := cfg.Templates.EffectiveTriagePath(); got != "custom/triage.md" {
+		t.Errorf("EffectiveTriagePath = %q, want custom/triage.md", got)
+	}
+	want := []KV{{"service_area", "payments"}, {"compliance", "sox"}, {"priority", "high"}}
+	if len(cfg.Templates.FrontmatterDefaults) != len(want) {
+		t.Fatalf("defaults len = %d, want %d", len(cfg.Templates.FrontmatterDefaults), len(want))
+	}
+	for i, kv := range cfg.Templates.FrontmatterDefaults {
+		if kv != want[i] {
+			t.Errorf("defaults[%d] = %+v, want %+v (order must be preserved)", i, kv, want[i])
+		}
+	}
+}
+
+func TestTemplatesConfig_DefaultPathsWhenUnset(t *testing.T) {
+	var tc TemplatesConfig
+	if got := tc.EffectiveSpecPath(); got != "templates/spec.md" {
+		t.Errorf("default spec path = %q, want templates/spec.md", got)
+	}
+	if got := tc.EffectiveTriagePath(); got != "templates/triage.md" {
+		t.Errorf("default triage path = %q, want templates/triage.md", got)
+	}
+}
