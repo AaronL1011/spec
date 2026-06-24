@@ -324,14 +324,15 @@ func (m dashboardModel) buildRows() []dashboardRow {
 	review := make([]dashboardRow, 0, len(m.data.Review))
 	for _, item := range m.data.Review {
 		review = append(review, dashboardRow{
-			section:  "REVIEW",
-			icon:     IconReview,
-			specID:   item.SpecID,
-			title:    item.Title,
-			detail:   item.Detail,
-			urgency:  item.Urgency,
-			url:      item.URL,
-			sortRank: urgencyRank(item.Urgency),
+			section:       "REVIEW",
+			icon:          IconReview,
+			specID:        item.SpecID,
+			title:         item.Title,
+			detail:        item.Detail,
+			urgency:       item.Urgency,
+			url:           item.URL,
+			sortRank:      urgencyRank(item.Urgency),
+			staleFraction: item.StaleFraction,
 		})
 	}
 	sortRowsByUrgency(review)

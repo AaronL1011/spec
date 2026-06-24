@@ -98,6 +98,19 @@ func TestStageConfigStaleWindow(t *testing.T) {
 	}
 }
 
+func TestReviewWindow(t *testing.T) {
+	got, ok := DashboardConfig{Review: ReviewConfig{StaleAfter: "2d"}}.ReviewWindow()
+	if !ok || got != 48*time.Hour {
+		t.Errorf("ReviewWindow(2d) = (%v, %v), want (48h, true)", got, ok)
+	}
+	if _, ok := (DashboardConfig{}).ReviewWindow(); ok {
+		t.Error("ReviewWindow() with no review.stale_after should be (_, false)")
+	}
+	if _, ok := (DashboardConfig{Review: ReviewConfig{StaleAfter: "none"}}).ReviewWindow(); ok {
+		t.Error("ReviewWindow(none) should be (_, false)")
+	}
+}
+
 func TestEasingCurveDefault(t *testing.T) {
 	// Unset easing resolves to ease-in; an explicit value is honoured.
 	if got := (DashboardConfig{}).EasingCurve(); got != urgency.EaseIn {

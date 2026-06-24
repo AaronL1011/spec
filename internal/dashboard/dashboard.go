@@ -174,16 +174,21 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 		}
 	}
 
-	// REVIEW section: from repo adapter
+	// REVIEW section: from repo adapter. Rows warm toward red as a PR's age
+	// (now - opened) approaches the opt-in review staleness window.
 	if reg != nil {
+		reviewWindow, _ := dashboardConfig(rc).ReviewWindow()
 		prs, err := reg.Repo().RequestedReviews(ctx, rc.IdentityForCategory("repo"))
 		if err == nil {
 			for _, pr := range prs {
+				frac := ReviewUrgency(reviewWindow, curve, pr.CreatedAt, now)
 				data.Review = append(data.Review, DashboardItem{
-					SpecID: fmt.Sprintf("PR #%d", pr.Number),
-					Title:  pr.Title,
-					Detail: fmt.Sprintf("%s  %s", pr.Repo, timeAgo(pr.CreatedAt)),
-					URL:    pr.URL,
+					SpecID:        fmt.Sprintf("PR #%d", pr.Number),
+					Title:         pr.Title,
+					Detail:        fmt.Sprintf("%s  %s", pr.Repo, timeAgo(pr.CreatedAt)),
+					URL:           pr.URL,
+					StaleFraction: frac,
+					Urgency:       urgencyLabel(frac),
 				})
 			}
 		}
@@ -223,13 +228,30 @@ func viewerFor(rc *config.ResolvedConfig, role string) Viewer {
 	}
 }
 
+// dashboardConfig returns the team dashboard config, or the zero value when
+// team config is absent.
+func dashboardConfig(rc *config.ResolvedConfig) config.DashboardConfig {
+	if rc.Team == nil {
+		return config.DashboardConfig{}
+	}
+	return rc.Team.Dashboard
+}
+
 // dashboardCurve resolves the team's configured easing curve for the urgency
 // gradient, defaulting to ease-in when team config is absent.
 func dashboardCurve(rc *config.ResolvedConfig) urgency.Curve {
-	if rc.Team == nil {
-		return urgency.EaseIn
+	return dashboardConfig(rc).EasingCurve()
+}
+
+// ReviewUrgency computes the eased time-urgency intensity (0..1) for a REVIEW
+// row from the PR's age (now - createdAt) against the configured review window.
+// Returns 0 when no window is configured (window <= 0) or the PR has no opened
+// timestamp, so REVIEW colouring is strictly opt-in.
+func ReviewUrgency(window time.Duration, curve urgency.Curve, createdAt, now time.Time) float64 {
+	if window <= 0 || createdAt.IsZero() {
+		return 0
 	}
-	return rc.Team.Dashboard.EasingCurve()
+	return urgency.Value(now.Sub(createdAt), window, curve)
 }
 
 // StageUrgency computes the eased time-urgency intensity (0..1) for a spec at

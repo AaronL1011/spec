@@ -62,6 +62,36 @@ func TestStageUrgencyFallsBackToUpdated(t *testing.T) {
 	}
 }
 
+func TestReviewUrgency(t *testing.T) {
+	now := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	age := func(d time.Duration) time.Time { return now.Add(-d) }
+	window := 48 * time.Hour
+
+	tests := []struct {
+		name      string
+		window    time.Duration
+		curve     urgency.Curve
+		createdAt time.Time
+		want      float64
+	}{
+		{"fresh PR", window, urgency.EaseIn, age(0), 0},
+		{"half window ease-in", window, urgency.EaseIn, age(24 * time.Hour), 0.25},
+		{"half window linear", window, urgency.Linear, age(24 * time.Hour), 0.5},
+		{"full window", window, urgency.EaseIn, age(48 * time.Hour), 1},
+		{"over window clamps", window, urgency.EaseIn, age(200 * time.Hour), 1},
+		{"no window is never stale", 0, urgency.EaseIn, age(200 * time.Hour), 0},
+		{"zero createdAt is cold", window, urgency.EaseIn, time.Time{}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ReviewUrgency(tt.window, tt.curve, tt.createdAt, now)
+			if math.Abs(got-tt.want) > 1e-9 {
+				t.Errorf("ReviewUrgency = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestUrgencyLabel(t *testing.T) {
 	if urgencyLabel(0.99) != "" {
 		t.Error("fraction below 1 should not be labelled stale")

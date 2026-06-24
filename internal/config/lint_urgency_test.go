@@ -47,6 +47,37 @@ pipeline:
 	}
 }
 
+// TestLint_ReviewStaleAfter validates dashboard.review.stale_after.
+func TestLint_ReviewStaleAfter(t *testing.T) {
+	body := `version: "1"
+dashboard:
+  review:
+    stale_after: 3quux
+`
+	path := writeLintConfig(t, body)
+	res, err := LintTeamConfigFile(path)
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+	if d := findDiag(res.Diagnostics, "review.stale_after"); d == nil {
+		t.Fatal("expected a review.stale_after diagnostic for an unparseable duration")
+	}
+}
+
+func TestLint_ReviewStaleAfterValidIsClean(t *testing.T) {
+	for _, v := range []string{"4h", "2d", "none"} {
+		body := "version: \"1\"\ndashboard:\n  review:\n    stale_after: " + v + "\n"
+		path := writeLintConfig(t, body)
+		res, err := LintTeamConfigFile(path)
+		if err != nil {
+			t.Fatalf("lint: %v", err)
+		}
+		if d := findDiag(res.Diagnostics, "review.stale_after"); d != nil {
+			t.Errorf("valid review.stale_after %q flagged: %+v", v, d)
+		}
+	}
+}
+
 // TestLint_UrgencyEasing validates the dashboard.urgency.easing enum.
 func TestLint_UrgencyEasing(t *testing.T) {
 	body := `version: "1"

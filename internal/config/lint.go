@@ -140,20 +140,33 @@ func lintTeamConfigNode(path string, doc *yaml.Node) []Diagnostic {
 // easing enum.
 func lintDashboardNode(path string, dashNode *yaml.Node) []Diagnostic {
 	var diags []Diagnostic
-	urgNode := mapValue(dashNode, "urgency")
-	if urgNode == nil {
-		return diags
-	}
-	if easeNode := mapValue(urgNode, "easing"); easeNode != nil && easeNode.Value != "" {
-		if _, ok := urgency.ParseCurve(easeNode.Value); !ok {
-			diags = append(diags, Diagnostic{
-				File: path, Line: lineOf(easeNode), Column: easeNode.Column,
-				Severity: SeverityError, Field: "dashboard.urgency.easing",
-				Message:    fmt.Sprintf("unknown easing %q", easeNode.Value),
-				Suggestion: suggest(easeNode.Value, urgency.EasingNames()),
-			})
+
+	if urgNode := mapValue(dashNode, "urgency"); urgNode != nil {
+		if easeNode := mapValue(urgNode, "easing"); easeNode != nil && easeNode.Value != "" {
+			if _, ok := urgency.ParseCurve(easeNode.Value); !ok {
+				diags = append(diags, Diagnostic{
+					File: path, Line: lineOf(easeNode), Column: easeNode.Column,
+					Severity: SeverityError, Field: "dashboard.urgency.easing",
+					Message:    fmt.Sprintf("unknown easing %q", easeNode.Value),
+					Suggestion: suggest(easeNode.Value, urgency.EasingNames()),
+				})
+			}
 		}
 	}
+
+	if revNode := mapValue(dashNode, "review"); revNode != nil {
+		if saNode := mapValue(revNode, "stale_after"); saNode != nil && saNode.Value != "" {
+			if err := validateStaleAfter(saNode.Value); err != nil {
+				diags = append(diags, Diagnostic{
+					File: path, Line: lineOf(saNode), Column: saNode.Column,
+					Severity: SeverityError, Field: "dashboard.review.stale_after",
+					Message:    fmt.Sprintf("invalid stale_after %q: %v", saNode.Value, err),
+					Suggestion: "use a duration like 4h, 2d, 1w, or 'none' to disable",
+				})
+			}
+		}
+	}
+
 	return diags
 }
 

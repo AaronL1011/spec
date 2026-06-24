@@ -44,6 +44,8 @@ dashboard:
   refresh_ttl: 300
   urgency:
     easing: ease-in # linear | ease-in | ease-in-strong
+  review:
+    stale_after: 2d # REVIEW rows warm to red over 2 days of PR age
 
 pipeline:
   stages:
