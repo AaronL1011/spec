@@ -49,9 +49,9 @@ type dashboardRow struct {
 	title         string
 	detail        string
 	urgency       string
-	url           string  // non-empty for REVIEW rows (PR URL)
-	sortRank      int     // lower = higher priority within section
-	staleFraction float64 // eased time-urgency intensity (0..1); 0 = fresh / no window
+	url           string    // non-empty for REVIEW rows (PR URL)
+	sortTime      time.Time // when the item entered its current state; drives oldest-first ordering
+	staleFraction float64   // eased time-urgency intensity (0..1); 0 = fresh / no window
 }
 
 // newDashboard creates a new dashboard view.
@@ -261,29 +261,18 @@ func (m dashboardModel) fetchData() tea.Cmd {
 	}
 }
 
-// urgencyRank maps urgency strings to sort priority (lower = first).
-func urgencyRank(u string) int {
-	switch u {
-	case "critical":
-		return 0
-	case "stale":
-		return 1
-	default:
-		return 2
-	}
-}
-
 func (m dashboardModel) buildRows() []dashboardRow {
 	if m.data == nil {
 		return nil
 	}
 
-	// Build rows per section, sort by urgency within each, then
+	// Build rows per section, sort oldest-first within each, then
 	// assemble in priority order: BLOCKED → DO → REVIEW → INCOMING.
 	// Blocked first because blocked items are the most urgent signal
 	// (something is stuck and may be blocking others). DO next because
 	// those are your active responsibilities. REVIEW and INCOMING are
-	// awareness items.
+	// awareness items. Within every section the oldest item leads, so the
+	// thing that has waited longest is always at the top.
 
 	blocked := make([]dashboardRow, 0, len(m.data.Blocked))
 	for _, item := range m.data.Blocked {
@@ -294,9 +283,10 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			title:    item.Title,
 			detail:   item.Detail,
 			urgency:  "critical",
-			sortRank: 0,
+			sortTime: item.SortTime,
 		})
 	}
+	sortRowsByOldest(blocked)
 
 	do := make([]dashboardRow, 0, len(m.data.Do))
 	for _, item := range m.data.Do {
@@ -315,11 +305,11 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			title:         item.Title,
 			detail:        detail,
 			urgency:       item.Urgency,
-			sortRank:      urgencyRank(item.Urgency),
+			sortTime:      item.SortTime,
 			staleFraction: item.StaleFraction,
 		})
 	}
-	sortRowsByUrgency(do)
+	sortRowsByOldest(do)
 
 	review := make([]dashboardRow, 0, len(m.data.Review))
 	for _, item := range m.data.Review {
@@ -331,11 +321,11 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			detail:        item.Detail,
 			urgency:       item.Urgency,
 			url:           item.URL,
-			sortRank:      urgencyRank(item.Urgency),
+			sortTime:      item.SortTime,
 			staleFraction: item.StaleFraction,
 		})
 	}
-	sortRowsByUrgency(review)
+	sortRowsByOldest(review)
 
 	incoming := make([]dashboardRow, 0, len(m.data.Incoming))
 	for _, item := range m.data.Incoming {
@@ -350,10 +340,10 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			title:    item.Title,
 			detail:   item.Stage,
 			urgency:  item.Urgency,
-			sortRank: urgencyRank(item.Urgency),
+			sortTime: item.SortTime,
 		})
 	}
-	sortRowsByUrgency(incoming)
+	sortRowsByOldest(incoming)
 
 	// Assemble in priority order. Sections with no items are skipped.
 	var rows []dashboardRow
@@ -364,9 +354,23 @@ func (m dashboardModel) buildRows() []dashboardRow {
 	return rows
 }
 
-func sortRowsByUrgency(rows []dashboardRow) {
+// sortRowsByOldest orders rows oldest-first by the time each item entered its
+// current state. Rows with a known time lead, earliest first; rows with no
+// timestamp sort last in their original (stable) order so they never jump the
+// queue ahead of genuinely-aged items.
+func sortRowsByOldest(rows []dashboardRow) {
 	slices.SortStableFunc(rows, func(a, b dashboardRow) int {
-		return a.sortRank - b.sortRank
+		az, bz := a.sortTime.IsZero(), b.sortTime.IsZero()
+		switch {
+		case az && bz:
+			return 0
+		case az:
+			return 1
+		case bz:
+			return -1
+		default:
+			return a.sortTime.Compare(b.sortTime)
+		}
 	})
 }
 
