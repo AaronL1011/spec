@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/aaronl1011/spec/internal/urgency"
 	"gopkg.in/yaml.v3"
 )
 
@@ -235,6 +236,22 @@ type DashboardConfig struct {
 	StaleThreshold string        `yaml:"stale_threshold"`
 	RefreshTTL     int           `yaml:"refresh_ttl"`
 	Blocked        BlockedConfig `yaml:"blocked,omitempty"`
+	Urgency        UrgencyConfig `yaml:"urgency,omitempty"`
+}
+
+// UrgencyConfig tunes the time-urgency gradient shared by the dashboard DO
+// section and the pipeline screen.
+type UrgencyConfig struct {
+	// Easing selects how the raw dwell fraction is shaped into colour intensity:
+	// "linear", "ease-in" (default), or "ease-in-strong".
+	Easing string `yaml:"easing,omitempty"`
+}
+
+// EasingCurve resolves the configured easing name to an urgency.Curve,
+// defaulting to ease-in when unset or unrecognised.
+func (d DashboardConfig) EasingCurve() urgency.Curve {
+	curve, _ := urgency.ParseCurve(d.Urgency.Easing)
+	return curve
 }
 
 // Blocked scope constants govern which blocked specs appear in a viewer's
@@ -380,6 +397,9 @@ func LoadTeamConfig(path string) (*TeamConfig, error) {
 	}
 	if cfg.Dashboard.StaleThreshold == "" {
 		cfg.Dashboard.StaleThreshold = "48h"
+	}
+	if cfg.Dashboard.Urgency.Easing == "" {
+		cfg.Dashboard.Urgency.Easing = urgency.EasingEaseIn
 	}
 	if cfg.Sync.ConflictStrategy == "" {
 		cfg.Sync.ConflictStrategy = "warn"

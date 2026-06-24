@@ -216,6 +216,7 @@ queued and retried; `spec sync --pm` reconciles a drifted board on demand and
 `spec status <id>` flags a spec whose Jira card is out of sync.
 
 **Enable runbook:**
+
 1. Set `email` plus `board_id`/`fields` as needed.
 2. Run `spec config check` to validate credentials and print the live workflow
    statuses.
@@ -374,6 +375,8 @@ and which blocked specs surface in the **BLOCKED** section.
 dashboard:
   stale_threshold: 48h        # Age after which a spec is marked stale (default: 48h)
   refresh_ttl: 300            # Cache TTL in seconds (default: 300)
+  urgency:                    # Time-urgency gradient (see below)
+    easing: ease-in           # linear | ease-in (default) | ease-in-strong
   blocked:                    # Scope the BLOCKED section (default: every role sees every blocked spec)
     visible_to: [tl, engineer]  # Roles allowed to see BLOCKED. Empty/omitted = all roles.
     scope: owning_role          # all (default) | involved | owning_role
@@ -383,8 +386,33 @@ dashboard:
 |---|---|---|
 | `stale_threshold` | `48h` | Time-in-stage after which a spec is flagged stale. |
 | `refresh_ttl` | `300` | Seconds the dashboard caches aggregated data. |
+| `urgency.easing` | `ease-in` | Curve shaping the [time-urgency gradient](#time-urgency-gradient): `linear`, `ease-in`, or `ease-in-strong`. |
 | `blocked.visible_to` | all roles | Roles that may see the BLOCKED section at all. A role not listed sees no BLOCKED section. |
 | `blocked.scope` | `all` | Which blocked specs a permitted role sees: `all` (every blocked spec), `involved` (only specs you author or are assigned), `owning_role` (only specs whose pre-block stage your role owned). |
+
+#### Time-urgency gradient
+
+A task's **whole row** on the dashboard **DO** section and the **pipeline screen**
+progressively shifts colour — from primary text through yellow, amber, and orange
+to red — the longer it dwells in its current stage. This creates gentle,
+estimation-free time pressure: a felt "ship it or trim scope" nudge.
+
+The intensity is `ease(dwell / stale_after)`, where:
+
+- **`dwell`** is measured from `stage_entered_at` (stamped in the spec's
+  frontmatter on every stage transition), falling back to the `updated` date for
+  legacy specs. Editing a spec does **not** reset it — only advancing/reverting does.
+- **`stale_after`** is set [per pipeline stage](#stage-fields). **A stage with no
+  `stale_after` is never stale and shows no colouring** — there is no global
+  fallback window. Set it only on stages where dwell matters (e.g. `build`,
+  `engineering`), and leave it off holding stages like `done` or `monitoring`.
+- **`easing`** shapes the curve. `ease-in` (default) keeps rows cool for most of
+  the window and intensifies near the deadline; `linear` ramps evenly;
+  `ease-in-strong` stays cool even longer then spikes.
+
+The colours derive from the active theme (no hardcoded hues), so the gradient
+stays correct on light, dark, and accessibility palettes; monochrome themes
+(e.g. `graphite`) ramp by brightness, and `NO_COLOR` disables it entirely.
 
 `owning_role` reads the `blocked_from` frontmatter field, which `spec eject`
 records automatically when a spec is blocked. Because the team standup already
@@ -487,6 +515,7 @@ pipeline:
   icon: 🔧                   # Emoji shown in pipeline views.
   optional: false             # true = skippable without error.
   skip_when: "label == 'bug'" # Expression; when true, stage is auto-skipped on advance.
+  stale_after: 5d             # Dwell window for the time-urgency gradient. Omit = never stale.
   gates: []                   # Conditions that must pass before advancing. See Gates.
   warnings: []                # Time-based alerts. See Warnings.
   transitions:                # Custom advance/revert behaviour. See Transitions.
@@ -507,6 +536,12 @@ owner: [pm, tl]
 ```
 
 Valid roles: `pm`, `tl`, `designer`, `qa`, `engineer`
+
+**`stale_after`** sets this stage's dwell window for the
+[time-urgency gradient](#time-urgency-gradient). Accepts `m`/`h`/`d`/`w` units
+(`30m`, `48h`, `5d`, `2w`). Omit it, or set `none`/`0`, to make the stage never
+stale (no colouring). There is no global fallback — only stages with an explicit
+`stale_after` show the gradient.
 
 ### Dashboard scope
 

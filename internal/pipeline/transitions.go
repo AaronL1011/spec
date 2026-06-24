@@ -26,6 +26,7 @@ func Advance(path string, meta *markdown.SpecMeta, target string) (*AdvanceResul
 
 	meta.Status = result.NewStage
 	meta.Updated = time.Now().Format("2006-01-02")
+	meta.StageEnteredAt = stageEntryStamp()
 
 	if err := markdown.WriteMeta(path, meta); err != nil {
 		return nil, fmt.Errorf("writing updated status: %w", err)
@@ -34,12 +35,20 @@ func Advance(path string, meta *markdown.SpecMeta, target string) (*AdvanceResul
 	return result, nil
 }
 
+// stageEntryStamp returns the current time formatted for the stage_entered_at
+// frontmatter field. RFC3339 (sub-day precision) so dwell windows shorter than
+// a day work correctly, unlike the day-granularity Updated field.
+func stageEntryStamp() string {
+	return time.Now().UTC().Format(time.RFC3339)
+}
+
 // Revert sends a spec back to a previous stage.
 func Revert(path string, meta *markdown.SpecMeta, targetStage, reason, user string) error {
 	previousStage := meta.Status
 	meta.Status = targetStage
 	meta.RevertCount++
 	meta.Updated = time.Now().Format("2006-01-02")
+	meta.StageEnteredAt = stageEntryStamp()
 
 	if err := markdown.WriteMeta(path, meta); err != nil {
 		return fmt.Errorf("writing reverted status: %w", err)
@@ -93,6 +102,7 @@ func Eject(path string, meta *markdown.SpecMeta, reason, user string) (*EjectRes
 	// `spec resume` can restore the stage without parsing the escape-hatch log.
 	meta.BlockedFrom = meta.Status
 	meta.Status = StatusBlocked
+	meta.StageEnteredAt = stageEntryStamp()
 	finalContent, err := replaceFrontmatterInContent(newContent, meta)
 	if err != nil {
 		return nil, err
@@ -114,6 +124,7 @@ func Resume(path string, meta *markdown.SpecMeta, previousStage string) error {
 	meta.Status = previousStage
 	meta.BlockedFrom = "" // cleared on restore; only meaningful while blocked
 	meta.Updated = time.Now().Format("2006-01-02")
+	meta.StageEnteredAt = stageEntryStamp()
 
 	return markdown.WriteMeta(path, meta)
 }

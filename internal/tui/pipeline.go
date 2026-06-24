@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/dashboard"
 	"github.com/aaronl1011/spec/internal/markdown"
 )
 
@@ -31,6 +33,9 @@ type pipelineSpec struct {
 	ID      string
 	Title   string
 	Updated string
+	// staleFraction is the eased time-urgency intensity (0..1) for this spec at
+	// its current stage; 0 = fresh or the stage has no stale window.
+	staleFraction float64
 }
 
 // pipelineModel shows all specs grouped by pipeline stage.
@@ -308,8 +313,18 @@ func (m pipelineModel) renderPipelineRow(spec pipelineSpec, selected bool) strin
 		}
 	}
 
+	// The eased time-urgency gradient colours the whole row; the ramp foreground
+	// is composed over the selection background so urgency stays visible while
+	// selected (AC-7).
 	if selected {
-		return m.styles.RowSelected.Render(line)
+		style := m.styles.RowSelected
+		if spec.staleFraction > 0 {
+			style = style.Foreground(m.styles.Theme.RampColor(spec.staleFraction))
+		}
+		return style.Render(line)
+	}
+	if spec.staleFraction > 0 {
+		return m.styles.RowNormal.Foreground(m.styles.Theme.RampColor(spec.staleFraction)).Render(line)
 	}
 	return m.styles.RowNormal.Render(line)
 }
@@ -394,6 +409,11 @@ func loadPipelineData(ctx context.Context, rc *config.ResolvedConfig) ([]pipelin
 	syncErr := syncSpecsRepo(ctx, rc)
 
 	pl := rc.Pipeline()
+	curve := config.DashboardConfig{}.EasingCurve()
+	if rc.Team != nil {
+		curve = rc.Team.Dashboard.EasingCurve()
+	}
+	now := time.Now()
 
 	// Build a map of stage name → specs.
 	specsByStage := make(map[string][]pipelineSpec)
@@ -412,9 +432,10 @@ func loadPipelineData(ctx context.Context, rc *config.ResolvedConfig) ([]pipelin
 			continue
 		}
 		specsByStage[meta.Status] = append(specsByStage[meta.Status], pipelineSpec{
-			ID:      meta.ID,
-			Title:   meta.Title,
-			Updated: meta.Updated,
+			ID:            meta.ID,
+			Title:         meta.Title,
+			Updated:       meta.Updated,
+			staleFraction: dashboard.StageUrgency(pl, curve, meta.Status, meta.StageEnteredAt, meta.Updated, now),
 		})
 	}
 

@@ -27,6 +27,13 @@ type SpecMeta struct {
 	Created     string   `yaml:"created"`
 	Updated     string   `yaml:"updated"`
 
+	// StageEnteredAt records when the spec entered its current stage (RFC3339).
+	// It drives the time-urgency gradient's dwell calculation and is stamped on
+	// every stage transition (advance/revert/eject/resume). Unlike Updated it is
+	// NOT reset by ordinary edits, so editing a spec does not reset its
+	// staleness. Legacy specs without it fall back to Updated.
+	StageEnteredAt string `yaml:"stage_entered_at,omitempty"`
+
 	// Assignees are the people responsible for moving the spec at its current
 	// stage. Drives personal dashboard scope (assignee-scoped stages). Empty
 	// means the spec is unclaimed and surfaces to the whole owning role.

@@ -1,7 +1,10 @@
 // Package config handles loading and resolution of team and user configuration.
 package config
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // PipelineConfig defines the configurable pipeline stages.
 type PipelineConfig struct {
@@ -147,6 +150,13 @@ type StageConfig struct {
 	// automatically skipped during advancement.
 	SkipWhen string `yaml:"skip_when,omitempty"`
 
+	// StaleAfter is the dwell window for the time-urgency gradient: once a spec
+	// has spent this long in this stage, its dashboard/pipeline row reaches full
+	// urgency. Accepts m/h/d/w units (e.g. "30m", "48h", "5d", "2w"). Empty,
+	// "none", or "0" means the stage is never stale and shows no colouring —
+	// there is no global fallback window.
+	StaleAfter string `yaml:"stale_after,omitempty"`
+
 	// Gates are conditions that must be satisfied to advance from this stage.
 	Gates []GateConfig `yaml:"gates,omitempty"`
 
@@ -243,6 +253,13 @@ func (a *AutoAdvanceConfig) IsEnabled() bool {
 		return true
 	}
 	return *a.Enabled
+}
+
+// StaleWindow parses StaleAfter into a duration. ok is false when the stage has
+// no configured window (empty, "none", or "0", or an unparseable value), meaning
+// the stage is never stale.
+func (s StageConfig) StaleWindow() (window time.Duration, ok bool) {
+	return parseStaleWindow(s.StaleAfter)
 }
 
 // GetOwner returns the effective owner as a display string.
