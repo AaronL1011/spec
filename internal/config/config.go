@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/aaronl1011/spec/internal/urgency"
 	"gopkg.in/yaml.v3"
 )
 
@@ -235,6 +237,39 @@ type DashboardConfig struct {
 	StaleThreshold string        `yaml:"stale_threshold"`
 	RefreshTTL     int           `yaml:"refresh_ttl"`
 	Blocked        BlockedConfig `yaml:"blocked,omitempty"`
+	Urgency        UrgencyConfig `yaml:"urgency,omitempty"`
+	Review         ReviewConfig  `yaml:"review,omitempty"`
+}
+
+// UrgencyConfig tunes the time-urgency gradient shared by the dashboard DO
+// section and the pipeline screen.
+type UrgencyConfig struct {
+	// Easing selects how the raw dwell fraction is shaped into colour intensity:
+	// "linear", "ease-in" (default), or "ease-in-strong".
+	Easing string `yaml:"easing,omitempty"`
+}
+
+// ReviewConfig tunes the REVIEW section of the dashboard.
+type ReviewConfig struct {
+	// StaleAfter is the review-age window for the time-urgency gradient on
+	// REVIEW rows, measured from when the PR was opened. Accepts m/h/d/w units
+	// (e.g. "4h", "2d"). Empty, "none", or "0" (the default) means review rows
+	// are never coloured — the gradient is opt-in, with no global fallback.
+	StaleAfter string `yaml:"stale_after,omitempty"`
+}
+
+// ReviewWindow parses the REVIEW staleness window. ok is false when no window
+// is configured (empty, "none", "0", or unparseable), meaning REVIEW rows are
+// never stale.
+func (d DashboardConfig) ReviewWindow() (window time.Duration, ok bool) {
+	return parseStaleWindow(d.Review.StaleAfter)
+}
+
+// EasingCurve resolves the configured easing name to an urgency.Curve,
+// defaulting to ease-in when unset or unrecognised.
+func (d DashboardConfig) EasingCurve() urgency.Curve {
+	curve, _ := urgency.ParseCurve(d.Urgency.Easing)
+	return curve
 }
 
 // Blocked scope constants govern which blocked specs appear in a viewer's
@@ -380,6 +415,9 @@ func LoadTeamConfig(path string) (*TeamConfig, error) {
 	}
 	if cfg.Dashboard.StaleThreshold == "" {
 		cfg.Dashboard.StaleThreshold = "48h"
+	}
+	if cfg.Dashboard.Urgency.Easing == "" {
+		cfg.Dashboard.Urgency.Easing = urgency.EasingEaseIn
 	}
 	if cfg.Sync.ConflictStrategy == "" {
 		cfg.Sync.ConflictStrategy = "warn"

@@ -14,6 +14,7 @@ import (
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/urgency"
 )
 
 // DashboardItem represents a single item in a dashboard section.
@@ -25,6 +26,11 @@ type DashboardItem struct {
 	Urgency  string `json:"urgency"` // "normal", "stale", "critical"
 	URL      string `json:"url,omitempty"`
 	Assignee string `json:"assignee,omitempty"` // assignee label or "unclaimed" for DO rows
+
+	// StaleFraction is the eased time-urgency intensity (0..1) for this row,
+	// driving the gradient colour. 0 means fresh or the stage has no stale
+	// window (never stale).
+	StaleFraction float64 `json:"stale_fraction,omitempty"`
 }
 
 // DashboardData holds all dashboard sections.
@@ -123,6 +129,8 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 	pl := rc.Pipeline()
 	viewer := viewerFor(rc, role)
 	blockedCfg := blockedConfig(rc)
+	curve := dashboardCurve(rc)
+	now := time.Now()
 
 	// DO section: specs scoped to the viewer by stage dashboard scope.
 	// BLOCKED section: blocked specs scoped by the team blocked config.
@@ -141,11 +149,14 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 					continue
 				}
 				if VisibleInDo(pl, view, viewer) {
+					frac := StageUrgency(pl, curve, s.Status, s.StageEnteredAt, s.Updated, now)
 					data.Do = append(data.Do, DashboardItem{
-						SpecID:   s.ID,
-						Title:    s.Title,
-						Stage:    s.Status,
-						Assignee: doAssigneeLabel(pl, s),
+						SpecID:        s.ID,
+						Title:         s.Title,
+						Stage:         s.Status,
+						Assignee:      doAssigneeLabel(pl, s),
+						StaleFraction: frac,
+						Urgency:       urgencyLabel(frac),
 					})
 				}
 			}
@@ -163,16 +174,21 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 		}
 	}
 
-	// REVIEW section: from repo adapter
+	// REVIEW section: from repo adapter. Rows warm toward red as a PR's age
+	// (now - opened) approaches the opt-in review staleness window.
 	if reg != nil {
+		reviewWindow, _ := dashboardConfig(rc).ReviewWindow()
 		prs, err := reg.Repo().RequestedReviews(ctx, rc.IdentityForCategory("repo"))
 		if err == nil {
 			for _, pr := range prs {
+				frac := ReviewUrgency(reviewWindow, curve, pr.CreatedAt, now)
 				data.Review = append(data.Review, DashboardItem{
-					SpecID: fmt.Sprintf("PR #%d", pr.Number),
-					Title:  pr.Title,
-					Detail: fmt.Sprintf("%s  %s", pr.Repo, timeAgo(pr.CreatedAt)),
-					URL:    pr.URL,
+					SpecID:        fmt.Sprintf("PR #%d", pr.Number),
+					Title:         pr.Title,
+					Detail:        fmt.Sprintf("%s  %s", pr.Repo, timeAgo(pr.CreatedAt)),
+					URL:           pr.URL,
+					StaleFraction: frac,
+					Urgency:       urgencyLabel(frac),
 				})
 			}
 		}
@@ -182,12 +198,14 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 }
 
 type specInfo struct {
-	ID          string
-	Title       string
-	Status      string
-	Author      string
-	Assignees   []string
-	BlockedFrom string
+	ID             string
+	Title          string
+	Status         string
+	Author         string
+	Assignees      []string
+	BlockedFrom    string
+	StageEnteredAt string
+	Updated        string
 }
 
 // view projects a specInfo into the resolver's SpecView.
@@ -208,6 +226,80 @@ func viewerFor(rc *config.ResolvedConfig, role string) Viewer {
 		Handle:     rc.CanonicalHandle(),
 		Identities: rc.UserIdentities(),
 	}
+}
+
+// dashboardConfig returns the team dashboard config, or the zero value when
+// team config is absent.
+func dashboardConfig(rc *config.ResolvedConfig) config.DashboardConfig {
+	if rc.Team == nil {
+		return config.DashboardConfig{}
+	}
+	return rc.Team.Dashboard
+}
+
+// dashboardCurve resolves the team's configured easing curve for the urgency
+// gradient, defaulting to ease-in when team config is absent.
+func dashboardCurve(rc *config.ResolvedConfig) urgency.Curve {
+	return dashboardConfig(rc).EasingCurve()
+}
+
+// ReviewUrgency computes the eased time-urgency intensity (0..1) for a REVIEW
+// row from the PR's age (now - createdAt) against the configured review window.
+// Returns 0 when no window is configured (window <= 0) or the PR has no opened
+// timestamp, so REVIEW colouring is strictly opt-in.
+func ReviewUrgency(window time.Duration, curve urgency.Curve, createdAt, now time.Time) float64 {
+	if window <= 0 || createdAt.IsZero() {
+		return 0
+	}
+	return urgency.Value(now.Sub(createdAt), window, curve)
+}
+
+// StageUrgency computes the eased time-urgency intensity (0..1) for a spec at
+// stageName, from its stage-entry time against the stage's configured stale
+// window. Returns 0 when the stage has no window (never stale) or the entry
+// time cannot be resolved. Shared by the dashboard and the pipeline screen so
+// a task reads at the same intensity on both.
+func StageUrgency(pl config.PipelineConfig, curve urgency.Curve, stageName, stageEnteredAt, updated string, now time.Time) float64 {
+	stage := pl.StageByName(stageName)
+	if stage == nil {
+		return 0
+	}
+	window, ok := stage.StaleWindow()
+	if !ok {
+		return 0
+	}
+	entered, ok := parseStageEntry(stageEnteredAt, updated)
+	if !ok {
+		return 0
+	}
+	return urgency.Value(now.Sub(entered), window, curve)
+}
+
+// parseStageEntry resolves when a spec entered its current stage. It prefers the
+// RFC3339 stage_entered_at stamp and falls back to the day-granularity updated
+// date for legacy specs written before the field existed.
+func parseStageEntry(stageEnteredAt, updated string) (time.Time, bool) {
+	if stageEnteredAt != "" {
+		if t, err := time.Parse(time.RFC3339, stageEnteredAt); err == nil {
+			return t, true
+		}
+	}
+	if updated != "" {
+		if t, err := time.Parse("2006-01-02", updated); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// urgencyLabel derives the legacy discrete urgency string from the continuous
+// fraction so existing icon/sort logic keeps working: a fully-elapsed window
+// (f>=1) reads as "stale".
+func urgencyLabel(f float64) string {
+	if f >= 1 {
+		return "stale"
+	}
+	return ""
 }
 
 // blockedConfig returns the team BLOCKED-section config, or the zero value
@@ -239,12 +331,14 @@ func loadSpecs(rc *config.ResolvedConfig) ([]specInfo, error) {
 			continue
 		}
 		specs = append(specs, specInfo{
-			ID:          meta.ID,
-			Title:       meta.Title,
-			Status:      meta.Status,
-			Author:      meta.Author,
-			Assignees:   meta.Assignees,
-			BlockedFrom: meta.BlockedFrom,
+			ID:             meta.ID,
+			Title:          meta.Title,
+			Status:         meta.Status,
+			Author:         meta.Author,
+			Assignees:      meta.Assignees,
+			BlockedFrom:    meta.BlockedFrom,
+			StageEnteredAt: meta.StageEnteredAt,
+			Updated:        meta.Updated,
 		})
 	}
 	return specs, nil

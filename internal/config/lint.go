@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/aaronl1011/spec/internal/urgency"
 	"gopkg.in/yaml.v3"
 )
 
@@ -128,6 +129,44 @@ func lintTeamConfigNode(path string, doc *yaml.Node) []Diagnostic {
 		diags = append(diags, lintPipelineNode(path, pipelineNode)...)
 	}
 
+	if dashNode := mapValue(root, "dashboard"); dashNode != nil {
+		diags = append(diags, lintDashboardNode(path, dashNode)...)
+	}
+
+	return diags
+}
+
+// lintDashboardNode validates the dashboard block: currently the urgency
+// easing enum.
+func lintDashboardNode(path string, dashNode *yaml.Node) []Diagnostic {
+	var diags []Diagnostic
+
+	if urgNode := mapValue(dashNode, "urgency"); urgNode != nil {
+		if easeNode := mapValue(urgNode, "easing"); easeNode != nil && easeNode.Value != "" {
+			if _, ok := urgency.ParseCurve(easeNode.Value); !ok {
+				diags = append(diags, Diagnostic{
+					File: path, Line: lineOf(easeNode), Column: easeNode.Column,
+					Severity: SeverityError, Field: "dashboard.urgency.easing",
+					Message:    fmt.Sprintf("unknown easing %q", easeNode.Value),
+					Suggestion: suggest(easeNode.Value, urgency.EasingNames()),
+				})
+			}
+		}
+	}
+
+	if revNode := mapValue(dashNode, "review"); revNode != nil {
+		if saNode := mapValue(revNode, "stale_after"); saNode != nil && saNode.Value != "" {
+			if err := validateStaleAfter(saNode.Value); err != nil {
+				diags = append(diags, Diagnostic{
+					File: path, Line: lineOf(saNode), Column: saNode.Column,
+					Severity: SeverityError, Field: "dashboard.review.stale_after",
+					Message:    fmt.Sprintf("invalid stale_after %q: %v", saNode.Value, err),
+					Suggestion: "use a duration like 4h, 2d, 1w, or 'none' to disable",
+				})
+			}
+		}
+	}
+
 	return diags
 }
 
@@ -186,6 +225,18 @@ func lintStageNode(path string, idx int, stageNode *yaml.Node) []Diagnostic {
 					Suggestion: suggest(scopeNode.Value, validDoScopes),
 				})
 			}
+		}
+	}
+
+	// stale_after must be empty, "none", "0", or a parseable m/h/d/w duration.
+	if saNode := mapValue(stageNode, "stale_after"); saNode != nil && saNode.Value != "" {
+		if err := validateStaleAfter(saNode.Value); err != nil {
+			diags = append(diags, Diagnostic{
+				File: path, Line: lineOf(saNode), Column: saNode.Column,
+				Severity: SeverityError, Field: field + ".stale_after",
+				Message:    fmt.Sprintf("invalid stale_after %q: %v", saNode.Value, err),
+				Suggestion: "use a duration like 30m, 48h, 5d, 2w, or 'none' to disable",
+			})
 		}
 	}
 

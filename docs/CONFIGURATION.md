@@ -216,6 +216,7 @@ queued and retried; `spec sync --pm` reconciles a drifted board on demand and
 `spec status <id>` flags a spec whose Jira card is out of sync.
 
 **Enable runbook:**
+
 1. Set `email` plus `board_id`/`fields` as needed.
 2. Run `spec config check` to validate credentials and print the live workflow
    statuses.
@@ -374,6 +375,10 @@ and which blocked specs surface in the **BLOCKED** section.
 dashboard:
   stale_threshold: 48h        # Age after which a spec is marked stale (default: 48h)
   refresh_ttl: 300            # Cache TTL in seconds (default: 300)
+  urgency:                    # Time-urgency gradient (see below)
+    easing: ease-in           # linear | ease-in (default) | ease-in-strong
+  review:                     # Time-urgency gradient for the REVIEW section
+    stale_after: 2d           # PR review-age window. Omit/none = never coloured (default)
   blocked:                    # Scope the BLOCKED section (default: every role sees every blocked spec)
     visible_to: [tl, engineer]  # Roles allowed to see BLOCKED. Empty/omitted = all roles.
     scope: owning_role          # all (default) | involved | owning_role
@@ -383,13 +388,46 @@ dashboard:
 |---|---|---|
 | `stale_threshold` | `48h` | Time-in-stage after which a spec is flagged stale. |
 | `refresh_ttl` | `300` | Seconds the dashboard caches aggregated data. |
+| `urgency.easing` | `ease-in` | Curve shaping the [time-urgency gradient](#time-urgency-gradient): `linear`, `ease-in`, or `ease-in-strong`. |
+| `review.stale_after` | _(unset)_ | Opt-in review-age window for the [time-urgency gradient](#time-urgency-gradient) on REVIEW rows. Omit, `none`, or `0` = never coloured. |
 | `blocked.visible_to` | all roles | Roles that may see the BLOCKED section at all. A role not listed sees no BLOCKED section. |
 | `blocked.scope` | `all` | Which blocked specs a permitted role sees: `all` (every blocked spec), `involved` (only specs you author or are assigned), `owning_role` (only specs whose pre-block stage your role owned). |
+
+#### Time-urgency gradient
+
+A task's **whole row** on the dashboard **DO** section and the **pipeline screen**
+progressively shifts colour — from primary text through yellow, amber, and orange
+to red — the longer it dwells in its current stage. This creates gentle,
+estimation-free time pressure: a felt "ship it or trim scope" nudge.
+
+The intensity is `ease(dwell / stale_after)`, where:
+
+- **`dwell`** is measured from `stage_entered_at` (stamped in the spec's
+  frontmatter on every stage transition), falling back to the `updated` date for
+  legacy specs. Editing a spec does **not** reset it — only advancing/reverting does.
+- **`stale_after`** is set [per pipeline stage](#stage-fields). **A stage with no
+  `stale_after` is never stale and shows no colouring** — there is no global
+  fallback window. Set it only on stages where dwell matters (e.g. `build`,
+  `engineering`), and leave it off holding stages like `done` or `monitoring`.
+- **`easing`** shapes the curve. `ease-in` (default) keeps rows cool for most of
+  the window and intensifies near the deadline; `linear` ramps evenly;
+  `ease-in-strong` stays cool even longer then spikes.
+
+The colours derive from the active theme (no hardcoded hues), so the gradient
+stays correct on light, dark, and accessibility palettes; monochrome themes
+(e.g. `graphite`) ramp by brightness, and `NO_COLOR` disables it entirely.
+
+The **REVIEW** section uses the same gradient and `easing`, but on a different
+clock: intensity is `ease(pr_age / review.stale_after)`, where `pr_age` is how
+long the pull request has been open (the same timestamp behind the "_2d_" label
+on the row). It is opt-in — set `dashboard.review.stale_after` to enable it;
+left unset, REVIEW rows are never coloured. (Note: `pr_age` is measured from
+when the PR was opened, not from when review was requested of you.)
 
 `owning_role` reads the `blocked_from` frontmatter field, which `spec eject`
 records automatically when a spec is blocked. Because the team standup already
 rolls up every blocker, a common pattern is `scope: involved` here so each
-person's dashboard shows only *their own* stuck work while the TL gets the
+person's dashboard shows only _their own_ stuck work while the TL gets the
 team-wide view from standup.
 
 The **DO** section is scoped separately, per stage — see
@@ -487,6 +525,7 @@ pipeline:
   icon: 🔧                   # Emoji shown in pipeline views.
   optional: false             # true = skippable without error.
   skip_when: "label == 'bug'" # Expression; when true, stage is auto-skipped on advance.
+  stale_after: 5d             # Dwell window for the time-urgency gradient. Omit = never stale.
   gates: []                   # Conditions that must pass before advancing. See Gates.
   warnings: []                # Time-based alerts. See Warnings.
   transitions:                # Custom advance/revert behaviour. See Transitions.
@@ -508,15 +547,21 @@ owner: [pm, tl]
 
 Valid roles: `pm`, `tl`, `designer`, `qa`, `engineer`
 
+**`stale_after`** sets this stage's dwell window for the
+[time-urgency gradient](#time-urgency-gradient). Accepts `m`/`h`/`d`/`w` units
+(`30m`, `48h`, `5d`, `2w`). Omit it, or set `none`/`0`, to make the stage never
+stale (no colouring). There is no global fallback — only stages with an explicit
+`stale_after` show the gradient.
+
 ### Dashboard scope
 
-By default a spec appears in the **DO** section of the dashboard for *everyone*
+By default a spec appears in the **DO** section of the dashboard for _everyone_
 whose role owns its current stage. On a team with several engineers that floods
 each dashboard with the whole role's work. Per-stage `dashboard.do_scope`
 narrows DO to the person actually responsible, using two spec concepts:
 
 - **author** — who originated the spec (frontmatter `author`, set at `spec new`).
-- **assignees** — who is responsible for moving it *now* (frontmatter
+- **assignees** — who is responsible for moving it _now_ (frontmatter
   `assignees`). Set with `spec assign`, claimed in the TUI with `g c`, or
   claimed automatically when you run `spec build` / `spec do` on an
   assignee-scoped stage.
@@ -544,7 +589,7 @@ The full pipeline stays visible to everyone via the dashboard and `spec list` �
 scope only narrows the focused DO section, never hides work outright.
 
 **Identity matching.** Assignees and author are matched against the user's
-configured `name` *and* `handle` (case-insensitive, a leading `@` is ignored),
+configured `name` _and_ `handle` (case-insensitive, a leading `@` is ignored),
 so `@maximo`, `maximo`, and `Maximo` all resolve to the same person.
 
 #### Assigning work
@@ -768,7 +813,7 @@ user:
 `owner_role` drives all role-aware commands (`spec list`, dashboard queue, passive awareness).
 Missing `owner_role` prints a setup prompt on any role-aware command.
 
-**`handle`** is your *spec-canonical* identity — a stable token that identifies
+**`handle`** is your _spec-canonical_ identity — a stable token that identifies
 you inside spec (frontmatter author/assignees, thread author, decision log). It
 never leaves spec, so it can be anything you like.
 
@@ -781,7 +826,7 @@ config init --user` only prompts for the providers your team actually
 configured, and `spec config lint` warns about identity keys no integration
 uses.
 
-**Identity matching.** A spec authored or assigned under *any* of your
+**Identity matching.** A spec authored or assigned under _any_ of your
 identities (canonical handle, display name, or a per-provider handle) is
 recognised as yours in the dashboard and awareness line — so display-name vs
 `@handle` vs login drift across teams never hides your own work.

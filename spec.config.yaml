@@ -42,6 +42,10 @@ archive:
 dashboard:
   stale_threshold: 48h
   refresh_ttl: 300
+  urgency:
+    easing: ease-in # linear | ease-in | ease-in-strong
+  review:
+    stale_after: 2d # REVIEW rows warm to red over 2 days of PR age
 
 pipeline:
   stages:
@@ -63,10 +67,12 @@ pipeline:
         - section_complete: design_inputs
     - name: engineering
       owner_role: engineer
+      stale_after: 3d # urgency gradient: warm to red over 3 days
       gates:
         - section_complete: acceptance_criteria
     - name: build
       owner_role: engineer
+      stale_after: 5d
     - name: pr-review
       owner_role: engineer
       gates:

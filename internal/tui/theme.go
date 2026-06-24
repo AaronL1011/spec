@@ -32,6 +32,64 @@ type Theme struct {
 	Warning color.Color // stale, blocked
 	Error   color.Color // critical, failed
 	Muted   color.Color // disabled, inactive
+
+	// UrgencyRamp is the ordered cold→hot colour ramp for the time-urgency
+	// gradient (SPEC time-urgency). When nil, RampColor derives a ramp from the
+	// semantic tokens (Text → Warning → blend → Error). Monochrome themes set it
+	// explicitly to a luminance ramp. The first stop must read as primary text
+	// so a fresh task is indistinguishable from a normal row.
+	UrgencyRamp []color.Color
+}
+
+// urgencyStops returns the ordered cold→hot ramp for the urgency gradient,
+// falling back to a token-derived ramp when the theme does not set one. The
+// derived ramp keeps amber/orange as a Warning→Error blend so it stays correct
+// across light, dark, and accessibility palettes without hardcoded hues.
+func (t Theme) urgencyStops() []color.Color {
+	if len(t.UrgencyRamp) >= 2 {
+		return t.UrgencyRamp
+	}
+	return []color.Color{t.Text, t.Warning, blendColor(t.Warning, t.Error, 0.5), t.Error}
+}
+
+// RampColor returns the urgency colour for f∈[0,1] by piecewise-linear RGB
+// interpolation across the theme's urgency stops. f≤0 yields the first stop
+// (primary text); f≥1 yields the last (hottest). Out-of-range f is clamped.
+func (t Theme) RampColor(f float64) color.Color {
+	stops := t.urgencyStops()
+	switch {
+	case f <= 0:
+		return stops[0]
+	case f >= 1:
+		return stops[len(stops)-1]
+	}
+	scaled := f * float64(len(stops)-1)
+	i := int(scaled)
+	if i >= len(stops)-1 {
+		return stops[len(stops)-1]
+	}
+	return blendColor(stops[i], stops[i+1], scaled-float64(i))
+}
+
+// blendColor linearly interpolates between two colours in 8-bit RGB. t is
+// clamped to [0,1]; t=0 yields a, t=1 yields b. The result is an opaque
+// color.RGBA, which lipgloss down-samples to the terminal's colour profile
+// (and drops entirely under NO_COLOR).
+func blendColor(a, b color.Color, t float64) color.Color {
+	switch {
+	case t <= 0:
+		return a
+	case t >= 1:
+		return b
+	}
+	ar, ag, ab, _ := a.RGBA()
+	br, bg, bb, _ := b.RGBA()
+	lerp := func(x, y uint32) uint8 {
+		xv := float64(x >> 8) // RGBA() returns 16-bit channels; take the high byte.
+		yv := float64(y >> 8)
+		return uint8(xv + (yv-xv)*t)
+	}
+	return color.RGBA{R: lerp(ar, br), G: lerp(ag, bg), B: lerp(ab, bb), A: 0xff}
 }
 
 // Styles holds pre-built lipgloss styles derived from the active theme.
@@ -62,6 +120,10 @@ type Styles struct {
 	// Section headers within views
 	SectionTitle lipgloss.Style
 	Separator    lipgloss.Style
+
+	// Theme is the palette the styles were built from. Held so views can reach
+	// derived colours (e.g. the urgency ramp via Theme.RampColor) at render time.
+	Theme Theme
 }
 
 // NewStyles constructs all styles from a theme.
@@ -131,6 +193,8 @@ func NewStyles(t Theme) Styles {
 
 		Separator: lipgloss.NewStyle().
 			Foreground(t.Overlay),
+
+		Theme: t,
 	}
 }
 
@@ -702,5 +766,14 @@ func graphite() Theme {
 		Success: lipgloss.Color("#c8c8c8"),
 		Warning: lipgloss.Color("#868686"),
 		Error:   lipgloss.Color("#ececec"),
+		// Monochrome urgency ramp: fresh = primary text, intensifying by
+		// luminance toward the brightest (most alert) neutral. graphite conveys
+		// status by brightness alone, so the gradient is luminance-only.
+		UrgencyRamp: []color.Color{
+			lipgloss.Color("#d8d8d8"),
+			lipgloss.Color("#c0c0c0"),
+			lipgloss.Color("#e4e4e4"),
+			lipgloss.Color("#ececec"),
+		},
 	}
 }

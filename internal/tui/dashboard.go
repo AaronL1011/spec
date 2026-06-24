@@ -43,14 +43,15 @@ type dashboardModel struct {
 }
 
 type dashboardRow struct {
-	section  string
-	icon     string
-	specID   string
-	title    string
-	detail   string
-	urgency  string
-	url      string // non-empty for REVIEW rows (PR URL)
-	sortRank int    // lower = higher priority within section
+	section       string
+	icon          string
+	specID        string
+	title         string
+	detail        string
+	urgency       string
+	url           string  // non-empty for REVIEW rows (PR URL)
+	sortRank      int     // lower = higher priority within section
+	staleFraction float64 // eased time-urgency intensity (0..1); 0 = fresh / no window
 }
 
 // newDashboard creates a new dashboard view.
@@ -308,13 +309,14 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			detail += "  ·  " + item.Assignee
 		}
 		do = append(do, dashboardRow{
-			section:  "DO",
-			icon:     icon,
-			specID:   item.SpecID,
-			title:    item.Title,
-			detail:   detail,
-			urgency:  item.Urgency,
-			sortRank: urgencyRank(item.Urgency),
+			section:       "DO",
+			icon:          icon,
+			specID:        item.SpecID,
+			title:         item.Title,
+			detail:        detail,
+			urgency:       item.Urgency,
+			sortRank:      urgencyRank(item.Urgency),
+			staleFraction: item.StaleFraction,
 		})
 	}
 	sortRowsByUrgency(do)
@@ -322,14 +324,15 @@ func (m dashboardModel) buildRows() []dashboardRow {
 	review := make([]dashboardRow, 0, len(m.data.Review))
 	for _, item := range m.data.Review {
 		review = append(review, dashboardRow{
-			section:  "REVIEW",
-			icon:     IconReview,
-			specID:   item.SpecID,
-			title:    item.Title,
-			detail:   item.Detail,
-			urgency:  item.Urgency,
-			url:      item.URL,
-			sortRank: urgencyRank(item.Urgency),
+			section:       "REVIEW",
+			icon:          IconReview,
+			specID:        item.SpecID,
+			title:         item.Title,
+			detail:        item.Detail,
+			urgency:       item.Urgency,
+			url:           item.URL,
+			sortRank:      urgencyRank(item.Urgency),
+			staleFraction: item.StaleFraction,
 		})
 	}
 	sortRowsByUrgency(review)
@@ -432,12 +435,21 @@ func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) st
 		}
 	}
 
-	// Apply urgency-aware styling.
+	// Apply urgency-aware styling. The continuous time-urgency gradient (whole
+	// row, eased) takes precedence over the legacy discrete stale/critical
+	// styling; the ramp foreground is composed over the selection background so
+	// urgency stays visible while a row is selected.
 	switch {
 	case selected:
-		return m.styles.RowSelected.Render(line)
+		style := m.styles.RowSelected
+		if row.staleFraction > 0 {
+			style = style.Foreground(m.styles.Theme.RampColor(row.staleFraction))
+		}
+		return style.Render(line)
 	case row.urgency == "critical":
 		return m.styles.Error.Render(line)
+	case row.staleFraction > 0:
+		return m.styles.RowNormal.Foreground(m.styles.Theme.RampColor(row.staleFraction)).Render(line)
 	case row.urgency == "stale":
 		return m.styles.Warning.Render(line)
 	default:
