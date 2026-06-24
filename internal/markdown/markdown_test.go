@@ -156,6 +156,82 @@ func TestExtractSections(t *testing.T) {
 	}
 }
 
+func TestExtractSections_CodeFenceCommentsNotHeadings(t *testing.T) {
+	body := strings.Join([]string{
+		"## 1. Problem Statement <!-- owner: pm -->",
+		"Intro prose.",
+		"",
+		"```bash",
+		"# load the config before running",
+		"spec config init",
+		"## not a heading either",
+		"```",
+		"",
+		"Trailing prose after the snippet.",
+		"",
+		"## 2. Goals <!-- owner: pm -->",
+		"Goal content.",
+	}, "\n")
+
+	sections := ExtractSections(body)
+
+	// The fenced "# " and "## " lines must not create sections.
+	for _, s := range sections {
+		if strings.Contains(s.Heading, "load the config") || strings.Contains(s.Heading, "not a heading either") {
+			t.Fatalf("code-fence comment parsed as heading: %q", s.Heading)
+		}
+	}
+	if got := len(sections); got != 2 {
+		t.Fatalf("sections = %d, want 2 (%v)", got, sectionHeadings(sections))
+	}
+
+	ps := FindSection(sections, "problem_statement")
+	if ps == nil {
+		t.Fatal("problem_statement not found")
+	}
+	// The section must not be cut off at the fenced comment: it must still
+	// include the snippet and the prose that follows the closing fence.
+	for _, want := range []string{"# load the config", "spec config init", "Trailing prose after the snippet."} {
+		if !strings.Contains(ps.Content, want) {
+			t.Errorf("problem_statement content missing %q; got:\n%s", want, ps.Content)
+		}
+	}
+}
+
+func TestReplaceSectionContent_IgnoresFencedHeadings(t *testing.T) {
+	body := strings.Join([]string{
+		"## 1. Problem Statement <!-- owner: pm -->",
+		"```",
+		"# this is a shell comment",
+		"```",
+		"",
+		"## 2. Goals <!-- owner: pm -->",
+		"Original goals.",
+	}, "\n")
+
+	result, err := ReplaceSectionContent(body, "goals", "Replaced goals.\n")
+	if err != nil {
+		t.Fatalf("ReplaceSectionContent: %v", err)
+	}
+	if strings.Contains(result, "Original goals.") {
+		t.Error("goals section was not replaced")
+	}
+	if !strings.Contains(result, "# this is a shell comment") {
+		t.Error("fenced comment in problem_statement was clobbered")
+	}
+	if !strings.Contains(result, "Replaced goals.") {
+		t.Error("new goals content missing")
+	}
+}
+
+func sectionHeadings(sections []Section) []string {
+	out := make([]string, len(sections))
+	for i, s := range sections {
+		out[i] = s.Heading
+	}
+	return out
+}
+
 func TestSlugify(t *testing.T) {
 	tests := []struct {
 		input string

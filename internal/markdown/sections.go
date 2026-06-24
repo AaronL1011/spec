@@ -22,16 +22,52 @@ var (
 	headingPattern = regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
 	ownerPattern   = regexp.MustCompile(`<!--\s*owner:\s*(\w+)\s*-->`)
 	autoPattern    = regexp.MustCompile(`<!--\s*auto:\s*(.+?)\s*-->`)
+	fencePattern   = regexp.MustCompile("^(\\s{0,3})(`{3,}|~{3,})")
 )
+
+// fenceMask returns a boolean for each line that is true when the line lies
+// inside a fenced code block (and false for the fence delimiters themselves
+// and ordinary prose). A line such as "# load config" inside a ``` block is a
+// code comment, not a markdown heading, so callers must not treat it as a
+// section boundary. Closing fences must use the same marker character and be
+// at least as long as the opening fence, per CommonMark.
+func fenceMask(lines []string) []bool {
+	mask := make([]bool, len(lines))
+	inFence := false
+	var fenceChar byte
+	fenceLen := 0
+	for i, line := range lines {
+		m := fencePattern.FindStringSubmatch(line)
+		switch {
+		case m == nil:
+			mask[i] = inFence
+		case !inFence:
+			inFence = true
+			fenceChar = m[2][0]
+			fenceLen = len(m[2])
+		case m[2][0] == fenceChar && len(m[2]) >= fenceLen:
+			// Closing fence: the delimiter line is not inside the block.
+			inFence = false
+		default:
+			// A different marker while open is just code content.
+			mask[i] = true
+		}
+	}
+	return mask
+}
 
 // ExtractSections parses markdown content into sections.
 func ExtractSections(content string) []Section {
 	lines := strings.Split(content, "\n")
+	inCode := fenceMask(lines)
 	var sections []Section
 	var currentOwner string
 
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
+		if inCode[i] {
+			continue
+		}
 		matches := headingPattern.FindStringSubmatch(line)
 		if matches == nil {
 			continue
@@ -71,6 +107,9 @@ func ExtractSections(content string) []Section {
 		contentStart := i + 1
 		contentEnd := len(lines)
 		for j := i + 1; j < len(lines); j++ {
+			if inCode[j] {
+				continue
+			}
 			nextMatches := headingPattern.FindStringSubmatch(lines[j])
 			if nextMatches != nil {
 				nextLevel := len(nextMatches[1])
@@ -130,11 +169,15 @@ func ReplaceSection(path, slug, newContent string) error {
 // ReplaceSectionContent replaces a section's content in the markdown string.
 func ReplaceSectionContent(content, slug, newContent string) (string, error) {
 	lines := strings.Split(content, "\n")
+	inCode := fenceMask(lines)
 
 	// Find the section heading
 	sectionStart := -1
 	sectionLevel := 0
 	for i, line := range lines {
+		if inCode[i] {
+			continue
+		}
 		matches := headingPattern.FindStringSubmatch(line)
 		if matches == nil {
 			continue
@@ -153,6 +196,9 @@ func ReplaceSectionContent(content, slug, newContent string) (string, error) {
 	// Find the end of the section
 	sectionEnd := len(lines)
 	for j := sectionStart + 1; j < len(lines); j++ {
+		if inCode[j] {
+			continue
+		}
 		matches := headingPattern.FindStringSubmatch(lines[j])
 		if matches != nil && len(matches[1]) <= sectionLevel {
 			sectionEnd = j
