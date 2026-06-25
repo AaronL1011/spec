@@ -5,6 +5,7 @@ package resolve
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/adapter/anthropic"
@@ -155,17 +156,41 @@ func resolveDocs(cfg *config.TeamConfig) (adapter.DocsAdapter, string) {
 	case "confluence":
 		baseURL := cfg.Integrations.Docs.Get("base_url")
 		spaceKey := cfg.Integrations.Docs.Get("space_key")
+		parentID := cfg.Integrations.Docs.Get("parent_page_id")
 		email := cfg.Integrations.Docs.Get("email")
 		token := cfg.Integrations.Docs.Get("token")
 		if baseURL == "" || spaceKey == "" || email == "" || token == "" {
 			return noop.Docs{}, "confluence: base_url, space_key, email, and token required — docs disabled"
 		}
-		return confluence.NewClient(baseURL, spaceKey, email, token), ""
+		if parentID == "" {
+			return noop.Docs{}, "confluence: parent_page_id required so spec pages mirror under a parent — docs disabled"
+		}
+		return confluence.NewClient(confluence.Options{
+			BaseURL:  baseURL,
+			SpaceKey: spaceKey,
+			ParentID: parentID,
+			Email:    email,
+			Token:    token,
+			Timeout:  docsTimeout(cfg.Integrations.Docs.Get("request_timeout")),
+		}), ""
 	case "notion":
 		return noop.Docs{}, "notion adapter not yet implemented — docs disabled"
 	default:
 		return noop.Docs{}, fmt.Sprintf("unknown docs provider %q — docs disabled", provider)
 	}
+}
+
+// docsTimeout parses an optional request_timeout (e.g. "15s") for the docs
+// provider, returning zero when unset or invalid so the adapter default applies.
+func docsTimeout(raw string) time.Duration {
+	if raw == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0
+	}
+	return d
 }
 
 func resolveRepo(cfg *config.TeamConfig) (adapter.RepoAdapter, string) {

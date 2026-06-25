@@ -144,10 +144,11 @@ func TestAll_Jira_MissingToken_Warning(t *testing.T) {
 func TestAll_Confluence_Resolves(t *testing.T) {
 	cfg := &config.TeamConfig{}
 	cfg.Integrations.Docs = makeProvider("confluence", map[string]string{
-		"base_url":  "https://myorg.atlassian.net/wiki",
-		"space_key": "ENG",
-		"email":     "user@example.com",
-		"token":     "api-token",
+		"base_url":       "https://myorg.atlassian.net/wiki",
+		"space_key":      "ENG",
+		"parent_page_id": "123456",
+		"email":          "user@example.com",
+		"token":          "api-token",
 	})
 	reg, warnings := All(cfg)
 
@@ -156,6 +157,24 @@ func TestAll_Confluence_Resolves(t *testing.T) {
 	}
 	if len(warnings) != 0 {
 		t.Errorf("unexpected warnings: %v", warnings)
+	}
+}
+
+func TestAll_Confluence_MissingParent_Disabled(t *testing.T) {
+	cfg := &config.TeamConfig{}
+	cfg.Integrations.Docs = makeProvider("confluence", map[string]string{
+		"base_url":  "https://myorg.atlassian.net/wiki",
+		"space_key": "ENG",
+		"email":     "user@example.com",
+		"token":     "api-token",
+	})
+	reg, warnings := All(cfg)
+
+	if _, ok := reg.Docs().(noop.Docs); !ok {
+		t.Error("expected noop Docs when parent_page_id is missing")
+	}
+	if len(warnings) == 0 {
+		t.Error("expected a warning about the missing parent_page_id")
 	}
 }
 

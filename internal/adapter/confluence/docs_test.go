@@ -3,15 +3,20 @@ package confluence
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/aaronl1011/spec/internal/markdown"
 )
 
 func TestMarkdownToStorage_Headings(t *testing.T) {
 	md := "## 1. Problem Statement <!-- owner: pm -->\n\nSomething is broken.\n"
-	storage := markdownToStorage(md, "SPEC-042")
+	storage := markdownToStorage(md, "SPEC-042", nil)
 
 	if !strings.Contains(storage, `<!-- spec-section: problem_statement -->`) {
 		t.Error("expected spec-section marker for problem_statement")
@@ -29,7 +34,7 @@ func TestMarkdownToStorage_Headings(t *testing.T) {
 
 func TestMarkdownToStorage_CodeBlock(t *testing.T) {
 	md := "```go\nfunc main() {}\n```\n"
-	storage := markdownToStorage(md, "SPEC-001")
+	storage := markdownToStorage(md, "SPEC-001", nil)
 
 	if !strings.Contains(storage, `ac:name="code"`) {
 		t.Error("expected code macro")
@@ -44,7 +49,7 @@ func TestMarkdownToStorage_CodeBlock(t *testing.T) {
 
 func TestMarkdownToStorage_Lists(t *testing.T) {
 	md := "- Item one\n- Item two\n"
-	storage := markdownToStorage(md, "SPEC-001")
+	storage := markdownToStorage(md, "SPEC-001", nil)
 
 	if !strings.Contains(storage, "<ul>") {
 		t.Error("expected <ul> tag")
@@ -59,7 +64,7 @@ func TestMarkdownToStorage_Lists(t *testing.T) {
 
 func TestMarkdownToStorage_OrderedList(t *testing.T) {
 	md := "1. First\n2. Second\n"
-	storage := markdownToStorage(md, "SPEC-001")
+	storage := markdownToStorage(md, "SPEC-001", nil)
 
 	if !strings.Contains(storage, "<ol>") {
 		t.Error("expected <ol> tag")
@@ -71,7 +76,7 @@ func TestMarkdownToStorage_OrderedList(t *testing.T) {
 
 func TestMarkdownToStorage_Table(t *testing.T) {
 	md := "| Name | Value |\n|---|---|\n| foo | bar |\n"
-	storage := markdownToStorage(md, "SPEC-001")
+	storage := markdownToStorage(md, "SPEC-001", nil)
 
 	if !strings.Contains(storage, "<table>") {
 		t.Error("expected <table>")
@@ -86,7 +91,7 @@ func TestMarkdownToStorage_Table(t *testing.T) {
 
 func TestMarkdownToStorage_InlineFormatting(t *testing.T) {
 	md := "This is **bold** and *italic* and `code`.\n"
-	storage := markdownToStorage(md, "SPEC-001")
+	storage := markdownToStorage(md, "SPEC-001", nil)
 
 	if !strings.Contains(storage, "<strong>bold</strong>") {
 		t.Error("expected <strong>")
@@ -174,7 +179,7 @@ func TestSlugify(t *testing.T) {
 func TestRoundtrip_SimpleContent(t *testing.T) {
 	// Convert markdown → storage → sections → markdown and verify content survives
 	md := "## 1. Problem Statement\n\nUsers cannot log in.\n\n- EU users affected\n- Token expiry bug\n"
-	storage := markdownToStorage(md, "SPEC-042")
+	storage := markdownToStorage(md, "SPEC-042", nil)
 	sections := parseStorageToSections(storage)
 
 	ps, ok := sections["problem_statement"]
@@ -189,13 +194,25 @@ func TestRoundtrip_SimpleContent(t *testing.T) {
 	}
 }
 
+// testOptions builds Client Options against a stub server with all required
+// fields populated.
+func testOptions(serverURL string) Options {
+	return Options{
+		BaseURL:  serverURL,
+		SpaceKey: "ENG",
+		ParentID: "99999",
+		Email:    "user@example.com",
+		Token:    "token",
+	}
+}
+
 func TestFetchSections_PageNotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(pagesResponse{Results: []pageResponse{}})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(searchResponse{})
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "ENG", "user@example.com", "token")
+	client := NewClient(testOptions(server.URL))
 	sections, err := client.FetchSections(context.Background(), "SPEC-999")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -205,52 +222,203 @@ func TestFetchSections_PageNotFound(t *testing.T) {
 	}
 }
 
-func TestFetchSections_DuplicatePageTitles_ReturnsError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(pagesResponse{Results: []pageResponse{
-			{ID: "1", Title: "SPEC-042"},
-			{ID: "2", Title: "SPEC-042"},
-		}})
+func TestFetchSections_DuplicateLabelledPages_ReturnsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := searchResponse{}
+		resp.Results = append(resp.Results, struct {
+			ID string `json:"id"`
+		}{ID: "1"}, struct {
+			ID string `json:"id"`
+		}{ID: "2"})
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "ENG", "user@example.com", "token")
+	client := NewClient(testOptions(server.URL))
 	_, err := client.FetchSections(context.Background(), "SPEC-042")
 	if err == nil {
 		t.Fatal("expected duplicate page error")
 	}
 }
 
+// TestPushFull_CreatePage drives the full create path: label-based find (miss),
+// space-id resolution, page creation, and label attach. It asserts the create
+// body carries the numeric space id and parent id, and that a human-friendly
+// title is derived from frontmatter.
 func TestPushFull_CreatePage(t *testing.T) {
-	calls := 0
+	var created createPageRequest
+	var labelled bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		switch r.Method {
-		case http.MethodGet:
-			// findPage — return empty results
-			_ = json.NewEncoder(w).Encode(pagesResponse{Results: []pageResponse{}})
-		case http.MethodPost:
-			var req createPageRequest
-			_ = json.NewDecoder(r.Body).Decode(&req)
-			if req.Title != "SPEC-042" {
-				t.Errorf("expected title SPEC-042, got %s", req.Title)
-			}
-			if req.Body.Representation != "storage" {
-				t.Errorf("expected storage representation, got %s", req.Body.Representation)
-			}
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/rest/api/content/search"):
+			_ = json.NewEncoder(w).Encode(searchResponse{}) // no existing page
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/api/v2/spaces"):
+			_ = json.NewEncoder(w).Encode(spacesResponse{Results: []struct {
+				ID  string `json:"id"`
+				Key string `json:"key"`
+			}{{ID: "4242", Key: "ENG"}}})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/api/v2/pages"):
+			_ = json.NewDecoder(r.Body).Decode(&created)
 			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(pageResponse{ID: "12345", Title: "SPEC-042"})
+			_ = json.NewEncoder(w).Encode(pageResponse{ID: "12345", Title: created.Title})
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/label"):
+			labelled = true
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "ENG", "user@example.com", "token")
-	err := client.PushFull(context.Background(), "SPEC-042", "## Problem\n\nSomething broke.\n")
-	if err != nil {
+	client := NewClient(testOptions(server.URL))
+	content := "---\nid: SPEC-042\ntitle: Login Fix\nstatus: draft\n---\n\n## Problem\n\nSomething broke.\n"
+	if err := client.PushFull(context.Background(), "SPEC-042", content); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if calls < 2 {
-		t.Errorf("expected at least 2 API calls (find + create), got %d", calls)
+	if created.SpaceID != "4242" {
+		t.Errorf("expected numeric spaceId 4242, got %q", created.SpaceID)
+	}
+	if created.ParentID != "99999" {
+		t.Errorf("expected parentId 99999, got %q", created.ParentID)
+	}
+	if created.Title != "SPEC-042 — Login Fix" {
+		t.Errorf("expected friendly title, got %q", created.Title)
+	}
+	if created.Body.Representation != "storage" {
+		t.Errorf("expected storage representation, got %s", created.Body.Representation)
+	}
+	if !labelled {
+		t.Error("expected page to be labelled for durable identity")
+	}
+}
+
+// TestPushFull_UpdateExistingPage exercises the update path: label search finds
+// the page, the current version is read, and a PUT bumps the version with the
+// friendly title preserved.
+func TestPushFull_UpdateExistingPage(t *testing.T) {
+	var updated updatePageRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/rest/api/content/search"):
+			resp := searchResponse{}
+			resp.Results = append(resp.Results, struct {
+				ID string `json:"id"`
+			}{ID: "777"})
+			_ = json.NewEncoder(w).Encode(resp)
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/api/v2/pages/777"):
+			_ = json.NewEncoder(w).Encode(pageResponse{ID: "777", Version: struct {
+				Number int `json:"number"`
+			}{Number: 4}})
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/api/v2/pages/777"):
+			_ = json.NewDecoder(r.Body).Decode(&updated)
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(pageResponse{ID: "777"})
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(testOptions(server.URL))
+	content := "---\nid: SPEC-042\ntitle: Login Fix\n---\n\n## Problem\n\nUpdated.\n"
+	if err := client.PushFull(context.Background(), "SPEC-042", content); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.Version.Number != 5 {
+		t.Errorf("expected version bump to 5, got %d", updated.Version.Number)
+	}
+	if updated.Title != "SPEC-042 — Login Fix" {
+		t.Errorf("expected friendly title preserved, got %q", updated.Title)
+	}
+}
+
+// TestMarkdownToStorage_EscapesXML proves prose with XML-special characters
+// produces well-formed storage (the previous converter emitted invalid XML
+// that Confluence rejected outright).
+func TestMarkdownToStorage_EscapesXML(t *testing.T) {
+	md := "A generic List<T> and a Q&A about a > b.\n"
+	storage := markdownToStorage(md, "SPEC-001", nil)
+	if strings.Contains(storage, "List<T>") || strings.Contains(storage, "Q&A") {
+		t.Errorf("expected XML escaping, got raw specials: %q", storage)
+	}
+	if !strings.Contains(storage, "List&lt;T&gt;") || !strings.Contains(storage, "Q&amp;A") {
+		t.Errorf("expected escaped entities, got %q", storage)
+	}
+	assertWellFormedXML(t, storage)
+}
+
+// TestMarkdownToStorage_Links converts markdown links to anchors.
+func TestMarkdownToStorage_Links(t *testing.T) {
+	md := "See [the design](https://example.com/d?a=1&b=2).\n"
+	storage := markdownToStorage(md, "SPEC-001", nil)
+	if !strings.Contains(storage, `<a href="https://example.com/d?a=1&amp;b=2">the design</a>`) {
+		t.Errorf("expected anchor with escaped href, got %q", storage)
+	}
+	assertWellFormedXML(t, storage)
+}
+
+// TestMarkdownToStorage_MetadataPanel renders frontmatter as an info panel and
+// keeps the raw YAML out of the body.
+func TestMarkdownToStorage_MetadataPanel(t *testing.T) {
+	md := "---\nid: SPEC-007\ntitle: Thing\nstatus: engineering\n---\n\n## Problem\n\nBody.\n"
+	meta, err := markdown.ParseMeta(md)
+	if err != nil {
+		t.Fatalf("ParseMeta: %v", err)
+	}
+	storage := markdownToStorage(md, "SPEC-007", meta)
+	if !strings.Contains(storage, `ac:name="info"`) {
+		t.Errorf("expected info panel, got %q", storage)
+	}
+	if !strings.Contains(storage, "engineering") {
+		t.Errorf("expected status in panel, got %q", storage)
+	}
+	if strings.Contains(storage, "status: engineering") {
+		t.Errorf("raw frontmatter leaked into body: %q", storage)
+	}
+}
+
+// TestMarkdownToStorage_CodeBlockRaw keeps code-block content raw inside CDATA
+// rather than emitting literal entities.
+func TestMarkdownToStorage_CodeBlockRaw(t *testing.T) {
+	md := "```go\nif a < b && c > d {}\n```\n"
+	storage := markdownToStorage(md, "SPEC-001", nil)
+	if !strings.Contains(storage, "if a < b && c > d {}") {
+		t.Errorf("expected raw code in CDATA, got %q", storage)
+	}
+}
+
+func TestSpecLabel(t *testing.T) {
+	if got := specLabel("SPEC-042"); got != "spec-id-spec-042" {
+		t.Errorf("specLabel = %q, want spec-id-spec-042", got)
+	}
+}
+
+func TestPageTitle(t *testing.T) {
+	if got := pageTitle("SPEC-1", nil); got != "SPEC-1" {
+		t.Errorf("nil meta title = %q, want SPEC-1", got)
+	}
+	if got := pageTitle("SPEC-1", &markdown.SpecMeta{Title: "[Feature Title]"}); got != "SPEC-1" {
+		t.Errorf("placeholder title = %q, want SPEC-1", got)
+	}
+	if got := pageTitle("SPEC-1", &markdown.SpecMeta{Title: "Real"}); got != "SPEC-1 — Real" {
+		t.Errorf("friendly title = %q", got)
+	}
+}
+
+// assertWellFormedXML wraps the fragment in a root element and parses it to
+// prove the converter never emits malformed storage XML.
+func assertWellFormedXML(t *testing.T, fragment string) {
+	t.Helper()
+	doc := "<root xmlns:ac=\"x\" xmlns:ri=\"y\">" + fragment + "</root>"
+	dec := xml.NewDecoder(strings.NewReader(doc))
+	for {
+		_, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("malformed storage XML: %v\nfragment: %s", err, fragment)
+		}
 	}
 }
 
