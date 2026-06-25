@@ -77,19 +77,19 @@ func (a *App) executeActionWithInput(input string) tea.Cmd {
 	specID := a.pendingSpecID
 	switch a.pendingAction {
 	case "advance":
-		return a.startAction("advancing "+specID, advanceSpec(a.rc, specID, a.role))
+		return a.startAction("advancing "+specID, advanceSpec(a.rc, a.reg, a.db, specID, a.role))
 	case "block":
 		reason := input
 		if reason == "" {
 			reason = "blocked from TUI"
 		}
-		return a.startAction("blocking "+specID, blockSpec(a.rc, specID, reason, a.rc.UserName()))
+		return a.startAction("blocking "+specID, blockSpec(a.rc, a.reg, a.db, specID, reason, a.role))
 	case "build":
 		return a.startAction("building "+specID, buildSpec(a.rc, specID))
 	case "assign":
 		return a.startAction("assigning "+specID, assignSpec(a.rc, specID, parseAssignInput(input)))
 	case "unblock":
-		return a.startAction("unblocking "+specID, unblockSpec(a.rc, specID))
+		return a.startAction("unblocking "+specID, unblockSpec(a.rc, a.reg, a.db, specID, a.role))
 	case "archive":
 		if a.showDetail {
 			a.closeDetail()

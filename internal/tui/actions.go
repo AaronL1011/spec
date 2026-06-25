@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,10 +16,10 @@ import (
 	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
-	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/aaronl1011/spec/internal/store"
 	syncengine "github.com/aaronl1011/spec/internal/sync"
 	"github.com/aaronl1011/spec/internal/syncaudit"
+	"github.com/aaronl1011/spec/internal/workflow"
 )
 
 // tuiRecorder backs TUI auto-push audit, queue, and freshness. Set once at app
@@ -80,151 +81,218 @@ type actionResultMsg struct {
 	Err    error
 }
 
-// advanceSpec advances a spec to the next pipeline stage.
-func advanceSpec(rc *config.ResolvedConfig, specID, role string) tea.Cmd {
+// advanceSpec advances a spec to the next pipeline stage. It routes through the
+// shared workflow engine — the same path as the CLI `spec advance` — so gate
+// evaluation, transition effects, PM/Jira status reflection, comms
+// notifications, and the docs outbound mirror all fire from the TUI too,
+// instead of the bare file mutation the TUI used previously.
+func advanceSpec(rc *config.ResolvedConfig, reg *adapter.Registry, db *store.DB, specID, role string) tea.Cmd {
 	return func() tea.Msg {
-		pl := rc.Pipeline()
+		deps := workflow.Deps{Config: rc, Registry: reg, DB: db, Role: role}
+		var res *workflow.AdvanceResult
 		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("advance", specID), func(repoPath string) (string, error) {
 			path, pErr := resolveSpecIn(repoPath, rc, specID)
 			if pErr != nil {
 				return "", pErr
 			}
-			meta, pErr := markdown.ReadMeta(path)
-			if pErr != nil {
-				return "", pErr
+			var aErr error
+			res, aErr = workflow.Advance(context.Background(), deps, workflow.AdvanceInput{
+				SpecID:   specID,
+				SpecPath: path,
+				SpecDir:  repoPath + "/" + gitpkg.SpecsSubDir,
+			})
+			if aErr != nil {
+				return "", aErr
 			}
-
-			if err := pipeline.ValidateAdvance(pl, meta.Status, "", role); err != nil {
-				return "", err
-			}
-
-			next, err := pipeline.NextStage(pl, meta.Status, true)
-			if err != nil {
-				return "", fmt.Errorf("cannot advance from %q: %w", meta.Status, err)
-			}
-
-			result, err := pipeline.Advance(path, meta, next)
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("chore: advance %s %s → %s", specID, result.PreviousStage, result.NewStage), nil
+			return res.CommitMsg, nil
 		})
 
-		status, fatal := pushOutcome(err)
-		detail := ""
-		if !fatal {
-			detail = "advanced to next stage (" + status + ")"
-			err = nil
+		// Gate failures carry structured detail rather than git plumbing — surface
+		// a clean, actionable message instead of a wrapped error.
+		if errors.Is(err, workflow.ErrGatesNotMet) {
+			return actionResultMsg{Action: "advance", SpecID: specID, Err: gateFailureError(res)}
 		}
-		return actionResultMsg{Action: "advance", SpecID: specID, Detail: detail, Err: err}
+
+		status, fatal := pushOutcome(err)
+		if fatal {
+			return actionResultMsg{Action: "advance", SpecID: specID, Err: err}
+		}
+		return actionResultMsg{Action: "advance", SpecID: specID, Detail: advanceDetail(res, status)}
 	}
 }
 
-// blockSpec transitions a spec to blocked status with a reason.
-func blockSpec(rc *config.ResolvedConfig, specID, reason, user string) tea.Cmd {
+// gateFailureError renders unmet gates into a single concise error for the
+// status bar.
+func gateFailureError(res *workflow.AdvanceResult) error {
+	if res == nil || len(res.GateFailures) == 0 {
+		return fmt.Errorf("gate conditions not met")
+	}
+	gates := make([]string, 0, len(res.GateFailures))
+	for _, g := range res.GateFailures {
+		gates = append(gates, g.Gate)
+	}
+	return fmt.Errorf("gate conditions not met: %s", strings.Join(gates, ", "))
+}
+
+// advanceDetail builds the status-bar summary for a successful advance,
+// folding in the docs-mirror result and any failed transition effects.
+func advanceDetail(res *workflow.AdvanceResult, pushStatus string) string {
+	if res == nil {
+		return "advanced (" + pushStatus + ")"
+	}
+	detail := fmt.Sprintf("%s → %s (%s)", res.PreviousStage, res.NewStage, pushStatus)
+	if res.SyncedOut {
+		detail += " · docs synced"
+	}
+	if n := failedEffectCount(res.Effects); n > 0 {
+		detail += fmt.Sprintf(" · %d effect(s) failed", n)
+	}
+	return detail
+}
+
+func failedEffectCount(effs []workflow.EffectOutcome) int {
+	n := 0
+	for _, e := range effs {
+		if e.Err != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// blockSpec transitions a spec to blocked status with a reason. It routes
+// through the shared workflow engine so the blocker is broadcast to comms
+// (Slack/Teams) and logged, matching CLI `spec eject`.
+func blockSpec(rc *config.ResolvedConfig, reg *adapter.Registry, db *store.DB, specID, reason, role string) tea.Cmd {
 	return func() tea.Msg {
+		deps := workflow.Deps{Config: rc, Registry: reg, DB: db, Role: role}
+		var res *workflow.EjectResult
 		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("block", specID), func(repoPath string) (string, error) {
 			path, pErr := resolveSpecIn(repoPath, rc, specID)
 			if pErr != nil {
 				return "", pErr
 			}
-			meta, pErr := markdown.ReadMeta(path)
-			if pErr != nil {
-				return "", pErr
+			var eErr error
+			res, eErr = workflow.Eject(context.Background(), deps, workflow.EjectInput{
+				SpecID:   specID,
+				SpecPath: path,
+				Reason:   reason,
+			})
+			if eErr != nil {
+				return "", eErr
 			}
-
-			if meta.Status == pipeline.StatusBlocked {
-				return "", fmt.Errorf("%s is already blocked", specID)
-			}
-
-			_, err := pipeline.Eject(path, meta, reason, user)
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("chore: block %s — %s", specID, reason), nil
+			return res.CommitMsg, nil
 		})
 
 		status, fatal := pushOutcome(err)
-		detail := ""
-		if !fatal {
-			detail = "blocked (" + status + ")"
-			err = nil
+		if fatal {
+			return actionResultMsg{Action: "block", SpecID: specID, Err: err}
 		}
-		return actionResultMsg{Action: "block", SpecID: specID, Detail: detail, Err: err}
+		detail := "blocked (" + status + ")"
+		if res != nil {
+			detail = fmt.Sprintf("blocked from %s (%s)", res.PreviousStage, status)
+		}
+		return actionResultMsg{Action: "block", SpecID: specID, Detail: detail}
 	}
 }
 
-// unblockSpec resumes a blocked spec to its previous stage.
-func unblockSpec(rc *config.ResolvedConfig, specID string) tea.Cmd {
+// unblockSpec resumes a blocked spec to its pre-block stage. It routes through
+// the workflow engine and resolves the resume target the same way the CLI does
+// — the persisted `blocked_from` field, falling back to the escape-hatch log.
+func unblockSpec(rc *config.ResolvedConfig, reg *adapter.Registry, db *store.DB, specID, role string) tea.Cmd {
 	return func() tea.Msg {
-		pl := rc.Pipeline()
+		deps := workflow.Deps{Config: rc, Registry: reg, DB: db, Role: role}
+		var res *workflow.ResumeResult
 		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("unblock", specID), func(repoPath string) (string, error) {
 			path, pErr := resolveSpecIn(repoPath, rc, specID)
 			if pErr != nil {
 				return "", pErr
 			}
-			meta, pErr := markdown.ReadMeta(path)
-			if pErr != nil {
-				return "", pErr
+			var rErr error
+			res, rErr = workflow.Resume(context.Background(), deps, workflow.ResumeInput{
+				SpecID:      specID,
+				SpecPath:    path,
+				ResumeStage: resolveResumeStage(path),
+			})
+			if rErr != nil {
+				return "", rErr
 			}
-
-			if meta.Status != pipeline.StatusBlocked {
-				return "", fmt.Errorf("%s is not blocked (status: %s)", specID, meta.Status)
-			}
-
-			// Find the first non-blocked stage to resume to.
-			prev := ""
-			for _, s := range pl.Stages {
-				if s.Name != pipeline.StatusBlocked {
-					prev = s.Name
-				}
-			}
-			if prev == "" {
-				return "", fmt.Errorf("no stage to resume to")
-			}
-
-			if err := pipeline.Resume(path, meta, prev); err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("chore: unblock %s → %s", specID, prev), nil
+			return res.CommitMsg, nil
 		})
 
 		status, fatal := pushOutcome(err)
-		detail := ""
-		if !fatal {
-			detail = "unblocked (" + status + ")"
-			err = nil
+		if fatal {
+			return actionResultMsg{Action: "unblock", SpecID: specID, Err: err}
 		}
-		return actionResultMsg{Action: "unblock", SpecID: specID, Detail: detail, Err: err}
+		detail := "unblocked (" + status + ")"
+		if res != nil {
+			detail = fmt.Sprintf("resumed to %s (%s)", res.ResumeStage, status)
+		}
+		return actionResultMsg{Action: "unblock", SpecID: specID, Detail: detail}
 	}
 }
 
-// revertSpec sends a spec back to a previous stage.
-func revertSpec(rc *config.ResolvedConfig, specID, targetStage, reason, user string) tea.Cmd {
+// resolveResumeStage finds the stage a blocked spec should return to: the
+// persisted `blocked_from` frontmatter field, falling back to parsing the
+// escape-hatch log for specs blocked before that field existed.
+func resolveResumeStage(path string) string {
+	if meta, err := markdown.ReadMeta(path); err == nil && meta.BlockedFrom != "" {
+		return meta.BlockedFrom
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(data), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if idx := strings.Index(lines[i], "Blocked from `"); idx >= 0 {
+			start := idx + len("Blocked from `")
+			if end := strings.Index(lines[i][start:], "`"); end > 0 {
+				return lines[i][start : start+end]
+			}
+		}
+	}
+	return ""
+}
+
+// revertSpec sends a spec back to a previous stage. It routes through the
+// workflow engine so role validation, revert/on-enter transition effects, and
+// activity logging fire exactly as on CLI `spec revert`.
+func revertSpec(rc *config.ResolvedConfig, reg *adapter.Registry, db *store.DB, specID, targetStage, reason, role string) tea.Cmd {
 	return func() tea.Msg {
+		deps := workflow.Deps{Config: rc, Registry: reg, DB: db, Role: role}
+		var res *workflow.RevertResult
 		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("revert", specID), func(repoPath string) (string, error) {
 			path, pErr := resolveSpecIn(repoPath, rc, specID)
 			if pErr != nil {
 				return "", pErr
 			}
-			meta, pErr := markdown.ReadMeta(path)
-			if pErr != nil {
-				return "", pErr
+			var rErr error
+			res, rErr = workflow.Revert(context.Background(), deps, workflow.RevertInput{
+				SpecID:      specID,
+				SpecPath:    path,
+				SpecDir:     repoPath + "/" + gitpkg.SpecsSubDir,
+				TargetStage: targetStage,
+				Reason:      reason,
+			})
+			if rErr != nil {
+				return "", rErr
 			}
-
-			if err := pipeline.Revert(path, meta, targetStage, reason, user); err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("chore: revert %s → %s", specID, targetStage), nil
+			return res.CommitMsg, nil
 		})
 
 		status, fatal := pushOutcome(err)
-		detail := ""
-		if !fatal {
-			detail = "reverted (" + status + ")"
-			err = nil
+		if fatal {
+			return actionResultMsg{Action: "revert", SpecID: specID, Err: err}
 		}
-		return actionResultMsg{Action: "revert", SpecID: specID, Detail: detail, Err: err}
+		detail := "reverted (" + status + ")"
+		if res != nil {
+			detail = fmt.Sprintf("%s → %s (%s)", res.PreviousStage, res.TargetStage, status)
+			if n := failedEffectCount(res.Effects); n > 0 {
+				detail += fmt.Sprintf(" · %d effect(s) failed", n)
+			}
+		}
+		return actionResultMsg{Action: "revert", SpecID: specID, Detail: detail}
 	}
 }
 
