@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,6 +32,11 @@ type DashboardItem struct {
 	// driving the gradient colour. 0 means fresh or the stage has no stale
 	// window (never stale).
 	StaleFraction float64 `json:"stale_fraction,omitempty"`
+
+	// SortTime is the moment this item entered its current state — stage entry
+	// for specs, PR-open for reviews, intake date for triage. It drives the
+	// oldest-first ordering within each dashboard section. Zero when unknown.
+	SortTime time.Time `json:"-"`
 }
 
 // DashboardData holds all dashboard sections.
@@ -142,8 +148,9 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 				if s.Status == pipeline.StatusBlocked {
 					if VisibleInBlocked(pl, blockedCfg, view, viewer) {
 						data.Blocked = append(data.Blocked, DashboardItem{
-							SpecID: s.ID,
-							Title:  s.Title,
+							SpecID:   s.ID,
+							Title:    s.Title,
+							SortTime: stageEntryTime(s.StageEnteredAt, s.Updated),
 						})
 					}
 					continue
@@ -157,6 +164,7 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 						Assignee:      doAssigneeLabel(pl, s),
 						StaleFraction: frac,
 						Urgency:       urgencyLabel(frac),
+						SortTime:      stageEntryTime(s.StageEnteredAt, s.Updated),
 					})
 				}
 			}
@@ -166,10 +174,11 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 		triageItems, _ := loadTriageItems(rc)
 		for _, t := range triageItems {
 			data.Incoming = append(data.Incoming, DashboardItem{
-				SpecID:  t.ID,
-				Title:   t.Title,
-				Stage:   "triage",
-				Urgency: t.Priority,
+				SpecID:   t.ID,
+				Title:    t.Title,
+				Stage:    "triage",
+				Urgency:  t.Priority,
+				SortTime: parseDay(t.Created),
 			})
 		}
 	}
@@ -189,12 +198,38 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 					URL:           pr.URL,
 					StaleFraction: frac,
 					Urgency:       urgencyLabel(frac),
+					SortTime:      pr.CreatedAt,
 				})
 			}
 		}
 	}
 
+	// Order every section oldest-first so the item that has waited longest leads.
+	sortItemsByOldest(data.Blocked)
+	sortItemsByOldest(data.Do)
+	sortItemsByOldest(data.Review)
+	sortItemsByOldest(data.Incoming)
+
 	return data, nil
+}
+
+// sortItemsByOldest orders items oldest-first by SortTime. Items with a known
+// time lead (earliest first); undated items sort last in stable order so they
+// never displace genuinely-aged work.
+func sortItemsByOldest(items []DashboardItem) {
+	slices.SortStableFunc(items, func(a, b DashboardItem) int {
+		az, bz := a.SortTime.IsZero(), b.SortTime.IsZero()
+		switch {
+		case az && bz:
+			return 0
+		case az:
+			return 1
+		case bz:
+			return -1
+		default:
+			return a.SortTime.Compare(b.SortTime)
+		}
+	})
 }
 
 type specInfo struct {
@@ -275,6 +310,24 @@ func StageUrgency(pl config.PipelineConfig, curve urgency.Curve, stageName, stag
 	return urgency.Value(now.Sub(entered), window, curve)
 }
 
+// stageEntryTime resolves when a spec entered its current stage, returning the
+// zero time when neither stage_entered_at nor updated can be parsed (such rows
+// sort last under oldest-first ordering).
+func stageEntryTime(stageEnteredAt, updated string) time.Time {
+	t, _ := parseStageEntry(stageEnteredAt, updated)
+	return t
+}
+
+// parseDay parses a YYYY-MM-DD date, returning the zero time on empty or
+// malformed input.
+func parseDay(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, _ := time.Parse("2006-01-02", s)
+	return t
+}
+
 // parseStageEntry resolves when a spec entered its current stage. It prefers the
 // RFC3339 stage_entered_at stamp and falls back to the day-granularity updated
 // date for legacy specs written before the field existed.
@@ -348,6 +401,7 @@ type triageInfo struct {
 	ID       string
 	Title    string
 	Priority string
+	Created  string
 }
 
 func loadTriageItems(rc *config.ResolvedConfig) ([]triageInfo, error) {
@@ -371,6 +425,7 @@ func loadTriageItems(rc *config.ResolvedConfig) ([]triageInfo, error) {
 			ID:       meta.ID,
 			Title:    meta.Title,
 			Priority: meta.Priority,
+			Created:  meta.Created,
 		})
 	}
 	return items, nil

@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aaronl1011/spec/internal/dashboard"
 )
@@ -153,14 +154,15 @@ func TestDashboard_PriorityOrdering_BlockedFirst(t *testing.T) {
 	}
 }
 
-func TestDashboard_UrgencySortWithinSection(t *testing.T) {
+func TestDashboard_OldestFirstSortWithinSection(t *testing.T) {
 	m := testDashboard()
 	m.loading = false
+	now := time.Now()
 	m.data = &dashboard.DashboardData{
 		Do: []dashboard.DashboardItem{
-			{SpecID: "SPEC-001", Title: "Normal", Urgency: "normal"},
-			{SpecID: "SPEC-002", Title: "Stale", Urgency: "stale"},
-			{SpecID: "SPEC-003", Title: "Critical", Urgency: "critical"},
+			{SpecID: "SPEC-NEW", Title: "Newest", SortTime: now.Add(-1 * time.Hour)},
+			{SpecID: "SPEC-OLD", Title: "Oldest", SortTime: now.Add(-72 * time.Hour)},
+			{SpecID: "SPEC-MID", Title: "Middle", SortTime: now.Add(-24 * time.Hour)},
 		},
 	}
 	m.items = m.buildRows()
@@ -168,14 +170,28 @@ func TestDashboard_UrgencySortWithinSection(t *testing.T) {
 	if len(m.items) != 3 {
 		t.Fatalf("expected 3 rows, got %d", len(m.items))
 	}
-	if m.items[0].urgency != "critical" {
-		t.Errorf("item[0].urgency = %q, want critical", m.items[0].urgency)
+	want := []string{"SPEC-OLD", "SPEC-MID", "SPEC-NEW"}
+	for i, id := range want {
+		if m.items[i].specID != id {
+			t.Errorf("item[%d].specID = %q, want %q (oldest first)", i, m.items[i].specID, id)
+		}
 	}
-	if m.items[1].urgency != "stale" {
-		t.Errorf("item[1].urgency = %q, want stale", m.items[1].urgency)
+}
+
+func TestDashboard_UndatedRowsSortLast(t *testing.T) {
+	m := testDashboard()
+	m.loading = false
+	now := time.Now()
+	m.data = &dashboard.DashboardData{
+		Do: []dashboard.DashboardItem{
+			{SpecID: "SPEC-UNDATED", Title: "No timestamp"},
+			{SpecID: "SPEC-DATED", Title: "Has timestamp", SortTime: now.Add(-24 * time.Hour)},
+		},
 	}
-	if m.items[2].urgency != "normal" {
-		t.Errorf("item[2].urgency = %q, want normal", m.items[2].urgency)
+	m.items = m.buildRows()
+
+	if m.items[0].specID != "SPEC-DATED" || m.items[1].specID != "SPEC-UNDATED" {
+		t.Errorf("undated row should sort last; got %q then %q", m.items[0].specID, m.items[1].specID)
 	}
 }
 
