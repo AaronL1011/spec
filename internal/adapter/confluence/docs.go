@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -426,37 +427,56 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body []byte)
 // stripped and rendered as a metadata info panel at the top of the page. All
 // text is XML-escaped so arbitrary spec prose produces well-formed storage XML.
 // Inserts <!-- spec-section: slug --> markers before each heading for inbound.
+//
+// codeMacroClose MUST lead with "]]>" to terminate the CDATA section opened by
+// the code macro. Omitting it leaves the CDATA open, so Confluence swallows the
+// entire rest of the page into the first code block — producing malformed
+// storage XML that the v2 API silently mangles on render.
+const codeMacroClose = "]]></ac:plain-text-body></ac:structured-macro>\n"
+
 func markdownToStorage(md, specID string, meta *markdown.SpecMeta) string {
 	body := stripFrontmatter(md)
 	lines := strings.Split(body, "\n")
 	var out strings.Builder
 	out.WriteString(metadataPanel(specID, meta))
 	inCodeBlock := false
+	var fenceChar byte // '`' or '~' of the open fence
+	fenceLen := 0      // run length of the open fence
 	inList := false
 	listType := "" // "ul" or "ol"
 
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 
-		// Fenced code blocks
-		if strings.HasPrefix(line, "```") {
+		// Fenced code blocks. Fences are matched after trimming leading
+		// indentation, and a block only closes on a fence of the SAME character
+		// that is at least as long as the opener with no info string — so an
+		// indented closing fence (the common cause of "everything after a code
+		// block renders inside it") and nested longer fences both work.
+		if char, runLen, info, ok := parseFence(line); ok {
+			if inCodeBlock {
+				if char == fenceChar && runLen >= fenceLen && info == "" {
+					out.WriteString(codeMacroClose)
+					inCodeBlock = false
+					fenceChar, fenceLen = 0, 0
+					continue
+				}
+				// A shorter/mismatched fence inside the block is literal content.
+				out.WriteString(escapeCDATA(line))
+				out.WriteString("\n")
+				continue
+			}
 			if inList {
 				out.WriteString(closeList(listType))
 				inList = false
 			}
-			if inCodeBlock {
-				out.WriteString("</ac:plain-text-body></ac:structured-macro>\n")
-				inCodeBlock = false
-			} else {
-				lang := strings.TrimPrefix(line, "```")
-				lang = strings.TrimSpace(lang)
-				out.WriteString(`<ac:structured-macro ac:name="code">`)
-				if lang != "" {
-					fmt.Fprintf(&out, `<ac:parameter ac:name="language">%s</ac:parameter>`, escapeXML(lang))
-				}
-				out.WriteString("<ac:plain-text-body><![CDATA[")
-				inCodeBlock = true
+			inCodeBlock = true
+			fenceChar, fenceLen = char, runLen
+			out.WriteString(`<ac:structured-macro ac:name="code">`)
+			if lang := firstToken(info); lang != "" {
+				fmt.Fprintf(&out, `<ac:parameter ac:name="language">%s</ac:parameter>`, escapeXML(lang))
 			}
+			out.WriteString("<ac:plain-text-body><![CDATA[")
 			continue
 		}
 		if inCodeBlock {
@@ -553,7 +573,8 @@ func markdownToStorage(md, specID string, meta *markdown.SpecMeta) string {
 		out.WriteString(closeList(listType))
 	}
 	if inCodeBlock {
-		out.WriteString("</ac:plain-text-body></ac:structured-macro>\n")
+		// Close an unterminated trailing block (author forgot the closing fence).
+		out.WriteString(codeMacroClose)
 	}
 
 	return out.String()
@@ -728,29 +749,91 @@ func slugify(text string) string {
 }
 
 var (
-	inlineLink   = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)\)`)
-	inlineBold   = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	inlineItalic = regexp.MustCompile(`\*(.+?)\*`)
-	inlineCode   = regexp.MustCompile("`(.+?)`")
+	inlineLink        = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)\)`)
+	inlineBold        = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	inlineItalic      = regexp.MustCompile(`\*(.+?)\*`)
+	inlineCode        = regexp.MustCompile("`(.+?)`")
+	inlinePlaceholder = regexp.MustCompile("\x00(\\d+)\x00")
 )
 
 // formatInline escapes XML special characters in markdown text, then converts
-// inline markdown (links, code, bold, italic) into storage-format tags. Escaping
-// first guarantees that literal '<', '>' and '&' in prose (e.g. "List<T>",
-// "Q&A") become valid entities rather than malformed XML that Confluence rejects.
+// inline markdown (links, code, bold, italic) into storage-format tags.
+//
+// Code spans and links are extracted to placeholders BEFORE emphasis is applied,
+// then restored afterward. This is essential: without it, a stray '*' inside one
+// code span (e.g. "`SCHEDULED_JOB_*`") and another in a later span let the italic
+// regex wrap <em> across the intervening </code>...<code> tags, producing
+// interleaved, malformed storage XML. Isolating emphasis to plain text keeps the
+// output well-formed. Escaping first also turns literal '<','>','&' (e.g.
+// "List<T>", "Q&A") into valid entities.
 func formatInline(text string) string {
 	text = escapeXML(text)
-	// Links: [text](url) → <a href="url">text</a>. The url was already escaped
-	// for '&'/'<'/'>'; escapeAttrQuotes covers the attribute-only quote case.
+
+	stash := make([]string, 0, 4)
+	protect := func(rendered string) string {
+		stash = append(stash, rendered)
+		return fmt.Sprintf("\x00%d\x00", len(stash)-1)
+	}
+
+	// Inline code first — its content is verbatim and must not be re-formatted.
+	text = inlineCode.ReplaceAllStringFunc(text, func(m string) string {
+		return protect("<code>" + inlineCode.FindStringSubmatch(m)[1] + "</code>")
+	})
+	// Links next: [text](url) → <a href="url">text</a>. The url was already
+	// escaped for '&'/'<'/'>'; escapeAttrQuotes covers the attribute quote case.
 	text = inlineLink.ReplaceAllStringFunc(text, func(m string) string {
 		sub := inlineLink.FindStringSubmatch(m)
-		return fmt.Sprintf(`<a href="%s">%s</a>`, escapeAttrQuotes(sub[2]), sub[1])
+		return protect(fmt.Sprintf(`<a href="%s">%s</a>`, escapeAttrQuotes(sub[2]), sub[1]))
 	})
-	// Inline code before bold/italic so '*' inside code is not re-interpreted.
-	text = inlineCode.ReplaceAllString(text, "<code>$1</code>")
+	// Emphasis now runs only over plain text containing no tags or backticks.
 	text = inlineBold.ReplaceAllString(text, "<strong>$1</strong>")
 	text = inlineItalic.ReplaceAllString(text, "<em>$1</em>")
-	return text
+
+	// Restore protected spans.
+	return inlinePlaceholder.ReplaceAllStringFunc(text, func(m string) string {
+		idx, err := strconv.Atoi(inlinePlaceholder.FindStringSubmatch(m)[1])
+		if err != nil || idx < 0 || idx >= len(stash) {
+			return m
+		}
+		return stash[idx]
+	})
+}
+
+// parseFence reports whether a line is a Markdown code fence (after trimming
+// leading indentation), returning the fence character ('`' or '~'), its run
+// length (>=3), and the trimmed info string. Per CommonMark, a backtick fence's
+// info string may not contain a backtick, which keeps inline code like `x` from
+// being mistaken for a fence.
+func parseFence(line string) (char byte, runLen int, info string, ok bool) {
+	s := strings.TrimLeft(line, " \t")
+	if len(s) < 3 {
+		return 0, 0, "", false
+	}
+	c := s[0]
+	if c != '`' && c != '~' {
+		return 0, 0, "", false
+	}
+	n := 0
+	for n < len(s) && s[n] == c {
+		n++
+	}
+	if n < 3 {
+		return 0, 0, "", false
+	}
+	info = strings.TrimSpace(s[n:])
+	if c == '`' && strings.Contains(info, "`") {
+		return 0, 0, "", false
+	}
+	return c, n, info, true
+}
+
+// firstToken returns the first whitespace-delimited token of a fence info
+// string — the language hint Confluence's code macro expects.
+func firstToken(info string) string {
+	if fields := strings.Fields(info); len(fields) > 0 {
+		return fields[0]
+	}
+	return ""
 }
 
 // frontmatterDelim matches the YAML frontmatter fence at the very top of a spec.

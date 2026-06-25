@@ -378,12 +378,125 @@ func TestMarkdownToStorage_MetadataPanel(t *testing.T) {
 }
 
 // TestMarkdownToStorage_CodeBlockRaw keeps code-block content raw inside CDATA
-// rather than emitting literal entities.
+// rather than emitting literal entities, and verifies the CDATA section is
+// terminated with "]]>" and the whole fragment is well-formed XML. A missing
+// terminator left the CDATA open and swallowed the rest of the page into the
+// first code block — the headline bug this guards against.
 func TestMarkdownToStorage_CodeBlockRaw(t *testing.T) {
-	md := "```go\nif a < b && c > d {}\n```\n"
+	md := "```go\nif a < b && c > d {}\n```\n\n## After\n\nBody.\n"
 	storage := markdownToStorage(md, "SPEC-001", nil)
 	if !strings.Contains(storage, "if a < b && c > d {}") {
 		t.Errorf("expected raw code in CDATA, got %q", storage)
+	}
+	if strings.Count(storage, "<![CDATA[") != strings.Count(storage, "]]>") {
+		t.Errorf("unbalanced CDATA open/close: %q", storage)
+	}
+	if !strings.Contains(storage, "<h2>After</h2>") {
+		t.Errorf("content after the code block was swallowed: %q", storage)
+	}
+	assertWellFormedXML(t, storage)
+}
+
+// TestMarkdownToStorage_StarInCodeSpans is the regression for interleaved tags:
+// a literal '*' inside two separate code spans let the italic regex wrap <em>
+// across the </code>...<code> boundary, producing malformed XML.
+func TestMarkdownToStorage_StarInCodeSpans(t *testing.T) {
+	md := "Rename `SCHEDULED_JOB_*` event types to `BACKGROUND_JOB_*` for alignment.\n"
+	storage := markdownToStorage(md, "SPEC-001", nil)
+	if strings.Contains(storage, "<em>") {
+		t.Errorf("a '*' inside code spans must not become emphasis: %q", storage)
+	}
+	if !strings.Contains(storage, "<code>SCHEDULED_JOB_*</code>") || !strings.Contains(storage, "<code>BACKGROUND_JOB_*</code>") {
+		t.Errorf("code spans should preserve their literal '*': %q", storage)
+	}
+	assertWellFormedXML(t, storage)
+}
+
+// TestMarkdownToStorage_EmphasisAroundCode keeps emphasis well-formed when it
+// legitimately wraps a code span.
+func TestMarkdownToStorage_EmphasisAroundCode(t *testing.T) {
+	md := "This is *very `important` indeed* today.\n"
+	storage := markdownToStorage(md, "SPEC-001", nil)
+	if !strings.Contains(storage, "<code>important</code>") {
+		t.Errorf("expected code span preserved: %q", storage)
+	}
+	assertWellFormedXML(t, storage)
+}
+
+// TestMarkdownToStorage_IndentedClosingFence is the regression for the bug where
+// an indented closing fence was not recognised, so the code block never closed
+// and every following section was swallowed into it.
+func TestMarkdownToStorage_IndentedClosingFence(t *testing.T) {
+	md := "## H\n\n```go\nfunc main() {}\n  ```\n\n## After\n\nText after.\n"
+	storage := markdownToStorage(md, "SPEC-001", nil)
+
+	// The code macro must close exactly once and the following heading/body
+	// must render as normal page content, not as code.
+	if strings.Count(storage, "</ac:plain-text-body></ac:structured-macro>") != 1 {
+		t.Fatalf("expected the code block to close once, got: %q", storage)
+	}
+	if !strings.Contains(storage, "<h2>After</h2>") {
+		t.Errorf("content after the code block was swallowed: %q", storage)
+	}
+	if !strings.Contains(storage, "<p>Text after.</p>") {
+		t.Errorf("paragraph after the code block was swallowed: %q", storage)
+	}
+}
+
+// TestMarkdownToStorage_NestedFence checks a 4-backtick fence keeps inner
+// triple-backtick lines as literal content and closes only on the longer fence.
+func TestMarkdownToStorage_NestedFence(t *testing.T) {
+	md := "````md\n```go\nx := 1\n```\n````\n\n## After\n"
+	storage := markdownToStorage(md, "SPEC-001", nil)
+	if strings.Count(storage, `ac:name="code"`) != 1 {
+		t.Fatalf("expected a single code macro, got: %q", storage)
+	}
+	if !strings.Contains(storage, "```go\nx := 1\n```") {
+		t.Errorf("inner fences should be literal content: %q", storage)
+	}
+	if !strings.Contains(storage, "<h2>After</h2>") {
+		t.Errorf("content after the outer fence was swallowed: %q", storage)
+	}
+}
+
+// TestMarkdownToStorage_TildeFence supports ~~~ fences.
+func TestMarkdownToStorage_TildeFence(t *testing.T) {
+	md := "~~~go\nx := 1\n~~~\n\n## After\n"
+	storage := markdownToStorage(md, "SPEC-001", nil)
+	if !strings.Contains(storage, `ac:name="code"`) {
+		t.Errorf("expected ~~~ to open a code macro: %q", storage)
+	}
+	if !strings.Contains(storage, "<h2>After</h2>") {
+		t.Errorf("content after a tilde fence was swallowed: %q", storage)
+	}
+}
+
+func TestParseFence(t *testing.T) {
+	tests := []struct {
+		name    string
+		line    string
+		wantOK  bool
+		wantCh  byte
+		wantLen int
+		wantInf string
+	}{
+		{"open with lang", "```go", true, '`', 3, "go"},
+		{"bare close", "```", true, '`', 3, ""},
+		{"indented close", "   ```", true, '`', 3, ""},
+		{"long fence", "````md", true, '`', 4, "md"},
+		{"tilde", "~~~", true, '~', 3, ""},
+		{"inline code, not a fence", "a `x` b", false, 0, 0, ""},
+		{"too short", "``", false, 0, 0, ""},
+		{"plain text", "hello", false, 0, 0, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ch, n, info, ok := parseFence(tt.line)
+			if ok != tt.wantOK || ch != tt.wantCh || n != tt.wantLen || info != tt.wantInf {
+				t.Errorf("parseFence(%q) = (%q,%d,%q,%v), want (%q,%d,%q,%v)",
+					tt.line, ch, n, info, ok, tt.wantCh, tt.wantLen, tt.wantInf, tt.wantOK)
+			}
+		})
 	}
 }
 
