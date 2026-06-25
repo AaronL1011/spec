@@ -84,7 +84,7 @@ func (a App) updateRevert(msg tea.KeyPressMsg) (App, tea.Cmd) {
 			stage := a.revert.selectedStage()
 			reason := a.revert.reasonText()
 			a.revert.close()
-			return a, a.startAction("reverting "+specID, revertSpec(a.rc, specID, stage, reason, a.rc.UserName()))
+			return a, a.startAction("reverting "+specID, revertSpec(a.rc, a.reg, a.db, specID, stage, reason, a.role))
 		}
 		return a, nil
 	case "backspace":

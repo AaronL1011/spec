@@ -1,13 +1,19 @@
-// Package confluence implements DocsAdapter using the Confluence REST API v2.
+// Package confluence implements DocsAdapter using the Confluence REST API.
 //
-// Outbound: converts spec markdown to Confluence storage format (XHTML) and
-// publishes the full page. Inserts <!-- spec-section: slug --> markers for
-// reliable inbound re-mapping.
+// Outbound (the hardened, primary path): converts spec markdown to Confluence
+// storage format (XHTML) and publishes the full page as a child of a
+// configured parent page. Frontmatter is rendered as a metadata info panel,
+// markdown links and inline formatting are preserved, and all prose is
+// XML-escaped so arbitrary spec content (e.g. "List<T>", "a < b", "Q&A")
+// produces well-formed storage XML. Pages are bound to their spec by a
+// durable Confluence label so lookups survive human title edits. Section
+// markers (<!-- spec-section: slug -->) are still emitted to support inbound.
 //
-// Inbound: fetches the Confluence page, parses XHTML storage format back to
-// markdown sections keyed by slug. The conversion is lossy for complex
-// formatting but faithful for the structured content in spec sections (prose
-// paragraphs, bullet lists, tables, code blocks, headings).
+// Inbound (best-effort): fetches the Confluence page and parses XHTML storage
+// format back to markdown sections keyed by slug. The conversion is lossy for
+// complex formatting and depends on HTML-comment markers that Confluence's
+// editor may strip; it is retained for compatibility but not the focus of the
+// hardened mirror.
 package confluence
 
 import (
@@ -17,34 +23,67 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/aaronl1011/spec/internal/markdown"
 )
+
+// defaultTimeout is the per-request timeout for Confluence API calls. It can
+// be overridden via Options.Timeout (config key docs.request_timeout).
+const defaultTimeout = 10 * time.Second
+
+// Options configures a Confluence DocsAdapter.
+type Options struct {
+	// BaseURL includes the /wiki path, e.g. "https://myorg.atlassian.net/wiki".
+	BaseURL string
+	// SpaceKey is the human space key (e.g. "ENG"). Resolved to a numeric
+	// space id lazily for page creation.
+	SpaceKey string
+	// ParentID is the numeric id of the parent page under which spec pages are
+	// created. Required: it keeps the mirror navigable instead of dumping
+	// pages at the space root.
+	ParentID string
+	Email    string
+	Token    string
+	// Timeout overrides defaultTimeout when non-zero.
+	Timeout time.Duration
+}
 
 // Client implements adapter.DocsAdapter using the Confluence REST API.
 type Client struct {
 	baseURL  string // e.g. "https://myorg.atlassian.net/wiki"
 	spaceKey string
+	parentID string
 	email    string
 	token    string
 	http     *http.Client
 
+	mu sync.Mutex
+	// spaceID is the numeric space id resolved lazily from spaceKey.
+	spaceID string
 	// pageCache maps specID → pageID for the current session to avoid
 	// redundant lookups. Not persisted across invocations.
 	pageCache map[string]string
 }
 
-// NewClient creates a Confluence DocsAdapter.
-// baseURL should include the /wiki path, e.g. "https://myorg.atlassian.net/wiki".
-func NewClient(baseURL, spaceKey, email, token string) *Client {
-	baseURL = strings.TrimRight(baseURL, "/")
+// NewClient creates a Confluence DocsAdapter from Options.
+func NewClient(opts Options) *Client {
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
 	return &Client{
-		baseURL:   baseURL,
-		spaceKey:  spaceKey,
-		email:     email,
-		token:     token,
-		http:      &http.Client{Timeout: 15 * time.Second},
+		baseURL:   strings.TrimRight(opts.BaseURL, "/"),
+		spaceKey:  opts.SpaceKey,
+		parentID:  opts.ParentID,
+		email:     opts.Email,
+		token:     opts.Token,
+		http:      &http.Client{Timeout: timeout},
 		pageCache: make(map[string]string),
 	}
 }
@@ -70,9 +109,13 @@ func (c *Client) FetchSections(ctx context.Context, specID string) (map[string]s
 }
 
 // PushFull publishes the complete spec to Confluence. Creates the page if it
-// doesn't exist, or updates it if it does.
+// doesn't exist, or updates it if it does. The page title is derived from the
+// spec frontmatter ("SPEC-042 — Title") for readability; identity is bound to a
+// durable label, not the title, so renames don't orphan the mirror.
 func (c *Client) PushFull(ctx context.Context, specID string, content string) error {
-	storage := markdownToStorage(content, specID)
+	meta, _ := markdown.ParseMeta(content) // best-effort: nil meta degrades to specID title
+	title := pageTitle(specID, meta)
+	storage := markdownToStorage(content, specID, meta)
 
 	pageID, err := c.findPage(ctx, specID)
 	if err != nil {
@@ -80,9 +123,9 @@ func (c *Client) PushFull(ctx context.Context, specID string, content string) er
 	}
 
 	if pageID == "" {
-		return c.createPage(ctx, specID, storage)
+		return c.createPage(ctx, specID, title, storage)
 	}
-	return c.updatePage(ctx, pageID, specID, storage)
+	return c.updatePage(ctx, pageID, title, storage)
 }
 
 // PageURL returns the URL of the spec's Confluence page.
@@ -99,19 +142,24 @@ func (c *Client) PageURL(ctx context.Context, specID string) (string, error) {
 
 // --- Page CRUD ---
 
+// findPage locates the Confluence page mirroring specID by its durable label.
+// Label search (via the stable v1 CQL endpoint) is space-scoped and survives
+// human edits to the page title, unlike a title match. Returns "" when no page
+// exists yet (not an error).
 func (c *Client) findPage(ctx context.Context, specID string) (string, error) {
+	c.mu.Lock()
 	if id, ok := c.pageCache[specID]; ok {
+		c.mu.Unlock()
 		return id, nil
 	}
+	c.mu.Unlock()
 
-	// Search by title using CQL
-	cql := fmt.Sprintf(`space="%s" AND title="%s"`, c.spaceKey, specID)
-	url := fmt.Sprintf("%s/api/v2/pages?spaceKey=%s&title=%s&limit=2",
-		c.baseURL, c.spaceKey, specID)
+	cql := fmt.Sprintf(`space="%s" AND label="%s" AND type=page`, c.spaceKey, specLabel(specID))
+	endpoint := fmt.Sprintf("%s/rest/api/content/search?cql=%s&limit=2", c.baseURL, url.QueryEscape(cql))
 
-	resp, err := c.doRequest(ctx, http.MethodGet, url, nil)
+	resp, err := c.doRequest(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return "", fmt.Errorf("searching for page %s: %w — query: %s", specID, err, cql)
+		return "", fmt.Errorf("searching for page %s: %w", specID, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -121,10 +169,10 @@ func (c *Client) findPage(ctx context.Context, specID string) (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("confluence API error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
+		return "", fmt.Errorf("confluence search error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
 	}
 
-	var result pagesResponse
+	var result searchResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return "", fmt.Errorf("parsing search response: %w", err)
 	}
@@ -133,12 +181,61 @@ func (c *Client) findPage(ctx context.Context, specID string) (string, error) {
 		return "", nil
 	}
 	if len(result.Results) > 1 {
-		return "", fmt.Errorf("multiple Confluence pages found for %s in space %s — ensure spec page titles are unique", specID, c.spaceKey)
+		return "", fmt.Errorf("multiple Confluence pages labelled for %s in space %s — remove the duplicate so the mirror has a single target", specID, c.spaceKey)
 	}
 
 	pageID := result.Results[0].ID
-	c.pageCache[specID] = pageID
+	c.cachePage(specID, pageID)
 	return pageID, nil
+}
+
+// cachePage records a specID→pageID mapping for the session.
+func (c *Client) cachePage(specID, pageID string) {
+	c.mu.Lock()
+	c.pageCache[specID] = pageID
+	c.mu.Unlock()
+}
+
+// resolveSpaceID resolves the configured space key to its numeric space id,
+// which the v2 create-page endpoint requires (it rejects the key). The result
+// is cached for the session.
+func (c *Client) resolveSpaceID(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	if c.spaceID != "" {
+		id := c.spaceID
+		c.mu.Unlock()
+		return id, nil
+	}
+	c.mu.Unlock()
+
+	endpoint := fmt.Sprintf("%s/api/v2/spaces?keys=%s&limit=2", c.baseURL, url.QueryEscape(c.spaceKey))
+	resp, err := c.doRequest(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("resolving space %q: %w", c.spaceKey, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading spaces response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("confluence spaces error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 500))
+	}
+
+	var result spacesResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("parsing spaces response: %w", err)
+	}
+	if len(result.Results) == 0 {
+		return "", fmt.Errorf("confluence space %q not found — check docs.space_key", c.spaceKey)
+	}
+
+	id := result.Results[0].ID
+	c.mu.Lock()
+	c.spaceID = id
+	c.mu.Unlock()
+	return id, nil
 }
 
 func (c *Client) getPageBody(ctx context.Context, pageID string) (string, error) {
@@ -167,11 +264,20 @@ func (c *Client) getPageBody(ctx context.Context, pageID string) (string, error)
 	return page.Body.Storage.Value, nil
 }
 
-func (c *Client) createPage(ctx context.Context, specID, storageBody string) error {
+func (c *Client) createPage(ctx context.Context, specID, title, storageBody string) error {
+	spaceID, err := c.resolveSpaceID(ctx)
+	if err != nil {
+		return err
+	}
+	if c.parentID == "" {
+		return fmt.Errorf("confluence parent page not configured — set docs.parent_page_id so the %s mirror has a home", specID)
+	}
+
 	payload := createPageRequest{
-		SpaceID: c.spaceKey,
-		Status:  "current",
-		Title:   specID,
+		SpaceID:  spaceID,
+		ParentID: c.parentID,
+		Status:   "current",
+		Title:    title,
 		Body: pageBody{
 			Representation: "storage",
 			Value:          storageBody,
@@ -200,13 +306,42 @@ func (c *Client) createPage(ctx context.Context, specID, storageBody string) err
 	}
 
 	var page pageResponse
-	if err := json.Unmarshal(body, &page); err == nil && page.ID != "" {
-		c.pageCache[specID] = page.ID
+	if err := json.Unmarshal(body, &page); err != nil || page.ID == "" {
+		return fmt.Errorf("confluence create page for %s returned no id: %s", specID, truncate(string(body), 200))
+	}
+	c.cachePage(specID, page.ID)
+
+	// Bind the page to the spec with a durable label so future lookups survive
+	// title edits. A failure here would orphan the page from findPage, so it is
+	// fatal: the operator can re-run once the cause is resolved.
+	if err := c.attachLabel(ctx, page.ID, specLabel(specID)); err != nil {
+		return fmt.Errorf("labelling %s page: %w", specID, err)
 	}
 	return nil
 }
 
-func (c *Client) updatePage(ctx context.Context, pageID, specID, storageBody string) error {
+// attachLabel adds a global label to a page via the stable v1 endpoint (v2
+// exposes labels read-only).
+func (c *Client) attachLabel(ctx context.Context, pageID, label string) error {
+	payload := []labelRequest{{Prefix: "global", Name: label}}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshalling label: %w", err)
+	}
+	url := fmt.Sprintf("%s/rest/api/content/%s/label", c.baseURL, pageID)
+	resp, err := c.doRequest(ctx, http.MethodPost, url, data)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("confluence label error (HTTP %d): %s", resp.StatusCode, truncate(string(body), 300))
+	}
+	return nil
+}
+
+func (c *Client) updatePage(ctx context.Context, pageID, title, storageBody string) error {
 	// Fetch current version for optimistic locking
 	version, err := c.getPageVersion(ctx, pageID)
 	if err != nil {
@@ -216,7 +351,7 @@ func (c *Client) updatePage(ctx context.Context, pageID, specID, storageBody str
 	payload := updatePageRequest{
 		ID:     pageID,
 		Status: "current",
-		Title:  specID,
+		Title:  title,
 		Body: pageBody{
 			Representation: "storage",
 			Value:          storageBody,
@@ -288,41 +423,66 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body []byte)
 
 // markdownToStorage converts spec markdown to Confluence storage format (XHTML).
 // Handles: headings, paragraphs, bullet/numbered lists, code blocks, tables,
-// and bold/italic inline formatting. Inserts <!-- spec-section: slug --> markers
-// before each heading for reliable inbound re-mapping.
-func markdownToStorage(md, specID string) string {
-	lines := strings.Split(md, "\n")
+// links, and bold/italic/code inline formatting. The YAML frontmatter is
+// stripped and rendered as a metadata info panel at the top of the page. All
+// text is XML-escaped so arbitrary spec prose produces well-formed storage XML.
+// Inserts <!-- spec-section: slug --> markers before each heading for inbound.
+//
+// codeMacroClose MUST lead with "]]>" to terminate the CDATA section opened by
+// the code macro. Omitting it leaves the CDATA open, so Confluence swallows the
+// entire rest of the page into the first code block — producing malformed
+// storage XML that the v2 API silently mangles on render.
+const codeMacroClose = "]]></ac:plain-text-body></ac:structured-macro>\n"
+
+func markdownToStorage(md, specID string, meta *markdown.SpecMeta) string {
+	body := stripFrontmatter(md)
+	lines := strings.Split(body, "\n")
 	var out strings.Builder
+	out.WriteString(metadataPanel(specID, meta))
 	inCodeBlock := false
+	var fenceChar byte // '`' or '~' of the open fence
+	fenceLen := 0      // run length of the open fence
 	inList := false
 	listType := "" // "ul" or "ol"
 
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 
-		// Fenced code blocks
-		if strings.HasPrefix(line, "```") {
+		// Fenced code blocks. Fences are matched after trimming leading
+		// indentation, and a block only closes on a fence of the SAME character
+		// that is at least as long as the opener with no info string — so an
+		// indented closing fence (the common cause of "everything after a code
+		// block renders inside it") and nested longer fences both work.
+		if char, runLen, info, ok := parseFence(line); ok {
+			if inCodeBlock {
+				if char == fenceChar && runLen >= fenceLen && info == "" {
+					out.WriteString(codeMacroClose)
+					inCodeBlock = false
+					fenceChar, fenceLen = 0, 0
+					continue
+				}
+				// A shorter/mismatched fence inside the block is literal content.
+				out.WriteString(escapeCDATA(line))
+				out.WriteString("\n")
+				continue
+			}
 			if inList {
 				out.WriteString(closeList(listType))
 				inList = false
 			}
-			if inCodeBlock {
-				out.WriteString("</ac:plain-text-body></ac:structured-macro>\n")
-				inCodeBlock = false
-			} else {
-				lang := strings.TrimPrefix(line, "```")
-				lang = strings.TrimSpace(lang)
-				out.WriteString(`<ac:structured-macro ac:name="code">`)
-				if lang != "" {
-					fmt.Fprintf(&out, `<ac:parameter ac:name="language">%s</ac:parameter>`, escapeXML(lang))
-				}
-				out.WriteString("<ac:plain-text-body><![CDATA[")
-				inCodeBlock = true
+			inCodeBlock = true
+			fenceChar, fenceLen = char, runLen
+			out.WriteString(`<ac:structured-macro ac:name="code">`)
+			if lang := firstToken(info); lang != "" {
+				fmt.Fprintf(&out, `<ac:parameter ac:name="language">%s</ac:parameter>`, escapeXML(lang))
 			}
+			out.WriteString("<ac:plain-text-body><![CDATA[")
 			continue
 		}
 		if inCodeBlock {
-			out.WriteString(escapeXML(line))
+			// CDATA content is raw; only the "]]>" terminator must be split so
+			// it does not close the section prematurely.
+			out.WriteString(escapeCDATA(line))
 			out.WriteString("\n")
 			continue
 		}
@@ -413,7 +573,8 @@ func markdownToStorage(md, specID string) string {
 		out.WriteString(closeList(listType))
 	}
 	if inCodeBlock {
-		out.WriteString("</ac:plain-text-body></ac:structured-macro>\n")
+		// Close an unterminated trailing block (author forgot the closing fence).
+		out.WriteString(codeMacroClose)
 	}
 
 	return out.String()
@@ -587,14 +748,157 @@ func slugify(text string) string {
 	return text
 }
 
+var (
+	inlineLink        = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)\)`)
+	inlineBold        = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	inlineItalic      = regexp.MustCompile(`\*(.+?)\*`)
+	inlineCode        = regexp.MustCompile("`(.+?)`")
+	inlinePlaceholder = regexp.MustCompile("\x00(\\d+)\x00")
+)
+
+// formatInline escapes XML special characters in markdown text, then converts
+// inline markdown (links, code, bold, italic) into storage-format tags.
+//
+// Code spans and links are extracted to placeholders BEFORE emphasis is applied,
+// then restored afterward. This is essential: without it, a stray '*' inside one
+// code span (e.g. "`SCHEDULED_JOB_*`") and another in a later span let the italic
+// regex wrap <em> across the intervening </code>...<code> tags, producing
+// interleaved, malformed storage XML. Isolating emphasis to plain text keeps the
+// output well-formed. Escaping first also turns literal '<','>','&' (e.g.
+// "List<T>", "Q&A") into valid entities.
 func formatInline(text string) string {
-	// Bold: **text** → <strong>text</strong>
-	text = regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(text, "<strong>$1</strong>")
-	// Italic: *text* → <em>text</em>
-	text = regexp.MustCompile(`\*(.+?)\*`).ReplaceAllString(text, "<em>$1</em>")
-	// Inline code: `text` → <code>text</code>
-	text = regexp.MustCompile("`(.+?)`").ReplaceAllString(text, "<code>$1</code>")
-	return text
+	text = escapeXML(text)
+
+	stash := make([]string, 0, 4)
+	protect := func(rendered string) string {
+		stash = append(stash, rendered)
+		return fmt.Sprintf("\x00%d\x00", len(stash)-1)
+	}
+
+	// Inline code first — its content is verbatim and must not be re-formatted.
+	text = inlineCode.ReplaceAllStringFunc(text, func(m string) string {
+		return protect("<code>" + inlineCode.FindStringSubmatch(m)[1] + "</code>")
+	})
+	// Links next: [text](url) → <a href="url">text</a>. The url was already
+	// escaped for '&'/'<'/'>'; escapeAttrQuotes covers the attribute quote case.
+	text = inlineLink.ReplaceAllStringFunc(text, func(m string) string {
+		sub := inlineLink.FindStringSubmatch(m)
+		return protect(fmt.Sprintf(`<a href="%s">%s</a>`, escapeAttrQuotes(sub[2]), sub[1]))
+	})
+	// Emphasis now runs only over plain text containing no tags or backticks.
+	text = inlineBold.ReplaceAllString(text, "<strong>$1</strong>")
+	text = inlineItalic.ReplaceAllString(text, "<em>$1</em>")
+
+	// Restore protected spans.
+	return inlinePlaceholder.ReplaceAllStringFunc(text, func(m string) string {
+		idx, err := strconv.Atoi(inlinePlaceholder.FindStringSubmatch(m)[1])
+		if err != nil || idx < 0 || idx >= len(stash) {
+			return m
+		}
+		return stash[idx]
+	})
+}
+
+// parseFence reports whether a line is a Markdown code fence (after trimming
+// leading indentation), returning the fence character ('`' or '~'), its run
+// length (>=3), and the trimmed info string. Per CommonMark, a backtick fence's
+// info string may not contain a backtick, which keeps inline code like `x` from
+// being mistaken for a fence.
+func parseFence(line string) (char byte, runLen int, info string, ok bool) {
+	s := strings.TrimLeft(line, " \t")
+	if len(s) < 3 {
+		return 0, 0, "", false
+	}
+	c := s[0]
+	if c != '`' && c != '~' {
+		return 0, 0, "", false
+	}
+	n := 0
+	for n < len(s) && s[n] == c {
+		n++
+	}
+	if n < 3 {
+		return 0, 0, "", false
+	}
+	info = strings.TrimSpace(s[n:])
+	if c == '`' && strings.Contains(info, "`") {
+		return 0, 0, "", false
+	}
+	return c, n, info, true
+}
+
+// firstToken returns the first whitespace-delimited token of a fence info
+// string — the language hint Confluence's code macro expects.
+func firstToken(info string) string {
+	if fields := strings.Fields(info); len(fields) > 0 {
+		return fields[0]
+	}
+	return ""
+}
+
+// frontmatterDelim matches the YAML frontmatter fence at the very top of a spec.
+var frontmatterDelim = regexp.MustCompile(`(?s)\A\s*---\n.*?\n---\n?`)
+
+// stripFrontmatter removes the leading YAML frontmatter block so it does not
+// leak into the page body as stray paragraphs (it is rendered as a panel
+// instead). Content without frontmatter is returned unchanged.
+func stripFrontmatter(md string) string {
+	return frontmatterDelim.ReplaceAllString(md, "")
+}
+
+// pageTitle builds a human-friendly Confluence page title from the spec
+// frontmatter. Falls back to the bare specID when no usable title is present.
+func pageTitle(specID string, meta *markdown.SpecMeta) string {
+	if meta == nil {
+		return specID
+	}
+	title := strings.TrimSpace(meta.Title)
+	// Ignore the template placeholder so unfilled drafts don't get an ugly title.
+	if title == "" || strings.HasPrefix(title, "[") {
+		return specID
+	}
+	return fmt.Sprintf("%s — %s", specID, title)
+}
+
+// specLabel returns the durable Confluence label binding a page to its spec.
+// Labels are lowercased and restricted to [a-z0-9-]; the spec prefix namespaces
+// them so they don't collide with unrelated team labels.
+func specLabel(specID string) string {
+	slug := strings.ToLower(strings.TrimSpace(specID))
+	slug = regexp.MustCompile(`[^a-z0-9]+`).ReplaceAllString(slug, "-")
+	slug = strings.Trim(slug, "-")
+	return "spec-id-" + slug
+}
+
+// metadataPanel renders selected frontmatter fields as a Confluence "info"
+// panel containing a key/value table, giving external readers spec context
+// (status, owner, cycle, repos) without exposing raw YAML.
+func metadataPanel(specID string, meta *markdown.SpecMeta) string {
+	rows := [][2]string{{"Spec", specID}}
+	if meta != nil {
+		rows = appendMetaRow(rows, "Status", meta.Status)
+		rows = appendMetaRow(rows, "Author", meta.Author)
+		rows = appendMetaRow(rows, "Cycle", meta.Cycle)
+		rows = appendMetaRow(rows, "Version", meta.Version)
+		rows = appendMetaRow(rows, "Epic", meta.EpicKey)
+		rows = appendMetaRow(rows, "Repos", strings.Join(meta.Repos, ", "))
+		rows = appendMetaRow(rows, "Updated", meta.Updated)
+	}
+
+	var b strings.Builder
+	b.WriteString(`<ac:structured-macro ac:name="info"><ac:rich-text-body><table><tbody>`)
+	for _, row := range rows {
+		fmt.Fprintf(&b, "<tr><th>%s</th><td>%s</td></tr>", escapeXML(row[0]), escapeXML(row[1]))
+	}
+	b.WriteString("</tbody></table></ac:rich-text-body></ac:structured-macro>\n")
+	return b.String()
+}
+
+func appendMetaRow(rows [][2]string, key, value string) [][2]string {
+	if strings.TrimSpace(value) == "" {
+		return rows
+	}
+	return append(rows, [2]string{key, value})
 }
 
 func isOrderedListItem(line string) bool {
@@ -682,6 +986,19 @@ func escapeXML(s string) string {
 	return s
 }
 
+// escapeAttrQuotes escapes the double-quote character for safe use inside an
+// XML attribute value. '&', '<' and '>' are assumed already escaped upstream.
+func escapeAttrQuotes(s string) string {
+	return strings.ReplaceAll(s, `"`, "&quot;")
+}
+
+// escapeCDATA makes a line safe inside a <![CDATA[ ... ]]> block by splitting
+// any "]]>" terminator so it cannot close the section early. The content is
+// otherwise emitted raw — CDATA must not XML-escape, or entities render literally.
+func escapeCDATA(s string) string {
+	return strings.ReplaceAll(s, "]]>", "]]]]><![CDATA[>")
+}
+
 func stripTags(s string) string {
 	return regexp.MustCompile(`<[^>]*>`).ReplaceAllString(s, "")
 }
@@ -694,10 +1011,6 @@ func truncate(s string, maxLen int) string {
 }
 
 // --- API types ---
-
-type pagesResponse struct {
-	Results []pageResponse `json:"results"`
-}
 
 type pageResponse struct {
 	ID      string `json:"id"`
@@ -713,10 +1026,34 @@ type pageResponse struct {
 }
 
 type createPageRequest struct {
-	SpaceID string   `json:"spaceId"`
-	Status  string   `json:"status"`
-	Title   string   `json:"title"`
-	Body    pageBody `json:"body"`
+	SpaceID  string   `json:"spaceId"`
+	ParentID string   `json:"parentId,omitempty"`
+	Status   string   `json:"status"`
+	Title    string   `json:"title"`
+	Body     pageBody `json:"body"`
+}
+
+// searchResponse models the v1 /rest/api/content/search payload used for
+// durable label-based page lookup.
+type searchResponse struct {
+	Results []struct {
+		ID string `json:"id"`
+	} `json:"results"`
+}
+
+// spacesResponse models the v2 /api/v2/spaces payload used to resolve a space
+// key to its numeric id.
+type spacesResponse struct {
+	Results []struct {
+		ID  string `json:"id"`
+		Key string `json:"key"`
+	} `json:"results"`
+}
+
+// labelRequest is one entry in the v1 add-label payload.
+type labelRequest struct {
+	Prefix string `json:"prefix"`
+	Name   string `json:"name"`
 }
 
 type updatePageRequest struct {

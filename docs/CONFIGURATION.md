@@ -225,21 +225,105 @@ queued and retried; `spec sync --pm` reconciles a drifted board on demand and
 
 #### `integrations.docs`
 
-Syncs spec sections to/from a documentation platform.
+Mirrors every spec to a documentation platform so people outside engineering
+(PMs, designers, leadership) can read specs where they already work, without a
+Git or markdown tool. The Confluence integration is **outbound and per-spec**:
+each spec publishes its full content to one Confluence page and keeps that page
+current as it moves through the pipeline. There is no bulk "mirror everything"
+command — mirroring happens incrementally, one spec at a time.
 
 ```yaml
 integrations:
   docs:
-    provider: confluence        # confluence | none  (notion: coming soon)
-    base_url: ${CONFLUENCE_BASE_URL}
-    space_key: PLAT
-    email: ${CONFLUENCE_EMAIL}
+    provider: confluence            # confluence | none  (notion: coming soon)
+    base_url: ${CONFLUENCE_BASE_URL} # https://<org>.atlassian.net/wiki  (must include /wiki)
+    space_key: PLAT                  # human space key; resolved to a numeric space id automatically
+    parent_page_id: "123456"         # REQUIRED — spec pages are created as children of this page
+    email: ${CONFLUENCE_EMAIL}       # REQUIRED — Atlassian account email for Cloud basic auth
     token: ${CONFLUENCE_API_TOKEN}
+    # request_timeout: 15s           # optional per-request timeout (default: 10s)
 ```
 
-| Provider | Required fields |
+| Provider | Required fields | Optional fields |
+|---|---|---|
+| `confluence` | `base_url`, `space_key`, `parent_page_id`, `email`, `token` | `request_timeout` |
+
+**If any required field is missing, docs is disabled** (a clean no-op, never a
+crash). spec prints a warning naming the missing field to stderr on the next
+command that uses integrations — e.g. *"confluence: parent_page_id required so
+spec pages mirror under a parent — docs disabled"* — and `spec config test`
+lists Docs as not configured.
+
+**Where each value comes from:**
+
+| Field | How to obtain it |
 |---|---|
-| `confluence` | `base_url`, `space_key`, `email`, `token` |
+| `base_url` | Your wiki root, including the `/wiki` path: `https://<org>.atlassian.net/wiki`. |
+| `email` | The Atlassian account email that owns the API token (Cloud basic auth). |
+| `token` | [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens) → Security → **Create API token**. |
+| `space_key` | Space → **Space settings**, or the `.../spaces/PLAT/...` segment in the space URL. spec resolves this to the numeric space id for you. |
+| `parent_page_id` | Create (or pick) a parent page such as "Specs", open it, and copy the number from `.../pages/123456/...` in its URL. |
+
+**Token permissions.** The API token's account needs to read the space and to
+create/update pages and add labels under `parent_page_id`. A space-admin or
+contributor role on the target space is sufficient.
+
+**How a spec maps to a page.**
+
+- **Identity is a durable label** (`spec-id-<slug>`), not the page title. Page
+  lookups search by this label, so renaming the page in Confluence never
+  orphans the mirror.
+- **Titles are human-friendly** — `SPEC-042 — <title>`, derived from the spec
+  frontmatter — so the space reads like documentation, not ticket ids.
+- **Pages nest under `parent_page_id`**, keeping the space navigable instead of
+  dumping pages at the root. First publish resolves the space id, creates the
+  child page, and attaches the identity label; later publishes update the page
+  in place (with an optimistic version bump).
+- **Frontmatter becomes a metadata panel.** The YAML frontmatter is stripped
+  from the body and rendered as an info panel at the top of the page (Status,
+  Author, Cycle, Version, Epic, Repos, Updated), so readers get context at a
+  glance. Spec markdown — headings, lists, tables, code blocks, links, inline
+  formatting — is converted to Confluence storage format, with all prose
+  XML-escaped so content like `List<T>` or `Q&A` publishes cleanly.
+
+**What triggers a mirror** (see [`sync`](#sync) below):
+
+1. **Automatically on `spec advance`** when `sync.outbound_on_advance: true`
+   (the default in generated configs). Each stage transition republishes the
+   spec — this is the primary, zero-effort path.
+2. **Manually** with `spec sync <id> --direction out`. Adding `--dry-run`
+   previews the outbound plan locally **without** contacting Confluence.
+   `spec sync <id>` with no direction defaults to `both`.
+
+Mirror failures are **non-fatal**: if Confluence is unreachable during
+`spec advance`, the advance still succeeds and the failure is reported as a sync
+effect — the spec lifecycle never blocks on the mirror.
+
+**Reading and contributing.** External readers simply browse the space. For
+non-engineer roles (`pm`, `designer`, `qa`), `spec edit <id>` prints the
+Confluence page URL (resolved via the same label) instead of opening `$EDITOR`,
+pointing each contributor to where they read and comment.
+
+> **Inbound (Confluence → repo) is best-effort.** Pulling Confluence edits back
+> into the specs repo (`spec sync <id> --direction in`) is section-scoped by
+> `<!-- owner: role -->` markers but depends on HTML comments the Confluence
+> editor can strip. It is retained for compatibility and not the focus of the
+> mirror — keep using the specs repo as the source of truth.
+
+**Setup runbook:**
+
+1. Create an Atlassian API token; export `CONFLUENCE_BASE_URL` (with `/wiki`),
+   `CONFLUENCE_EMAIL`, and `CONFLUENCE_API_TOKEN`.
+2. Create a parent "Specs" page in the target space and copy its numeric id.
+3. Fill in `integrations.docs` with `provider: confluence`, `space_key`, and
+   `parent_page_id`.
+4. Run `spec config test` to confirm Docs shows as configured (no "disabled"
+   warning). Then mirror one spec for real with `spec sync <id> --direction
+   out` and confirm its page appears under the parent in Confluence — the first
+   push resolves the space id, creates the child page, and attaches the
+   identity label, so it validates credentials, space, and parent end to end.
+5. Keep `sync.outbound_on_advance: true`, then `spec advance` as normal — each
+   spec now mirrors itself.
 
 #### `integrations.repo`
 
@@ -335,16 +419,22 @@ Controls how spec sections stay in sync with the docs provider.
 
 ```yaml
 sync:
-  outbound_on_advance: true   # Push to docs platform whenever a spec advances (default: false)
-  conflict_strategy: warn     # warn | overwrite | skip (default: warn)
+  outbound_on_advance: true   # Mirror the spec to the docs platform on every advance (default: false; generated configs set true)
+  conflict_strategy: warn     # warn | abort | force | skip (default: warn) — applies to inbound pulls
   auto_push: auto             # auto | prompt | off (default: auto)
 ```
 
-| `conflict_strategy` | Behaviour |
+`outbound_on_advance` drives the [Confluence mirror](#integrationsdocs): when
+`true`, every `spec advance` republishes the full spec outbound. The
+`conflict_strategy` settings only affect **inbound** pulls (docs → repo), where
+the specs repo always wins on conflict:
+
+| `conflict_strategy` | Behaviour on a conflicting inbound section |
 |---|---|
-| `warn` | Print a warning and leave the local version (default) |
-| `overwrite` | Remote wins; local changes are discarded |
-| `skip` | Silently skip conflicting sections |
+| `warn` | Print a warning and leave the local version; `spec sync` exits with conflicts listed (default) |
+| `abort` | Stop the sync run as soon as a conflict is detected |
+| `force` | Accept the remote change, overwriting local (also `spec sync --force`) |
+| `skip` | Silently skip conflicting sections, applying the non-conflicting ones (also `spec sync --skip`) |
 
 | `auto_push` | Behaviour |
 |---|---|
@@ -389,7 +479,7 @@ dashboard:
 | `stale_threshold` | `48h` | Time-in-stage after which a spec is flagged stale. |
 | `refresh_ttl` | `300` | Seconds the dashboard caches aggregated data. |
 | `urgency.easing` | `ease-in` | Curve shaping the [time-urgency gradient](#time-urgency-gradient): `linear`, `ease-in`, or `ease-in-strong`. |
-| `review.stale_after` | _(unset)_ | Opt-in review-age window for the [time-urgency gradient](#time-urgency-gradient) on REVIEW rows. Omit, `none`, or `0` = never coloured. |
+| `review.stale_after` | *(unset)* | Opt-in review-age window for the [time-urgency gradient](#time-urgency-gradient) on REVIEW rows. Omit, `none`, or `0` = never coloured. |
 | `blocked.visible_to` | all roles | Roles that may see the BLOCKED section at all. A role not listed sees no BLOCKED section. |
 | `blocked.scope` | `all` | Which blocked specs a permitted role sees: `all` (every blocked spec), `involved` (only specs you author or are assigned), `owning_role` (only specs whose pre-block stage your role owned). |
 
@@ -419,7 +509,7 @@ stays correct on light, dark, and accessibility palettes; monochrome themes
 
 The **REVIEW** section uses the same gradient and `easing`, but on a different
 clock: intensity is `ease(pr_age / review.stale_after)`, where `pr_age` is how
-long the pull request has been open (the same timestamp behind the "_2d_" label
+long the pull request has been open (the same timestamp behind the "*2d*" label
 on the row). It is opt-in — set `dashboard.review.stale_after` to enable it;
 left unset, REVIEW rows are never coloured. (Note: `pr_age` is measured from
 when the PR was opened, not from when review was requested of you.)
@@ -427,7 +517,7 @@ when the PR was opened, not from when review was requested of you.)
 `owning_role` reads the `blocked_from` frontmatter field, which `spec eject`
 records automatically when a spec is blocked. Because the team standup already
 rolls up every blocker, a common pattern is `scope: involved` here so each
-person's dashboard shows only _their own_ stuck work while the TL gets the
+person's dashboard shows only *their own* stuck work while the TL gets the
 team-wide view from standup.
 
 The **DO** section is scoped separately, per stage — see
@@ -555,13 +645,13 @@ stale (no colouring). There is no global fallback — only stages with an explic
 
 ### Dashboard scope
 
-By default a spec appears in the **DO** section of the dashboard for _everyone_
+By default a spec appears in the **DO** section of the dashboard for *everyone*
 whose role owns its current stage. On a team with several engineers that floods
 each dashboard with the whole role's work. Per-stage `dashboard.do_scope`
 narrows DO to the person actually responsible, using two spec concepts:
 
 - **author** — who originated the spec (frontmatter `author`, set at `spec new`).
-- **assignees** — who is responsible for moving it _now_ (frontmatter
+- **assignees** — who is responsible for moving it *now* (frontmatter
   `assignees`). Set with `spec assign`, claimed in the TUI with `g c`, or
   claimed automatically when you run `spec build` / `spec do` on an
   assignee-scoped stage.
@@ -589,7 +679,7 @@ The full pipeline stays visible to everyone via the dashboard and `spec list` �
 scope only narrows the focused DO section, never hides work outright.
 
 **Identity matching.** Assignees and author are matched against the user's
-configured `name` _and_ `handle` (case-insensitive, a leading `@` is ignored),
+configured `name` *and* `handle` (case-insensitive, a leading `@` is ignored),
 so `@maximo`, `maximo`, and `Maximo` all resolve to the same person.
 
 #### Assigning work
@@ -813,7 +903,7 @@ user:
 `owner_role` drives all role-aware commands (`spec list`, dashboard queue, passive awareness).
 Missing `owner_role` prints a setup prompt on any role-aware command.
 
-**`handle`** is your _spec-canonical_ identity — a stable token that identifies
+**`handle`** is your *spec-canonical* identity — a stable token that identifies
 you inside spec (frontmatter author/assignees, thread author, decision log). It
 never leaves spec, so it can be anything you like.
 
@@ -826,7 +916,7 @@ config init --user` only prompts for the providers your team actually
 configured, and `spec config lint` warns about identity keys no integration
 uses.
 
-**Identity matching.** A spec authored or assigned under _any_ of your
+**Identity matching.** A spec authored or assigned under *any* of your
 identities (canonical handle, display name, or a per-provider handle) is
 recognised as yours in the dashboard and awareness line — so display-name vs
 `@handle` vs login drift across teams never hides your own work.
@@ -990,6 +1080,7 @@ integrations:
     provider: confluence
     base_url: ${CONFLUENCE_BASE_URL}
     space_key: PLAT
+    parent_page_id: "123456"
     email: ${CONFLUENCE_EMAIL}
     token: ${CONFLUENCE_API_TOKEN}
 

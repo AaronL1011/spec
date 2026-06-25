@@ -324,6 +324,7 @@ specs repo (canonical source of truth)
 ```
 
 **Key principles:**
+
 - The **specs repo** is the golden source of truth and the knowledge base. All spec content is committed here. Git history provides full versioning and audit trail.
 - **`spec sync`** provides bidirectional, section-scoped sync with external tools. Inbound changes are scoped by `<!-- owner: role -->` markers - a PM's Confluence edits can only update PM-owned sections. Outbound sync publishes the full spec for reading. `spec sync` also handles writing local changes from service repos back to the specs repo (scoped to the current user's role).
 - **`spec pull`** copies a spec from the specs repo into a service repo's `.spec/` directory for local context and agent builds.
@@ -476,9 +477,12 @@ integrations:
 
   docs:
     provider: confluence               # confluence | notion | github | local
-    base_url: ${CONFLUENCE_BASE_URL}
-    space_key: ENG
+    base_url: ${CONFLUENCE_BASE_URL}   # include the /wiki path
+    space_key: ENG                     # human space key; resolved to a numeric space id
+    parent_page_id: "123456"           # required: spec pages mirror as children of this page
+    email: ${CONFLUENCE_EMAIL}         # required for Atlassian Cloud basic auth
     token: ${CONFLUENCE_API_TOKEN}
+    # request_timeout: 15s             # optional: per-request timeout (default 10s)
 
   repo:
     provider: github                   # github | gitlab | bitbucket
@@ -773,6 +777,7 @@ The build phase is where engineers spend 80% of their time. `spec build` and `sp
 ```
 
 When an engineer runs `spec do`, the build engine:
+
 1. Reads `state.yaml` to determine where they left off
 2. Loads the current spec from `.spec/SPEC-042.md` (warns if stale vs specs repo)
 3. Determines the current PR step from §7.3 PR Stack Plan
@@ -793,6 +798,7 @@ If §7.3 defines a PR stack:
 ```
 
 `spec build` walks this sequence step by step. Each step:
+
 - Checks out the correct repo and creates a branch (`spec-042/step-1-token-bucket`)
 - Injects the spec + cumulative context from prior steps
 - On completion, the engineer marks the step done and moves to the next
@@ -807,6 +813,7 @@ If §7.3 defines a PR stack:
 The MCP server exposes:
 
 **Resources** (structured context the agent reads):
+
 - `spec://current/full` - full spec markdown for the active build
 - `spec://current/section/{slug}` - specific section (e.g., `technical_implementation`)
 - `spec://current/decisions` - decision log
@@ -816,12 +823,14 @@ The MCP server exposes:
 - `spec://related?q={query}` - related specs via knowledge search
 
 **Tools** (actions the agent can take mid-session):
+
 - `spec_decide` - record a decision to the decision log from within the agent session
 - `spec_step_complete` - mark the current PR step as done, advance session state
 - `spec_status` - check current pipeline status and acceptance criteria progress
 - `spec_search` - query the knowledge base for context on past decisions
 
 This means:
+
 - **Zero file pollution.** Nothing written to the workspace for context delivery.
 - **Any MCP agent works automatically.** No per-agent format knowledge needed.
 - **Dynamic context.** The agent queries for what it needs, not a static dump.
@@ -926,6 +935,7 @@ interface AIService {
 ```
 
 Every method returns `null` when:
+
 - `ai.provider` is `none` or unconfigured
 - The provider is unreachable (offline, rate-limited, errored)
 - The user has set `preferences.ai_drafts: false`
@@ -983,6 +993,7 @@ AI never writes directly to a spec without human review. There is no "auto-accep
 #### The `ollama` option
 
 Including `ollama` (local models) as a first-class provider is essential for:
+
 - Enterprise teams that can't send data to external APIs
 - Air-gapped environments
 - Privacy-sensitive specs
@@ -1013,6 +1024,7 @@ Local models are worse at drafting long-form content but adequate for the conten
 ## 6. Acceptance Criteria <!-- owner: qa -->
 
 ### US-01 - Triage intake
+
 - [ ] `spec intake "Auth tokens expiring for EU users"` creates a `TRIAGE-<id>.md` in the specs repo `triage/` directory
 - [ ] ID is auto-assigned by scanning existing triage items
 - [ ] Only `title` is required; `--source`, `--priority`, and `--source-ref` are optional
@@ -1021,6 +1033,7 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] `spec list --triage` shows all open triage items sorted by priority then age
 
 ### US-02 - Triage promotion
+
 - [ ] `spec promote TRIAGE-088` scaffolds a new `SPEC-<id>.md` with context from the triage item pre-populated (title, problem context, source reference)
 - [ ] When `ai` is configured, an AI draft of §1 Problem Statement is offered via accept / edit / skip
 - [ ] When `ai` is not configured, §1 is left blank with the triage context available in the frontmatter `source` field for manual reference
@@ -1029,12 +1042,14 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] If PM integration is configured, an Epic is created and linked
 
 ### US-03 - TL fast-track
+
 - [ ] `spec advance TRIAGE-088 --to engineering` promotes the triage item to a spec and skips directly to the `engineering` stage
 - [ ] Requires `owner_role: tl`; other roles receive a permission error
 - [ ] Skipped stages are logged in the decision log as a fast-track entry
 - [ ] A notification is sent to the assigned engineer with the context
 
 ### US-04 - New spec scaffolding
+
 - [ ] `spec new --title "Auth refactor"` auto-assigns the next sequential ID by scanning existing specs (active + archived)
 - [ ] The new spec is created as `SPEC-<id>.md` in the specs repo root with all required sections
 - [ ] YAML frontmatter is pre-populated with `status: draft`, auto-assigned ID, current date, and author from git config
@@ -1043,6 +1058,7 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] A draft notification is sent to the configured comms channel
 
 ### US-12 - Dashboard (`spec` no args)
+
 - [ ] `spec` with no arguments displays the personal dashboard with DO, REVIEW, INCOMING, BLOCKED sections
 - [ ] DO section shows specs where the active stage's `owner_role` matches the user's configured role, sorted by time-in-stage descending
 - [ ] REVIEW section shows open PRs where the user is a requested reviewer (from repo adapter)
@@ -1054,12 +1070,14 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] Offline mode reads entirely from cache with a `(cached)` indicator
 
 ### US-13 - Passive awareness
+
 - [ ] Every `spec` subcommand (not the dashboard itself) checks the cache for pending items
 - [ ] If items are pending, a single muted line is printed before the command's output: `⚠ N pending · run 'spec' for details`
 - [ ] This check is cache-only and adds <50ms latency
 - [ ] If no items are pending, nothing is printed (no "all clear" noise on every command)
 
 ### US-14 - `spec list` role-filtered queue
+
 - [ ] `spec list` with no flags returns only specs where the active stage `owner_role` matches the user's configured role
 - [ ] Each row shows: spec ID, title, current stage, time-in-stage, and a direct link to the spec
 - [ ] Results are sorted by time-in-stage descending (longest waiting first)
@@ -1070,11 +1088,13 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] If the user's role has no pending specs: `✓ Nothing awaiting your action. Run 'spec list --all' to see the full pipeline.`
 
 ### US-16 - Spec pull
+
 - [ ] `spec pull SPEC-042` fetches the spec from the specs repo and writes to `.spec/SPEC-042.md`
 - [ ] If a local copy exists and has uncommitted changes, user is prompted before overwrite
 - [ ] If the spec does not exist, a clear error is returned
 
 ### US-17 - `spec do` session resume
+
 - [ ] `spec do` with no arguments resumes the most recent active build session
 - [ ] `spec do SPEC-042` resumes the session for a specific spec
 - [ ] Session state is persisted in `~/.spec/sessions/<spec-id>/state.yaml`
@@ -1084,6 +1104,7 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] Activity (builds started, steps completed) is logged to `~/.spec/sessions/<spec-id>/activity.log`
 
 ### US-18 - Multi-PR build orchestration
+
 - [ ] `spec build SPEC-042` reads §7.3 PR Stack Plan and presents the build sequence
 - [ ] Each step creates a branch in the target repo following the pattern `spec-<id>/step-N-<slug>`
 - [ ] Completing a step updates the session state and presents the next step
@@ -1097,11 +1118,13 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] `spec mcp-server` can be run standalone for agents that manage their own MCP server connections via config (e.g., `.mcp.json`)
 
 ### US-19 - Escape hatch
+
 - [ ] `spec eject SPEC-042 --reason "..."` appends an entry to the Escape Hatch Log section
 - [ ] Spec status transitions to `blocked`; previous stage is recorded for `spec resume`
 - [ ] TL receives a notification with the reason and a link to the spec
 
 ### US-20 - Stage reversion
+
 - [ ] `spec revert SPEC-042 --to build --reason "..."` transitions the spec to the specified previous stage
 - [ ] `--reason` is required; omitting it produces an error
 - [ ] The reason is appended to the decision log as a reversion entry
@@ -1112,11 +1135,13 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] `spec status <id>` shows reversion history
 
 ### US-21 - Review coordination
+
 - [ ] `spec review SPEC-042` aggregates PRs from all repos listed in the `repos` frontmatter field
 - [ ] PRs are listed in dependency order matching §7.3 PR Stack Plan
 - [ ] A structured review request is posted to the configured comms channel
 
 ### US-22 - Deployment
+
 - [ ] `spec deploy SPEC-042` triggers the deployment pipeline via the configured deploy adapter
 - [ ] Deployment targets are determined by the `repos` frontmatter field and `deploy.environments` config
 - [ ] Deploy status is printed in real-time (or polled) showing per-repo results
@@ -1125,16 +1150,19 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] Spec status transitions to `deploying` (if post-merge stages are configured)
 
 ### US-24 - Knowledge search
+
 - [ ] `spec search "authentication"` performs full-text search across active and archived specs
 - [ ] Results show spec ID, title, status, and matching excerpts with highlighting
 - [ ] `spec context "how does auth work?"` performs keyword search and returns structured results: relevant specs with their key sections
 
 ### US-26 - Stack flexibility
+
 - [ ] Switching `integrations.comms.provider` from `teams` to `slack` requires only a config change
 - [ ] `spec config test` reports a clear pass/fail for each configured integration
 - [ ] Adapter interface is documented for third-party custom integrations
 
 ### US-27 - User role declaration
+
 - [ ] `user.owner_role` in `~/.spec/config.yaml` is respected by all role-aware commands
 - [ ] `spec whoami` outputs role, name, handle, and config file path
 - [ ] Missing `owner_role` prints: `No role configured. Run 'spec config init --user' to set up your identity.`
@@ -1142,11 +1170,13 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] `user` block is excluded from repo-level config by `spec config init`
 
 ### US-28 - Cross-repo specs
+
 - [ ] A spec can declare `repos: [auth-service, api-gateway]` in frontmatter
 - [ ] `spec pull SPEC-042` works from any service repo
 - [ ] `spec review SPEC-042` aggregates PRs from all listed repos
 
 ### US-29 - Auto-generated standup
+
 - [ ] `spec standup` generates a standup from the last 24h of activity
 - [ ] Sources: git commits on `spec-*` branches, spec transitions, decision log entries, PR reviews
 - [ ] Output is grouped into Yesterday / Today / Blockers
@@ -1156,6 +1186,7 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] Posted message is formatted appropriately for the comms provider
 
 ### US-30 - Retrospective
+
 - [ ] `spec retro` for the current cycle auto-populates: timeline per spec, average time per stage, reversion count and reasons, throughput (specs completed), bottleneck stage
 - [ ] `spec retro --cycle "Cycle 6"` retrospects a previous cycle
 - [ ] After metrics display, prompts for qualitative input (what went well, what to improve)
@@ -1163,6 +1194,7 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] `spec metrics` shows the quantitative data without the qualitative prompts
 
 ### US-09 - Bidirectional sync
+
 - [ ] `spec sync SPEC-042` pulls inbound changes from docs provider, scoped to matching role sections
 - [ ] `spec sync SPEC-042` pushes the full spec outbound to docs provider
 - [ ] From a service repo, also writes local `.spec/` changes back to specs repo, scoped to user's role
@@ -1171,11 +1203,13 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] Outbound sync is optionally auto-triggered on `spec advance` (per config)
 
 ### US-10 - Design resource linking
+
 - [ ] `spec link SPEC-042 --section design --url "https://figma.com/..."` appends a resource link
 - [ ] Link includes timestamp and user identity
 - [ ] Links are rendered as a list, not inline replacements
 
 ### US-11a - AI-assisted section drafting
+
 - [ ] `spec draft SPEC-042 --section problem_statement` generates an AI draft using available context (triage data, other completed sections, decision log, related specs from `spec context`)
 - [ ] The draft is presented via accept / edit / skip; accepted or edited content is written to the target section in the spec
 - [ ] `spec draft` requires the `ai` integration to be configured; if unconfigured, it prints: `AI integration not configured. Write the section manually with 'spec edit SPEC-042'. To enable AI drafting, run 'spec config init' and configure the ai integration.`
@@ -1184,6 +1218,7 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] The section slug must match a valid section in the spec template; invalid slugs produce a clear error listing valid options
 
 ### US-18a - AI-proposed PR stack plan
+
 - [ ] `spec draft SPEC-042 --pr-stack` generates a proposed PR stack plan from §4 Proposed Solution and §7.1 Architecture Notes
 - [ ] The proposed plan follows the format of §7.3: numbered list with `[repo] description` per step
 - [ ] The plan is presented via accept / edit / skip; accepted or edited content is written to §7.3
@@ -1191,6 +1226,7 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] The proposal is a starting point - engineers are expected to review and adjust
 
 ### US-21a - AI-generated PR descriptions
+
 - [ ] `spec draft SPEC-042 --pr` generates a PR description from: the git diff of the current branch, the spec context (§7 Technical Implementation, §6 Acceptance Criteria), and the PR's position in the stack plan
 - [ ] The description is presented via accept / edit / skip
 - [ ] If accepted or edited, the description is set on the PR via the repo adapter (GitHub/GitLab API)
@@ -1198,6 +1234,7 @@ Local models are worse at drafting long-form content but adequate for the conten
 - [ ] Requires both `ai` and `repo` integrations; errors clearly if either is unconfigured
 
 ### US-11 - Decision log management
+
 - [ ] `spec decide SPEC-042 --question "REST vs gRPC?"` appends a new row with auto-incremented number, user identity, date
 - [ ] New entry has empty Options/Decision/Rationale fields
 - [ ] `spec decide SPEC-042 --resolve 003 --decision "gRPC" --rationale "..."` updates the entry
@@ -1348,6 +1385,7 @@ spec-cli/
 ```
 
 **Key structural rules:**
+
 - `cmd/` files are thin - parse flags, resolve config, call `internal/`. No business logic in `cmd/`.
 - `internal/adapter/*.go` files define interfaces only. Implementations live in `internal/adapter/<provider>/`.
 - Engines (`pipeline/`, `sync/`, `build/`, `dashboard/`, `ceremony/`, `knowledge/`, `ai/`) depend on adapter interfaces, never on concrete implementations. The `registry` resolves config → concrete adapter at startup and injects into engines.
@@ -1544,6 +1582,7 @@ CREATE TABLE sync_state (
 `internal/git/` wraps all git interactions via `exec.Command`. No other package shells out to git.
 
 **Specs repo management** (`specsrepo.go`):
+
 - On first run, `spec` clones the specs repo to `~/.spec/repos/<owner>/<repo>/`. Subsequent runs do `git fetch origin && git reset --hard origin/<branch>` to ensure the local clone is current.
 - All spec mutations (new, advance, decide, etc.) follow the pattern: **fetch → mutate file → commit → push**. This is wrapped in a helper:
 
@@ -1558,6 +1597,7 @@ func WithSpecsRepo(cfg *config.Config, mutate func(repoPath string) (commitMsg s
 - **Retry on conflict:** Since specs are separate files, conflicts are rare. But if two users advance the same spec simultaneously, the push will fail. `WithSpecsRepo` retries by re-fetching and re-applying the mutation. If the retry also fails (e.g., someone else already advanced the same spec), it returns a clear error: `Spec SPEC-042 was modified by another user. Run 'spec status SPEC-042' to see the current state.`
 
 **Branch operations** (`branch.go`):
+
 - `spec build` creates branches in service repos (not the specs repo) following the pattern `spec-<id>/step-<N>-<slug>`.
 - Branch detection: `spec do` with no args checks the current branch name for the `spec-<id>/` prefix to auto-detect which spec and step the user is working on.
 
@@ -1568,21 +1608,25 @@ func WithSpecsRepo(cfg *config.Config, mutate func(repoPath string) (commitMsg s
 `internal/markdown/` is the parser that makes section-scoped sync, gate validation, and frontmatter mutation possible. It does **not** use a full markdown AST parser - it operates on line-level patterns, which is simpler and sufficient for the structured `SPEC.md` format.
 
 **Frontmatter** (`frontmatter.go`):
+
 - Reads/writes YAML between `---` delimiters at the top of the file.
 - `ReadMeta(path) → SpecMeta` and `WriteMeta(path, SpecMeta)` - WriteMeta preserves the rest of the file content.
 - Uses `gopkg.in/yaml.v3` for structured parsing.
 
 **Section extraction** (`sections.go`):
-- Scans for lines matching `^#{1,6} ` (markdown headings).
+
+- Scans for lines matching `^#{1,6}` (markdown headings).
 - For each heading, looks for an `<!-- owner: <role> -->` comment on the same line or the next line.
 - Returns `[]Section` with slug, owner, content, and line ranges.
 - Slug derivation: strip section number and punctuation, lowercase, replace spaces with underscores. `## 1. Problem Statement` → `problem_statement`. `### 7.3 PR Stack Plan` → `pr_stack_plan`.
 - Sub-sections inherit the parent section's owner unless they have their own `<!-- owner -->` marker.
 
 **Section replacement** (`sections.go`):
+
 - `ReplaceSection(filePath, slug, newContent) error` - replaces the content of a section (between its heading and the next same-or-higher-level heading) with new content. Used by sync engine inbound, `spec draft` accept, and `spec decide`.
 
 **Decision log** (`decisionlog.go`):
+
 - Parses the markdown table under `## Decision Log`.
 - `AppendDecision(path, question, user, date) (number int, err error)` - adds a row with the next sequential number.
 - `ResolveDecision(path, number, decision, rationale, user, date) error` - updates an existing row.
@@ -1620,17 +1664,22 @@ The sync engine (`internal/sync/`) handles bidirectional, section-scoped synchro
 ```
 
 **Section-level diffing** (`sections.go`):
+
 - Sections are compared by SHA-256 hash of their trimmed content.
 - The sync_state table stores the hash of each section at last sync time, per direction. This three-way comparison (local now, remote now, last-synced) is what detects conflicts vs. clean one-directional changes.
 
 **Role guard:**
+
 - Inbound changes are only applied if the section's `<!-- owner: role -->` matches the inbound source's role. A PM's Confluence edits to §7 Technical Implementation are silently ignored (logged as a warning, not applied).
 
 **Confluence adapter specifics** (`adapter/confluence/docs.go`):
-- Uses the Confluence REST API v2 (`/wiki/api/v2/pages`).
-- On outbound push: converts markdown to Confluence storage format (XHTML). Uses a lightweight markdown-to-confluence converter (custom, not a full library - the spec format is constrained enough that heading/paragraph/table/code-block conversion covers 95% of cases).
-- On inbound fetch: converts Confluence storage format back to markdown sections. This is lossy for complex formatting but faithful for the structured content in spec sections (prose paragraphs, bullet lists, tables).
-- Section mapping: Confluence headings are mapped to spec section slugs by the same slugification logic. The outbound push inserts `<!-- spec-section: slug -->` HTML comments into the Confluence page to make inbound mapping reliable even if someone renames a heading in Confluence.
+
+- Uses the Confluence REST API v2 for page CRUD (`/wiki/api/v2/pages`) and space resolution (`/wiki/api/v2/spaces`), plus the stable v1 endpoints for label add and label search (`/wiki/rest/api/content/...`), which v2 does not cover.
+- **Outbound is the hardened, primary path.** Each spec mirrors itself as it progresses through the pipeline (auto on `spec advance` when `sync.outbound_on_advance` is set, or via `spec sync <id>`). There is intentionally no bulk "mirror everything" command — mirroring is per-spec and incremental.
+- **Page identity is a durable Confluence label** (`spec-id-<slug>`), not the page title. Lookups search by label so a human renaming the page in Confluence never orphans the mirror. Titles are human-friendly (`SPEC-042 — <title>`, derived from frontmatter) for external readers.
+- **Organisation:** spec pages are created as children of the required `parent_page_id`, keeping the mirror navigable instead of dumping pages at the space root. Page creation resolves the configured `space_key` to the numeric `spaceId` the v2 create endpoint requires.
+- **Conversion:** a lightweight custom markdown→storage-format (XHTML) converter handles headings, paragraphs, bullet/numbered lists, tables, code blocks, links, and bold/italic/inline-code. All prose is XML-escaped, so arbitrary spec content (e.g. `List<T>`, `a < b`, `Q&A`) yields well-formed storage XML rather than a rejected push. YAML frontmatter is stripped from the body and rendered as a metadata info panel (status, owner, cycle, repos).
+- **Inbound (best-effort):** converts storage format back to markdown sections, mapped to spec slugs via `<!-- spec-section: slug -->` markers (falling back to heading slugs). This path is lossy and depends on markers that Confluence's editor may strip; it is retained for compatibility but is not the focus of the hardened mirror.
 
 ### 7.9 Build Engine
 
@@ -1755,6 +1804,7 @@ spec (no args)
 ```
 
 **Passive awareness** (`awareness.go`):
+
 - Called at the start of every non-dashboard command.
 - Reads from cache only (no network). Counts items that would appear in DO + REVIEW.
 - If count > 0, prints a single dim line: `⚠ N pending · run 'spec' for details`
