@@ -4,15 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
-	"time"
 )
-
-// checkCacheTTL bounds how long a passive update check is served from the
-// on-disk cache before a fresh GitHub query is made. The TUI runs the check on
-// every launch (potentially many times a day), so the cache keeps the common
-// path network-free and polite to the GitHub API. `spec update` deliberately
-// does NOT use this cache — an explicit update is always a live query.
-const checkCacheTTL = 24 * time.Hour
 
 // GitHubToken returns an optional GitHub token to lift the anonymous API rate
 // limit. Public release lookups work without it; it is read best-effort from
@@ -30,20 +22,23 @@ func GitHubToken() string {
 // CheckLatest reports the newest released version when it is newer than
 // current, for the passive "update available" notice in the TUI. It reuses the
 // same release source, semver comparison, and token resolution as `spec
-// update`, differing only in two deliberate policies: it never nags
-// development builds, and it is throttled by a 24h on-disk cache so startup
-// stays fast and the GitHub API stays unhit on most launches.
+// update`, differing only in one deliberate policy: it never nags development
+// builds.
 //
-// It degrades silently: any error (network down, rate-limited, corrupt cache)
-// yields ("", false) — or a still-valid cached value — never a surfaced error,
-// because an ambient notice must never disrupt the session.
+// It runs a live query on every call (the TUI invokes it once per startup, off
+// the UI thread, bounded by the release source's 10s HTTP timeout). There is no
+// on-disk cache: a release surfaces on the very next launch for every user,
+// rather than being masked for up to a day by a stale cached "latest". The
+// query is best-effort and degrades silently — any error (network down,
+// rate-limited) yields ("", false), never a surfaced error, because an ambient
+// notice must never disrupt the session.
 func CheckLatest(ctx context.Context, current string) (latest string, available bool) {
-	return checkLatest(ctx, current, NewUpdater(GitHubToken()), defaultCachePath())
+	return checkLatest(ctx, current, NewUpdater(GitHubToken()))
 }
 
-// checkLatest is the testable core of CheckLatest with the release source and
-// cache path injected.
-func checkLatest(ctx context.Context, current string, u *Updater, cachePath string) (string, bool) {
+// checkLatest is the testable core of CheckLatest with the release source
+// injected.
+func checkLatest(ctx context.Context, current string, u *Updater) (string, bool) {
 	// Dev builds compare as always-behind for `spec update` (so a developer
 	// can jump to a real release on demand); the passive notice applies the
 	// opposite policy and stays quiet rather than nagging every local build.
@@ -51,29 +46,13 @@ func checkLatest(ctx context.Context, current string, u *Updater, cachePath stri
 		return "", false
 	}
 
-	cache := readCheckCache(cachePath)
-
-	// Serve a fresh cache without any network call — but only when it is not
-	// provably stale. If we are running a version newer than the "latest" the
-	// cache recorded, the cache predates this binary (the user has upgraded
-	// since the last check), so its notion of "latest" cannot be trusted. In
-	// that case fall through to a live query; this is what lets a brand-new
-	// release surface within the TTL right after an upgrade, instead of staying
-	// hidden for up to 24h. A still-current cache (current <= cached latest) is
-	// served as before to keep startup fast and the GitHub API unhit.
-	if time.Since(cache.CheckedAt) < checkCacheTTL && cache.LatestVersion != "" {
-		if cmp, err := compareVersions(current, cache.LatestVersion); err == nil && cmp <= 0 {
-			return notice(current, cache.LatestVersion)
-		}
-	}
-
 	plan, err := u.Plan(ctx, Options{CurrentVersion: current})
 	if err != nil {
-		// Fall back to a possibly-stale cached version rather than going dark.
-		return notice(current, cache.LatestVersion)
+		// Degrade silently rather than surfacing an error into an ambient
+		// notice; the next launch simply tries again.
+		return "", false
 	}
 
-	writeCheckCache(cachePath, checkCache{CheckedAt: time.Now(), LatestVersion: plan.LatestVersion})
 	return notice(current, plan.LatestVersion)
 }
 
