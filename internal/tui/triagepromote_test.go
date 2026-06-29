@@ -3,11 +3,13 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/aaronl1011/spec/internal/config"
 )
 
 func TestBuildPromotedSpec_InjectBody(t *testing.T) {
 	body := "Login loop after SSO refresh — users bounced back immediately."
-	content := buildPromotedSpec("SPEC-015", "Login loop", "alice", "Cycle 0", "TRIAGE-003", body)
+	content := buildPromotedSpec(&config.ResolvedConfig{}, "SPEC-015", "Login loop", "alice", "Cycle 0", "TRIAGE-003", body)
 
 	if !strings.Contains(content, "## 1. Problem Statement") {
 		t.Fatal("spec must contain §1 heading")
@@ -18,7 +20,7 @@ func TestBuildPromotedSpec_InjectBody(t *testing.T) {
 }
 
 func TestBuildPromotedSpec_EmptyBody(t *testing.T) {
-	content := buildPromotedSpec("SPEC-015", "Login loop", "alice", "Cycle 0", "TRIAGE-003", "")
+	content := buildPromotedSpec(&config.ResolvedConfig{}, "SPEC-015", "Login loop", "alice", "Cycle 0", "TRIAGE-003", "")
 	// With empty body, §1 heading still exists but no extra injection.
 	if !strings.Contains(content, "## 1. Problem Statement") {
 		t.Fatal("spec must contain §1 heading even with empty body")
@@ -27,7 +29,7 @@ func TestBuildPromotedSpec_EmptyBody(t *testing.T) {
 
 func TestBuildPromotedSpec_SanitisesHeadings(t *testing.T) {
 	body := "Overview\n## Bad heading\nMore text"
-	content := buildPromotedSpec("SPEC-015", "Title", "alice", "Cycle 0", "TRIAGE-001", body)
+	content := buildPromotedSpec(&config.ResolvedConfig{}, "SPEC-015", "Title", "alice", "Cycle 0", "TRIAGE-001", body)
 	// The ## heading in the body must be demoted.
 	if strings.Contains(content, "\n## Bad heading\n") {
 		t.Error("level-2 heading in triage body must be demoted in the spec")

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
@@ -55,7 +56,8 @@ func runIntake(cmd *cobra.Command, args []string) error {
 	}
 
 	reportedBy := rc.UserName()
-	content := markdown.ScaffoldTriage(triageID, title, priority, source, sourceRef, reportedBy)
+	content := markdown.ScaffoldTriageFromConfig(rc.SpecsRepoRoot(), teamTemplateConfig(rc),
+		markdown.TriageFields{ID: triageID, Title: title, Priority: priority, Source: source, SourceRef: sourceRef, ReportedBy: reportedBy, Date: time.Now().Format("2006-01-02")})
 
 	// Write via WithSpecsRepo
 	err = gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, triageID), func(repoPath string) (string, error) {
