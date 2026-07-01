@@ -154,6 +154,47 @@ func TestDashboard_PriorityOrdering_BlockedFirst(t *testing.T) {
 	}
 }
 
+// TestDashboard_DiscussionRendersBetweenReviewAndIncoming pins the section
+// order discussion-01-awareness-loop.md §4.2 specifies for the static
+// dashboard: DISCUSSION sits between REVIEW and INCOMING.
+func TestDashboard_DiscussionRendersBetweenReviewAndIncoming(t *testing.T) {
+	m := testDashboard()
+	m.loading = false
+	m.width = 100
+	m.height = 30
+	m.data = &dashboard.DashboardData{
+		Review: []dashboard.DashboardItem{
+			{SpecID: "PR #42", Title: "Review this"},
+		},
+		Discussion: []dashboard.DashboardItem{
+			{SpecID: "SPEC-039", Title: "Rate limiting", Stage: "§technical_implementation",
+				Detail: `@carlos: "can we use token bucket instead?"`},
+		},
+		Incoming: []dashboard.DashboardItem{
+			{SpecID: "SPEC-010", Title: "New intake", Stage: "triage"},
+		},
+	}
+	m.items = m.buildRows()
+
+	if len(m.items) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(m.items))
+	}
+	wantOrder := []string{"REVIEW", "DISCUSSION", "INCOMING"}
+	for i, want := range wantOrder {
+		if m.items[i].section != want {
+			t.Errorf("item[%d].section = %q, want %q", i, m.items[i].section, want)
+		}
+	}
+
+	discussionRow := m.items[1]
+	if discussionRow.icon != IconDiscussion {
+		t.Errorf("discussion row icon = %q, want IconDiscussion", discussionRow.icon)
+	}
+	if !strings.Contains(discussionRow.detail, "§technical_implementation") || !strings.Contains(discussionRow.detail, "@carlos") {
+		t.Errorf("discussion row detail = %q, want it to combine Stage and Detail", discussionRow.detail)
+	}
+}
+
 func TestDashboard_OldestFirstSortWithinSection(t *testing.T) {
 	m := testDashboard()
 	m.loading = false

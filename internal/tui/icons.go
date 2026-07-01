@@ -8,18 +8,19 @@ import "github.com/aaronl1011/spec/internal/tui/glyph"
 // vocabulary without an import cycle. No glyph literals appear outside
 // internal/tui/glyph.
 const (
-	IconFocus    = glyph.Focus
-	IconActive   = glyph.Active
-	IconStale    = glyph.Stale
-	IconBlocked  = glyph.Blocked
-	IconReview   = glyph.Review
-	IconIncoming = glyph.Incoming
-	IconDone     = glyph.Done
-	IconRejected = glyph.Rejected
-	IconChanges  = glyph.Changes
-	IconPending  = glyph.Pending
-	IconFilled   = glyph.Filled
-	IconOpen     = glyph.Open
+	IconFocus      = glyph.Focus
+	IconActive     = glyph.Active
+	IconStale      = glyph.Stale
+	IconBlocked    = glyph.Blocked
+	IconReview     = glyph.Review
+	IconDiscussion = glyph.Discussion
+	IconIncoming   = glyph.Incoming
+	IconDone       = glyph.Done
+	IconRejected   = glyph.Rejected
+	IconChanges    = glyph.Changes
+	IconPending    = glyph.Pending
+	IconFilled     = glyph.Filled
+	IconOpen       = glyph.Open
 
 	IconBullet = glyph.Bullet
 	IconCursor = glyph.Cursor
