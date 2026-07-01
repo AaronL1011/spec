@@ -18,9 +18,13 @@ type Store interface {
 	// List returns all threads for a spec, in deterministic order.
 	List(specID string) ([]Thread, error)
 	// Create appends a new open thread anchored to a section and returns it.
-	Create(specID, section, author, question string) (Thread, error)
-	// Reply appends a reply to an existing thread.
-	Reply(specID, threadID, author, body string) (Thread, error)
+	// mentions are explicit handles from the caller (e.g. a --to flag); they
+	// are unioned with @handles parsed from question. Pass nil when there are
+	// no explicit handles — inline mentions are still parsed either way.
+	Create(specID, section, author, question string, mentions []string) (Thread, error)
+	// Reply appends a reply to an existing thread. mentions are unioned with
+	// @handles parsed from body, same as Create.
+	Reply(specID, threadID, author, body string, mentions []string) (Thread, error)
 	// Resolve marks a thread resolved. Resolving an already-resolved thread
 	// is a no-op that returns the thread unchanged.
 	Resolve(specID, threadID, by string) (Thread, error)
@@ -63,8 +67,9 @@ func (s *SidecarStore) List(specID string) ([]Thread, error) {
 	return doc.Threads, nil
 }
 
-// Create appends a new open thread.
-func (s *SidecarStore) Create(specID, section, author, question string) (Thread, error) {
+// Create appends a new open thread. mentions are explicit handles from the
+// caller (e.g. a --to flag), unioned with @handles parsed from question.
+func (s *SidecarStore) Create(specID, section, author, question string, mentions []string) (Thread, error) {
 	section = strings.TrimSpace(section)
 	if section == "" {
 		return Thread{}, fmt.Errorf("section is required — a thread must anchor to a section")
@@ -86,6 +91,7 @@ func (s *SidecarStore) Create(specID, section, author, question string) (Thread,
 		Author:   strings.TrimSpace(author),
 		Created:  s.now(),
 		Question: q,
+		Mentions: unionMentions(ParseMentions(q), mentions),
 	}
 	doc.Threads = append(doc.Threads, t)
 	if err := s.save(specID, doc); err != nil {
@@ -94,8 +100,9 @@ func (s *SidecarStore) Create(specID, section, author, question string) (Thread,
 	return t, nil
 }
 
-// Reply appends a reply to an existing thread.
-func (s *SidecarStore) Reply(specID, threadID, author, body string) (Thread, error) {
+// Reply appends a reply to an existing thread. mentions are unioned with
+// @handles parsed from body, same as Create.
+func (s *SidecarStore) Reply(specID, threadID, author, body string, mentions []string) (Thread, error) {
 	b, err := validateReply(body)
 	if err != nil {
 		return Thread{}, err
@@ -111,9 +118,10 @@ func (s *SidecarStore) Reply(specID, threadID, author, body string) (Thread, err
 	}
 
 	doc.Threads[idx].Replies = append(doc.Threads[idx].Replies, Reply{
-		Author: strings.TrimSpace(author),
-		At:     s.now(),
-		Body:   b,
+		Author:   strings.TrimSpace(author),
+		At:       s.now(),
+		Body:     b,
+		Mentions: unionMentions(ParseMentions(b), mentions),
 	})
 	if err := s.save(specID, doc); err != nil {
 		return Thread{}, err

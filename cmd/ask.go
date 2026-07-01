@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/config"
@@ -25,6 +24,7 @@ to reply and 'spec resolve' to close a thread.`,
 func init() {
 	askCmd.Flags().String("section", "", "section slug to anchor the question to (e.g. 'technical_implementation')")
 	askCmd.Flags().Bool("list", false, "list all discussion threads for the spec")
+	askCmd.Flags().StringSlice("to", nil, "handle to notify (repeatable) — inline @handle in the question works automatically")
 	rootCmd.AddCommand(askCmd)
 }
 
@@ -32,6 +32,7 @@ func runAsk(cmd *cobra.Command, args []string) error {
 	p := newPrinter(cmd)
 	listMode, _ := cmd.Flags().GetBool("list")
 	section, _ := cmd.Flags().GetString("section")
+	to, _ := cmd.Flags().GetStringSlice("to")
 
 	// The first positional arg is the spec ID when it looks like one;
 	// otherwise it is treated as the question and the ID comes from focus.
@@ -57,7 +58,7 @@ func runAsk(cmd *cobra.Command, args []string) error {
 
 	var created thread.Thread
 	err = withThreadStore(rc, specID, func(store *thread.SidecarStore) (string, error) {
-		t, err := store.Create(specID, section, threadAuthor(rc), question)
+		t, err := store.Create(specID, section, threadAuthor(rc), question, to)
 		if err != nil {
 			return "", err
 		}
@@ -69,7 +70,7 @@ func runAsk(cmd *cobra.Command, args []string) error {
 	}
 
 	logThreadActivity(rc, specID, fmt.Sprintf("asked %s on §%s", created.ID, section), created.ID)
-	notifyThreadParticipants(p, rc, specID,
+	notifyThreadParticipants(p, rc, specID, created.Mentions,
 		fmt.Sprintf("%s asked on §%s: %s", threadAuthor(rc), section, question))
 
 	if p.JSONEnabled() {
@@ -103,12 +104,32 @@ func looksLikeSpecID(s string) bool {
 	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(s)), "SPEC-")
 }
 
+// mentionsLine renders a thread's mentioned handles as "@bob, @carlos",
+// normalising each to carry a leading '@' regardless of how it was stored.
+func mentionsLine(mentions []string) string {
+	formatted := make([]string, len(mentions))
+	for i, m := range mentions {
+		if strings.HasPrefix(m, "@") {
+			formatted[i] = m
+		} else {
+			formatted[i] = "@" + m
+		}
+	}
+	return strings.Join(formatted, ", ")
+}
+
 func listThreads(p *printer, rc *config.ResolvedConfig, specID string) error {
-	path, err := resolveSpecPath(rc, specID)
+	if rc.SpecsRepoDir == "" {
+		return fmt.Errorf("specs repo not configured — ensure spec.config.yaml has specs_repo settings")
+	}
+	// sidecarDirFor is the same resolver withThreadStore uses (cmd/thread.go),
+	// so a sidecar written on an archived spec is never looked up in the
+	// wrong directory.
+	dir, err := sidecarDirFor(rc.SpecsRepoDir, rc, specID)
 	if err != nil {
 		return err
 	}
-	store := thread.NewSidecarStore(filepath.Dir(path))
+	store := thread.NewSidecarStore(dir)
 	threads, err := store.List(specID)
 	if err != nil {
 		return err
@@ -132,6 +153,9 @@ func listThreads(p *printer, rc *config.ResolvedConfig, specID string) error {
 		}
 		p.Line("%s %s  §%s  (%s)", marker, t.ID, t.Section, state)
 		p.Line("    %s — %s", t.Author, t.Question)
+		if len(t.Mentions) > 0 {
+			p.Line("    → %s", mentionsLine(t.Mentions))
+		}
 		for _, r := range t.Replies {
 			p.Line("      ↳ %s: %s", r.Author, r.Body)
 		}

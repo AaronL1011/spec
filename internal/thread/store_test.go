@@ -2,6 +2,7 @@ package thread
 
 import (
 	"os"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -27,7 +28,7 @@ func newTestStore(t *testing.T) *SidecarStore {
 
 func TestCreate_AnchorsToSectionAndOpens(t *testing.T) {
 	s := newTestStore(t)
-	got, err := s.Create("SPEC-012", "technical_implementation", "@mike", "Why Redis?")
+	got, err := s.Create("SPEC-012", "technical_implementation", "@mike", "Why Redis?", nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestCreate_RejectsEmptyInput(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := s.Create("SPEC-1", tt.section, "@a", tt.question); err == nil {
+			if _, err := s.Create("SPEC-1", tt.section, "@a", tt.question, nil); err == nil {
 				t.Error("expected error, got nil")
 			}
 		})
@@ -61,11 +62,11 @@ func TestCreate_RejectsEmptyInput(t *testing.T) {
 
 func TestReply_AppendsInOrderAndKeepsOpen(t *testing.T) {
 	s := newTestStore(t)
-	th, _ := s.Create("SPEC-1", "sec", "@mike", "q?")
-	if _, err := s.Reply("SPEC-1", th.ID, "@aaron", "first"); err != nil {
+	th, _ := s.Create("SPEC-1", "sec", "@mike", "q?", nil)
+	if _, err := s.Reply("SPEC-1", th.ID, "@aaron", "first", nil); err != nil {
 		t.Fatalf("Reply: %v", err)
 	}
-	got, err := s.Reply("SPEC-1", th.ID, "@sara", "second")
+	got, err := s.Reply("SPEC-1", th.ID, "@sara", "second", nil)
 	if err != nil {
 		t.Fatalf("Reply: %v", err)
 	}
@@ -82,15 +83,57 @@ func TestReply_AppendsInOrderAndKeepsOpen(t *testing.T) {
 
 func TestReply_EmptyBodyRejected(t *testing.T) {
 	s := newTestStore(t)
-	th, _ := s.Create("SPEC-1", "sec", "@mike", "q?")
-	if _, err := s.Reply("SPEC-1", th.ID, "@a", "  "); err == nil {
+	th, _ := s.Create("SPEC-1", "sec", "@mike", "q?", nil)
+	if _, err := s.Reply("SPEC-1", th.ID, "@a", "  ", nil); err == nil {
 		t.Error("expected error for empty reply")
+	}
+}
+
+func TestCreate_ParsesInlineMentions(t *testing.T) {
+	s := newTestStore(t)
+	got, err := s.Create("SPEC-1", "sec", "@mike", "cc @bob what do you think?", nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if len(got.Mentions) != 1 || got.Mentions[0] != "bob" {
+		t.Errorf("Mentions = %v, want [bob]", got.Mentions)
+	}
+}
+
+func TestCreate_UnionsExplicitAndInlineMentions(t *testing.T) {
+	s := newTestStore(t)
+	got, err := s.Create("SPEC-1", "sec", "@mike", "cc @bob", []string{"@bob", "carlos"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// "bob" (parsed) and "@bob" (explicit) are the same handle — deduped, not
+	// doubled — and "carlos" (explicit-only) is still added.
+	want := []string{"bob", "carlos"}
+	if !reflect.DeepEqual(got.Mentions, want) {
+		t.Errorf("Mentions = %v, want %v", got.Mentions, want)
+	}
+}
+
+func TestReply_ParsesInlineMentionsIndependentlyOfThread(t *testing.T) {
+	s := newTestStore(t)
+	th, _ := s.Create("SPEC-1", "sec", "@mike", "q?", nil)
+	got, err := s.Reply("SPEC-1", th.ID, "@aaron", "ask @dana about this", nil)
+	if err != nil {
+		t.Fatalf("Reply: %v", err)
+	}
+	reply := got.Replies[len(got.Replies)-1]
+	if len(reply.Mentions) != 1 || reply.Mentions[0] != "dana" {
+		t.Errorf("reply Mentions = %v, want [dana]", reply.Mentions)
+	}
+	// The thread's own Mentions (set at Create) must be untouched by a reply.
+	if len(got.Mentions) != 0 {
+		t.Errorf("thread Mentions = %v, want unchanged (empty)", got.Mentions)
 	}
 }
 
 func TestResolve_SetsStatusAndIsIdempotent(t *testing.T) {
 	s := newTestStore(t)
-	th, _ := s.Create("SPEC-1", "sec", "@mike", "q?")
+	th, _ := s.Create("SPEC-1", "sec", "@mike", "q?", nil)
 	got, err := s.Resolve("SPEC-1", th.ID, "@aaron")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
@@ -121,8 +164,8 @@ func TestList_MissingSidecarIsEmptyNotError(t *testing.T) {
 
 func TestSidecar_RoundTripsLosslessly(t *testing.T) {
 	s := newTestStore(t)
-	th, _ := s.Create("SPEC-1", "sec", "@mike", "q?")
-	_, _ = s.Reply("SPEC-1", th.ID, "@aaron", "answer")
+	th, _ := s.Create("SPEC-1", "sec", "@mike", "q?", nil)
+	_, _ = s.Reply("SPEC-1", th.ID, "@aaron", "answer", nil)
 	_, _ = s.Resolve("SPEC-1", th.ID, "@mike")
 
 	// Re-open a fresh store over the same dir and confirm identical content.
@@ -138,8 +181,8 @@ func TestSidecar_RoundTripsLosslessly(t *testing.T) {
 
 func TestSave_StableSerialization(t *testing.T) {
 	s := newTestStore(t)
-	th, _ := s.Create("SPEC-1", "sec", "@mike", "q?")
-	_, _ = s.Reply("SPEC-1", th.ID, "@aaron", "answer")
+	th, _ := s.Create("SPEC-1", "sec", "@mike", "q?", nil)
+	_, _ = s.Reply("SPEC-1", th.ID, "@aaron", "answer", nil)
 
 	first, err := os.ReadFile(s.SidecarPath("SPEC-1"))
 	if err != nil {
@@ -259,5 +302,51 @@ func TestMerge_UnionsThreadsAndReplies(t *testing.T) {
 	}
 	if len(t1.Replies) != 2 {
 		t.Errorf("T-1 replies = %d, want 2 (deduped)", len(t1.Replies))
+	}
+}
+
+// TestMerge_UnionsMentions proves a mention-bearing thread's Mentions survive
+// the merge path (git conflict reconciliation), which is a different code
+// path from the store's own Create/Reply.
+func TestMerge_UnionsMentions(t *testing.T) {
+	at := time.Date(2026, 5, 30, 10, 0, 0, 0, time.UTC)
+	a := []Thread{
+		{ID: "T-1", Section: "s", Status: StatusOpen, Created: at, Question: "q1",
+			Mentions: []string{"bob"}},
+	}
+	b := []Thread{
+		{ID: "T-1", Section: "s", Status: StatusOpen, Created: at, Question: "q1",
+			Mentions: []string{"bob", "carlos"}},
+	}
+
+	got := Merge(a, b)
+	if len(got) != 1 {
+		t.Fatalf("merged threads = %d, want 1", len(got))
+	}
+	want := []string{"bob", "carlos"}
+	if !reflect.DeepEqual(got[0].Mentions, want) {
+		t.Errorf("Mentions = %v, want %v", got[0].Mentions, want)
+	}
+}
+
+// TestMerge_PreservesPerReplyMentions proves each reply's own Mentions ride
+// along through the reply union unchanged.
+func TestMerge_PreservesPerReplyMentions(t *testing.T) {
+	at := time.Date(2026, 5, 30, 10, 0, 0, 0, time.UTC)
+	a := []Thread{
+		{ID: "T-1", Section: "s", Status: StatusOpen, Created: at, Question: "q1"},
+	}
+	b := []Thread{
+		{ID: "T-1", Section: "s", Status: StatusOpen, Created: at, Question: "q1",
+			Replies: []Reply{{Author: "@a", At: at, Body: "ask @dana", Mentions: []string{"dana"}}}},
+	}
+
+	got := Merge(a, b)
+	if len(got) != 1 || len(got[0].Replies) != 1 {
+		t.Fatalf("merged = %+v, want 1 thread with 1 reply", got)
+	}
+	want := []string{"dana"}
+	if !reflect.DeepEqual(got[0].Replies[0].Mentions, want) {
+		t.Errorf("reply Mentions = %v, want %v", got[0].Replies[0].Mentions, want)
 	}
 }

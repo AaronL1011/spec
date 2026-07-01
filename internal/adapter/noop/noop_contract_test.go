@@ -19,6 +19,9 @@ func TestComms_AllNoops(t *testing.T) {
 	if err := c.Notify(ctx, adapter.Notification{SpecID: "SPEC-1"}); err != nil {
 		t.Errorf("Notify = %v, want nil", err)
 	}
+	if err := c.NotifyUser(ctx, "@bob", adapter.Notification{SpecID: "SPEC-1"}); err != nil {
+		t.Errorf("NotifyUser = %v, want nil", err)
+	}
 	if err := c.PostStandup(ctx, adapter.StandupReport{}); err != nil {
 		t.Errorf("PostStandup = %v, want nil", err)
 	}

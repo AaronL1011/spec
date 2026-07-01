@@ -2,8 +2,10 @@ package slack
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,5 +141,112 @@ func TestNewClient_DefaultsStandupToDefaultChannel(t *testing.T) {
 	c := NewClient("xoxb-test", "#platform", "")
 	if c.standupChannel != "platform" {
 		t.Errorf("standupChannel = %q, want it to default to the default channel", c.standupChannel)
+	}
+}
+
+// usersServer replays a fixed users.list JSON body, keyed by request path, and
+// a canned success for conversations.open and chat.postMessage — their
+// response shapes differ (channel is an object vs. a plain ID string) so each
+// needs its own body. Together this exercises NotifyUser's three-call flow
+// (list users, open DM, post message) without touching the network.
+func usersServer(t *testing.T, usersBody string) *httptest.Server {
+	t.Helper()
+	return multiEndpointServer(t, map[string]string{
+		"users.list":         usersBody,
+		"conversations.open": `{"ok":true,"channel":{"id":"D1"}}`,
+		"chat.postMessage":   `{"ok":true,"channel":"D1","ts":"1.2"}`,
+	})
+}
+
+// multiEndpointServer replies with bodies[method] keyed by the trailing path
+// segment of the Slack API method the client called (e.g. "users.list").
+func multiEndpointServer(t *testing.T, bodies map[string]string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		for method, body := range bodies {
+			if strings.HasSuffix(r.URL.Path, method) {
+				_, _ = w.Write([]byte(body))
+				return
+			}
+		}
+		_, _ = w.Write([]byte(`{"ok":false,"error":"unhandled_in_test"}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestNotifyUser_ResolvesHandleAndPostsDM asserts the happy path: a handle
+// resolves against the workspace user list, a DM channel opens, the message
+// posts.
+func TestNotifyUser_ResolvesHandleAndPostsDM(t *testing.T) {
+	users := `{"ok":true,"members":[
+		{"id":"U1","name":"bob","profile":{"display_name":"Bob Smith"}},
+		{"id":"U2","name":"carlos","profile":{"display_name":"Carlos Diaz"}}
+	],"response_metadata":{"next_cursor":""}}`
+	srv := usersServer(t, users)
+	c := slackTestClient(t, srv.URL, "#platform", "")
+
+	if err := c.NotifyUser(context.Background(), "@bob", adapter.Notification{SpecID: "SPEC-1", Message: "hi"}); err != nil {
+		t.Fatalf("NotifyUser: %v", err)
+	}
+}
+
+// TestNotifyUser_MatchesByDisplayName proves the display name is also a
+// valid match, not just the Slack username.
+func TestNotifyUser_MatchesByDisplayName(t *testing.T) {
+	users := `{"ok":true,"members":[
+		{"id":"U1","name":"bsmith","profile":{"display_name":"Bob Smith"}}
+	],"response_metadata":{"next_cursor":""}}`
+	srv := usersServer(t, users)
+	c := slackTestClient(t, srv.URL, "#platform", "")
+
+	if err := c.NotifyUser(context.Background(), "Bob Smith", adapter.Notification{SpecID: "SPEC-1"}); err != nil {
+		t.Fatalf("NotifyUser: %v", err)
+	}
+}
+
+// TestNotifyUser_UnknownHandle_ReturnsErrRecipientUnknown proves an
+// unresolvable handle degrades to the documented sentinel, not a generic
+// error, so callers can fall back to a channel broadcast.
+func TestNotifyUser_UnknownHandle_ReturnsErrRecipientUnknown(t *testing.T) {
+	users := `{"ok":true,"members":[{"id":"U1","name":"bob"}],"response_metadata":{"next_cursor":""}}`
+	srv := usersServer(t, users)
+	c := slackTestClient(t, srv.URL, "#platform", "")
+
+	err := c.NotifyUser(context.Background(), "@nobody", adapter.Notification{SpecID: "SPEC-1"})
+	if !errors.Is(err, adapter.ErrRecipientUnknown) {
+		t.Fatalf("NotifyUser(unknown) = %v, want ErrRecipientUnknown", err)
+	}
+}
+
+// TestNotifyUser_UserListCachedAcrossCalls proves the workspace user list is
+// fetched once per Client, not once per NotifyUser call — routing a thread
+// notification to several recipients should cost one users.list call.
+func TestNotifyUser_UserListCachedAcrossCalls(t *testing.T) {
+	var listCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "users.list"):
+			listCalls++
+			_, _ = w.Write([]byte(`{"ok":true,"members":[{"id":"U1","name":"bob"},{"id":"U2","name":"carlos"}],"response_metadata":{"next_cursor":""}}`))
+		case strings.HasSuffix(r.URL.Path, "conversations.open"):
+			_, _ = w.Write([]byte(`{"ok":true,"channel":{"id":"D1"}}`))
+		default:
+			_, _ = w.Write([]byte(`{"ok":true,"channel":"D1","ts":"1.2"}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c := slackTestClient(t, srv.URL, "#platform", "")
+
+	if err := c.NotifyUser(context.Background(), "@bob", adapter.Notification{SpecID: "SPEC-1"}); err != nil {
+		t.Fatalf("first NotifyUser: %v", err)
+	}
+	if err := c.NotifyUser(context.Background(), "@carlos", adapter.Notification{SpecID: "SPEC-1"}); err != nil {
+		t.Fatalf("second NotifyUser: %v", err)
+	}
+	if listCalls != 1 {
+		t.Errorf("users.list called %d times, want 1 (cached)", listCalls)
 	}
 }

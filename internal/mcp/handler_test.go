@@ -159,7 +159,7 @@ func TestThreadTools_ListAndReply(t *testing.T) {
 	// Seed a thread directly through the engine so the tools have something
 	// to operate on.
 	store := thread.NewSidecarStore(dir)
-	seeded, err := store.Create("SPEC-012", "technical_implementation", "@mike", "Why Redis?")
+	seeded, err := store.Create("SPEC-012", "technical_implementation", "@mike", "Why Redis?", nil)
 	if err != nil {
 		t.Fatalf("seed thread: %v", err)
 	}
@@ -182,5 +182,35 @@ func TestThreadTools_ListAndReply(t *testing.T) {
 	}
 	if !strings.Contains(res.Message, seeded.ID) || !strings.Contains(res.Message, "agent") {
 		t.Errorf("list output missing thread or agent reply:\n%s", res.Message)
+	}
+}
+
+// TestToolReplyThread_ParsesInlineMentions proves an agent reply that writes
+// "@alice" routes correctly: the engine parses inline mentions the same way
+// regardless of caller (discussion-01-awareness-loop.md §5), so the MCP
+// handler needs no special-casing to get this for free.
+func TestToolReplyThread_ParsesInlineMentions(t *testing.T) {
+	dir := t.TempDir()
+	store := thread.NewSidecarStore(dir)
+	seeded, err := store.Create("SPEC-012", "technical_implementation", "@mike", "Why Redis?", nil)
+	if err != nil {
+		t.Fatalf("seed thread: %v", err)
+	}
+
+	handler := NewGenericHandler(nil, dir)
+	replyArgs, _ := json.Marshal(map[string]string{
+		"id": "SPEC-012", "thread_id": seeded.ID, "body": "cc @alice can you confirm?",
+	})
+	if res, err := handler.CallTool("spec_reply_thread", replyArgs); err != nil || !res.Success {
+		t.Fatalf("reply failed: err=%v res=%+v", err, res)
+	}
+
+	threads, err := store.List("SPEC-012")
+	if err != nil || len(threads) != 1 || len(threads[0].Replies) != 1 {
+		t.Fatalf("List after reply = %+v, err=%v", threads, err)
+	}
+	mentions := threads[0].Replies[0].Mentions
+	if len(mentions) != 1 || mentions[0] != "alice" {
+		t.Errorf("reply Mentions = %v, want [alice]", mentions)
 	}
 }

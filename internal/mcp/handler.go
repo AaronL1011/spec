@@ -752,8 +752,10 @@ func (h *GenericHandler) toolReplyThread(args json.RawMessage) (*ToolResult, err
 
 	specID := strings.ToUpper(params.ID)
 	store := thread.NewSidecarStore(h.specsDir)
-	// Agents are attributed as "agent", mirroring spec_decide.
-	t, err := store.Reply(specID, params.ThreadID, "agent", params.Body)
+	// Agents are attributed as "agent", mirroring spec_decide. Inline @mentions
+	// in the body are still parsed by the store, e.g. an agent reply routes
+	// correctly when it writes "@alice".
+	t, err := store.Reply(specID, params.ThreadID, "agent", params.Body, nil)
 	if err != nil {
 		return &ToolResult{Success: false, Message: err.Error()}, nil
 	}
