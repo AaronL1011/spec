@@ -21,12 +21,15 @@ func withThreadStore(rc *config.ResolvedConfig, specID string, fn func(store *th
 		return err
 	}
 	return gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(nil, specID), func(repoPath string) (string, error) {
-		// Confirm the spec exists in the freshly-synced repo before writing
-		// a sidecar next to it.
-		if _, err := specPathIn(repoPath, rc, specID); err != nil {
+		// sidecarDirFor both confirms the spec exists in the freshly-synced
+		// repo and resolves wherever it currently lives (specs/, triage/, or
+		// archive/) — the sidecar always sits next to it, never hardcoded to
+		// specs/ root.
+		dir, err := sidecarDirFor(specsDir(repoPath), rc, specID)
+		if err != nil {
 			return "", err
 		}
-		store := thread.NewSidecarStore(specsDir(repoPath))
+		store := thread.NewSidecarStore(dir)
 		return fn(store)
 	})
 }

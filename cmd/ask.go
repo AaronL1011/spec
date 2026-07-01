@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/config"
@@ -57,7 +56,7 @@ func runAsk(cmd *cobra.Command, args []string) error {
 
 	var created thread.Thread
 	err = withThreadStore(rc, specID, func(store *thread.SidecarStore) (string, error) {
-		t, err := store.Create(specID, section, threadAuthor(rc), question)
+		t, err := store.Create(specID, section, threadAuthor(rc), question, nil)
 		if err != nil {
 			return "", err
 		}
@@ -104,11 +103,17 @@ func looksLikeSpecID(s string) bool {
 }
 
 func listThreads(p *printer, rc *config.ResolvedConfig, specID string) error {
-	path, err := resolveSpecPath(rc, specID)
+	if rc.SpecsRepoDir == "" {
+		return fmt.Errorf("specs repo not configured — ensure spec.config.yaml has specs_repo settings")
+	}
+	// sidecarDirFor is the same resolver withThreadStore uses (cmd/thread.go),
+	// so a sidecar written on an archived spec is never looked up in the
+	// wrong directory.
+	dir, err := sidecarDirFor(rc.SpecsRepoDir, rc, specID)
 	if err != nil {
 		return err
 	}
-	store := thread.NewSidecarStore(filepath.Dir(path))
+	store := thread.NewSidecarStore(dir)
 	threads, err := store.List(specID)
 	if err != nil {
 		return err

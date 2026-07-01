@@ -247,7 +247,7 @@ func (m specDetailModel) author() string {
 func (m specDetailModel) createThreadCmd(section, question string) tea.Cmd {
 	store, specID, author := m.store(), m.specID, m.author()
 	return func() tea.Msg {
-		if _, err := store.Create(specID, section, author, question); err != nil {
+		if _, err := store.Create(specID, section, author, question, nil); err != nil {
 			return threadsChangedMsg{Err: err}
 		}
 		threads, err := store.List(specID)
@@ -258,7 +258,7 @@ func (m specDetailModel) createThreadCmd(section, question string) tea.Cmd {
 func (m specDetailModel) replyThreadCmd(threadID, body string) tea.Cmd {
 	store, specID, author := m.store(), m.specID, m.author()
 	return func() tea.Msg {
-		if _, err := store.Reply(specID, threadID, author, body); err != nil {
+		if _, err := store.Reply(specID, threadID, author, body, nil); err != nil {
 			return threadsChangedMsg{Err: err}
 		}
 		threads, err := store.List(specID)

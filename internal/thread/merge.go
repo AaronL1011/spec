@@ -65,7 +65,8 @@ func Merge(a, b []Thread) []Thread {
 func mergeThread(x, y Thread) Thread {
 	out := x
 
-	// Union replies, deduping on (author, timestamp, body).
+	// Union replies, deduping on (author, timestamp, body). Each Reply's own
+	// Mentions travels with it — no separate merge step needed for those.
 	seen := make(map[replyKey]bool, len(x.Replies)+len(y.Replies))
 	var replies []Reply
 	for _, r := range append(append([]Reply{}, x.Replies...), y.Replies...) {
@@ -77,6 +78,12 @@ func mergeThread(x, y Thread) Thread {
 		replies = append(replies, r)
 	}
 	out.Replies = replies
+
+	// Union thread-level Mentions. Both sides trace back to the same Create
+	// call today, so they already agree in practice — but unioning rather than
+	// picking x's keeps Merge associative if a future write path ever extends
+	// Mentions after creation.
+	out.Mentions = unionMentions(x.Mentions, y.Mentions)
 
 	// Resolution wins: if either side resolved, the thread is resolved.
 	if !x.IsOpen() {

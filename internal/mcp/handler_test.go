@@ -159,7 +159,7 @@ func TestThreadTools_ListAndReply(t *testing.T) {
 	// Seed a thread directly through the engine so the tools have something
 	// to operate on.
 	store := thread.NewSidecarStore(dir)
-	seeded, err := store.Create("SPEC-012", "technical_implementation", "@mike", "Why Redis?")
+	seeded, err := store.Create("SPEC-012", "technical_implementation", "@mike", "Why Redis?", nil)
 	if err != nil {
 		t.Fatalf("seed thread: %v", err)
 	}

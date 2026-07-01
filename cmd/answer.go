@@ -41,7 +41,7 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 
 	var updated thread.Thread
 	err = withThreadStore(rc, specID, func(store *thread.SidecarStore) (string, error) {
-		t, err := store.Reply(specID, threadID, threadAuthor(rc), body)
+		t, err := store.Reply(specID, threadID, threadAuthor(rc), body, nil)
 		if err != nil {
 			return "", err
 		}

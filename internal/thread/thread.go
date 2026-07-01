@@ -52,17 +52,55 @@ type Thread struct {
 	// ResolvedBy and ResolvedAt are set when the thread is resolved.
 	ResolvedBy string     `yaml:"resolved_by,omitempty"`
 	ResolvedAt *time.Time `yaml:"resolved_at,omitempty"`
+
+	// Mentions are the handles addressed by the question, in first-seen order.
+	// Derived from the body (and any explicit --to handles) at write time;
+	// never hand-edited.
+	Mentions []string `yaml:"mentions,omitempty"`
 }
 
 // Reply is a single message appended to a thread.
 type Reply struct {
-	Author string    `yaml:"author"`
-	At     time.Time `yaml:"at"`
-	Body   string    `yaml:"body"`
+	Author   string    `yaml:"author"`
+	At       time.Time `yaml:"at"`
+	Body     string    `yaml:"body"`
+	Mentions []string  `yaml:"mentions,omitempty"`
 }
 
 // IsOpen reports whether the thread is still awaiting resolution.
 func (t Thread) IsOpen() bool { return t.Status != StatusResolved }
+
+// Participants returns the deduplicated set of handles involved in a thread:
+// the author, every replier, and every mentioned handle. Order is stable
+// (author first, then first-seen).
+func (t Thread) Participants() []string {
+	seen := make(map[string]bool)
+	var out []string
+	add := func(handle string) {
+		handle = strings.TrimSpace(handle)
+		if handle == "" {
+			return
+		}
+		key := strings.ToLower(strings.TrimPrefix(handle, "@"))
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, handle)
+	}
+
+	add(t.Author)
+	for _, m := range t.Mentions {
+		add(m)
+	}
+	for _, r := range t.Replies {
+		add(r.Author)
+		for _, m := range r.Mentions {
+			add(m)
+		}
+	}
+	return out
+}
 
 // newID returns a short, stable thread identifier such as "T-7f3a".
 // Randomness avoids collisions when two people create threads offline.

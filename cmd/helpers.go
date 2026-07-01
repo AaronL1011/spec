@@ -341,6 +341,25 @@ func specPathIn(repoPath string, rc *config.ResolvedConfig, specID string) (stri
 	return resolveSpecPathIn(specsDir(repoPath), config.ArchiveDir(rc.Team), specID)
 }
 
+// sidecarDirFor resolves the directory that holds specID's thread sidecar —
+// wherever the spec's .md currently lives (specs/, specs/triage/, or
+// specs/archive/), never a directory hardcoded to one of those. Every caller
+// that opens a thread.SidecarStore must go through this: the mutate path
+// (withThreadStore, cmd/thread.go) and the read path (listThreads,
+// cmd/ask.go) used to resolve this independently and could disagree — a
+// sidecar written against an archived spec landed in specs/, while --list on
+// the same spec read from specs/archive/, so its own discussion history
+// became invisible to itself the moment the spec was archived. baseDir is the
+// specs content directory to search from (specsDir(repoPath) inside a
+// WithSpecsRepo mutator, or rc.SpecsRepoDir on a plain read path).
+func sidecarDirFor(baseDir string, rc *config.ResolvedConfig, specID string) (string, error) {
+	path, err := resolveSpecPathIn(baseDir, config.ArchiveDir(rc.Team), specID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(path), nil
+}
+
 // ctx returns a background context.
 func ctx() context.Context {
 	return context.Background()

@@ -557,18 +557,26 @@ func ArchiveSpec(ctx context.Context, cfg *config.SpecsRepoConfig, specID, archi
 	return WithSpecsRepo(ctx, cfg, func(repoPath string) (string, error) {
 		sd := filepath.Join(repoPath, SpecsSubDir)
 		specPath := filepath.Join(sd, specID+".md")
-		archivePath := filepath.Join(sd, archiveDir, specID+".md")
+		archiveSubdir := filepath.Join(sd, archiveDir)
+		archivePath := filepath.Join(archiveSubdir, specID+".md")
 
 		if _, err := os.Stat(specPath); err != nil {
 			return "", fmt.Errorf("spec %s not found in specs/: %w", specID, err)
 		}
 
-		if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
+		if err := os.MkdirAll(archiveSubdir, 0o755); err != nil {
 			return "", fmt.Errorf("creating archive directory: %w", err)
 		}
 
 		if _, err := Run(ctx, repoPath, "mv", specPath, archivePath); err != nil {
 			return "", fmt.Errorf("moving %s to archive: %w", specID, err)
+		}
+
+		// The sidecar "sits beside the spec" (internal/thread's own invariant) —
+		// archiving must not leave it behind at the old path, which would strand
+		// the spec's discussion history the moment it reaches done/closed.
+		if err := moveSidecarIfPresent(ctx, repoPath, sd, archiveSubdir, specID); err != nil {
+			return "", err
 		}
 
 		return fmt.Sprintf("archive: %s", specID), nil
@@ -579,7 +587,8 @@ func ArchiveSpec(ctx context.Context, cfg *config.SpecsRepoConfig, specID, archi
 func RestoreSpec(ctx context.Context, cfg *config.SpecsRepoConfig, specID, archiveDir string) error {
 	return WithSpecsRepo(ctx, cfg, func(repoPath string) (string, error) {
 		sd := filepath.Join(repoPath, SpecsSubDir)
-		archivePath := filepath.Join(sd, archiveDir, specID+".md")
+		archiveSubdir := filepath.Join(sd, archiveDir)
+		archivePath := filepath.Join(archiveSubdir, specID+".md")
 		specPath := filepath.Join(sd, specID+".md")
 
 		if _, err := os.Stat(archivePath); err != nil {
@@ -590,8 +599,28 @@ func RestoreSpec(ctx context.Context, cfg *config.SpecsRepoConfig, specID, archi
 			return "", fmt.Errorf("restoring %s: %w", specID, err)
 		}
 
+		if err := moveSidecarIfPresent(ctx, repoPath, archiveSubdir, sd, specID); err != nil {
+			return "", err
+		}
+
 		return fmt.Sprintf("restore: %s", specID), nil
 	})
+}
+
+// moveSidecarIfPresent git-mv's specID's thread discussion sidecar
+// (<ID>.threads.yaml) from fromDir to toDir alongside its spec, landing in
+// the same commit as the spec move. Most specs have no discussion yet, so a
+// missing sidecar is not an error — there is simply nothing to move.
+func moveSidecarIfPresent(ctx context.Context, repoPath, fromDir, toDir, specID string) error {
+	name := specID + ".threads.yaml"
+	from := filepath.Join(fromDir, name)
+	if _, err := os.Stat(from); err != nil {
+		return nil
+	}
+	if _, err := Run(ctx, repoPath, "mv", from, filepath.Join(toDir, name)); err != nil {
+		return fmt.Errorf("moving %s's discussion sidecar: %w", specID, err)
+	}
+	return nil
 }
 
 // ListArchiveFiles returns all archived spec files.
