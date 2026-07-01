@@ -240,7 +240,7 @@ func (m dashboardModel) pendingCount() int {
 	if m.data == nil {
 		return 0
 	}
-	return len(m.data.Do) + len(m.data.Review) + len(m.data.Incoming) + len(m.data.Blocked)
+	return len(m.data.Do) + len(m.data.Review) + len(m.data.Discussion) + len(m.data.Incoming) + len(m.data.Blocked)
 }
 
 func (m dashboardModel) fetchData() tea.Cmd {
@@ -327,6 +327,28 @@ func (m dashboardModel) buildRows() []dashboardRow {
 	}
 	sortRowsByOldest(review)
 
+	discussion := make([]dashboardRow, 0, len(m.data.Discussion))
+	for _, item := range m.data.Discussion {
+		// The static Render prints Stage (§section) and Detail (the quoted
+		// excerpt) as two lines; the TUI row model has one detail column, so
+		// combine them the same way the DO row combines Stage + Assignee.
+		detail := item.Stage
+		if item.Detail != "" {
+			detail += "  ·  " + item.Detail
+		}
+		discussion = append(discussion, dashboardRow{
+			section:       "DISCUSSION",
+			icon:          IconDiscussion,
+			specID:        item.SpecID,
+			title:         item.Title,
+			detail:        detail,
+			urgency:       item.Urgency,
+			sortTime:      item.SortTime,
+			staleFraction: item.StaleFraction,
+		})
+	}
+	sortRowsByOldest(discussion)
+
 	incoming := make([]dashboardRow, 0, len(m.data.Incoming))
 	for _, item := range m.data.Incoming {
 		icon := IconIncoming
@@ -350,6 +372,7 @@ func (m dashboardModel) buildRows() []dashboardRow {
 	rows = append(rows, blocked...)
 	rows = append(rows, do...)
 	rows = append(rows, review...)
+	rows = append(rows, discussion...)
 	rows = append(rows, incoming...)
 	return rows
 }

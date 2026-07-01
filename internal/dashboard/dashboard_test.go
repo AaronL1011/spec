@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -217,5 +218,67 @@ func defaultTeamConfig() *config.TeamConfig {
 				{Name: "done", OwnerRole: "tl"},
 			},
 		},
+	}
+}
+
+// captureRenderOutput runs Render and returns everything it printed to
+// stdout, since Render has no existing test coverage and writes directly via
+// fmt.Println rather than returning a string.
+func captureRenderOutput(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	fn()
+	_ = w.Close()
+	os.Stdout = orig
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	return buf.String()
+}
+
+// TestRender_DiscussionSectionBetweenReviewAndIncoming pins the static
+// dashboard's section order and format (discussion-01-awareness-loop.md §4.2).
+func TestRender_DiscussionSectionBetweenReviewAndIncoming(t *testing.T) {
+	data := &DashboardData{
+		Review: []DashboardItem{{SpecID: "PR #42", Title: "Review this", Detail: "repo  1h ago"}},
+		Discussion: []DashboardItem{
+			{SpecID: "SPEC-039", Title: "Rate limiting", Stage: "§technical_implementation",
+				Detail: `@carlos: "can we use token bucket instead?"`},
+		},
+		Incoming: []DashboardItem{{SpecID: "SPEC-010", Title: "New intake", Stage: "triage"}},
+	}
+
+	out := captureRenderOutput(t, func() { Render(data, "Dev", "engineer", "") })
+
+	reviewIdx := strings.Index(out, "─── REVIEW")
+	discussionIdx := strings.Index(out, "─── DISCUSSION")
+	incomingIdx := strings.Index(out, "─── INCOMING")
+	if reviewIdx < 0 || discussionIdx < 0 || incomingIdx < 0 {
+		t.Fatalf("expected all three section headers in output:\n%s", out)
+	}
+	if reviewIdx >= discussionIdx || discussionIdx >= incomingIdx {
+		t.Errorf("expected REVIEW < DISCUSSION < INCOMING, got indices %d, %d, %d", reviewIdx, discussionIdx, incomingIdx)
+	}
+	if !strings.Contains(out, "SPEC-039") || !strings.Contains(out, "§technical_implementation") {
+		t.Errorf("output missing discussion row content:\n%s", out)
+	}
+	if !strings.Contains(out, `@carlos: "can we use token bucket instead?"`) {
+		t.Errorf("output missing quoted detail line:\n%s", out)
+	}
+}
+
+// TestRender_NoDiscussionSectionWhenEmpty proves the DISCUSSION header is
+// omitted entirely when there is nothing to show, matching every other
+// per-section guard.
+func TestRender_NoDiscussionSectionWhenEmpty(t *testing.T) {
+	data := &DashboardData{Do: []DashboardItem{{SpecID: "SPEC-001", Title: "Active", Stage: "build"}}}
+	out := captureRenderOutput(t, func() { Render(data, "Dev", "engineer", "") })
+	if strings.Contains(out, "DISCUSSION") {
+		t.Errorf("expected no DISCUSSION header when empty:\n%s", out)
 	}
 }
