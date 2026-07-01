@@ -3,6 +3,7 @@ package teams
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -183,5 +184,16 @@ func TestBuildNotificationCard(t *testing.T) {
 	}
 	if card.Body[0].Weight != "Bolder" {
 		t.Errorf("expected header to be Bolder")
+	}
+}
+
+// TestNotifyUser_AlwaysReturnsErrRecipientUnknown pins the documented
+// contract: Teams has no per-user DM transport over Incoming Webhooks, so
+// every call routes through the channel-broadcast fallback instead.
+func TestNotifyUser_AlwaysReturnsErrRecipientUnknown(t *testing.T) {
+	c := NewClient("https://example.com/webhook", "", "", "", "")
+	err := c.NotifyUser(context.Background(), "@bob", adapter.Notification{SpecID: "SPEC-1"})
+	if !errors.Is(err, adapter.ErrRecipientUnknown) {
+		t.Errorf("NotifyUser = %v, want ErrRecipientUnknown", err)
 	}
 }

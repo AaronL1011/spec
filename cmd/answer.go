@@ -20,11 +20,13 @@ The spec ID is inferred from the focused spec when omitted:
 }
 
 func init() {
+	answerCmd.Flags().StringSlice("to", nil, "handle to notify (repeatable) — inline @handle in the reply works automatically")
 	rootCmd.AddCommand(answerCmd)
 }
 
 func runAnswer(cmd *cobra.Command, args []string) error {
 	p := newPrinter(cmd)
+	to, _ := cmd.Flags().GetStringSlice("to")
 
 	specID, threadID, body, err := splitThreadActionArgs(args, "spec answer <id> <thread-id> \"<reply>\"", true)
 	if err != nil {
@@ -41,7 +43,7 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 
 	var updated thread.Thread
 	err = withThreadStore(rc, specID, func(store *thread.SidecarStore) (string, error) {
-		t, err := store.Reply(specID, threadID, threadAuthor(rc), body, nil)
+		t, err := store.Reply(specID, threadID, threadAuthor(rc), body, to)
 		if err != nil {
 			return "", err
 		}
@@ -53,7 +55,11 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 	}
 
 	logThreadActivity(rc, specID, fmt.Sprintf("replied to %s", threadID), threadID)
-	notifyThreadParticipants(p, rc, specID,
+	// A reply notifies the asker and prior repliers, not just whoever was
+	// @-mentioned in this reply — the whole point of a reply is that the
+	// people already in the conversation see it.
+	recipients := excludeIdentity(updated.Participants(), threadAuthor(rc))
+	notifyThreadParticipants(p, rc, specID, recipients,
 		fmt.Sprintf("%s replied on §%s: %s", threadAuthor(rc), updated.Section, body))
 
 	if p.JSONEnabled() {

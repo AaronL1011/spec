@@ -12,18 +12,19 @@ package glyph
 // Status and semantic icons. Each is a distinct shape so status remains
 // distinguishable even when colour is stripped (accessibility).
 const (
-	Focus    = "★" // focused spec marker
-	Active   = "●" // active / DO
-	Stale    = "◷" // stale / waiting
-	Blocked  = "■" // blocked
-	Review   = "◆" // review pending
-	Incoming = "▸" // incoming / inbox
-	Done     = "✓" // done / approved / passing
-	Rejected = "✗" // rejected / failed
-	Changes  = "↻" // changes requested / pending CI
-	Pending  = "□" // pending / empty box / not-yet
-	Filled   = "▣" // filled / complete box
-	Open     = "○" // open / not started
+	Focus      = "★" // focused spec marker
+	Active     = "●" // active / DO
+	Stale      = "◷" // stale / waiting
+	Blocked    = "■" // blocked
+	Review     = "◆" // review pending
+	Discussion = "◐" // open discussion thread awaiting the viewer
+	Incoming   = "▸" // incoming / inbox
+	Done       = "✓" // done / approved / passing
+	Rejected   = "✗" // rejected / failed
+	Changes    = "↻" // changes requested / pending CI
+	Pending    = "□" // pending / empty box / not-yet
+	Filled     = "▣" // filled / complete box
+	Open       = "○" // open / not started
 
 	Bullet  = "•" // list bullet
 	Cursor  = "▸" // selection / focus cursor

@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/thread"
 )
 
 func TestPendingCount_NilConfig(t *testing.T) {
@@ -217,5 +219,166 @@ func defaultTeamConfig() *config.TeamConfig {
 				{Name: "done", OwnerRole: "tl"},
 			},
 		},
+	}
+}
+
+// captureRenderOutput runs Render and returns everything it printed to
+// stdout, since Render has no existing test coverage and writes directly via
+// fmt.Println rather than returning a string.
+func captureRenderOutput(t *testing.T, fn func()) string {
+	t.Helper()
+	return captureStream(t, &os.Stdout, fn)
+}
+
+// captureStderr runs fn and returns everything it printed to stderr, for
+// PrintAwarenessLine, which writes directly via fmt.Fprintf(os.Stderr, ...).
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	return captureStream(t, &os.Stderr, fn)
+}
+
+// captureStream redirects *stream to a pipe for the duration of fn and
+// returns everything written to it.
+func captureStream(t *testing.T, stream **os.File, fn func()) string {
+	t.Helper()
+	orig := *stream
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	*stream = w
+	fn()
+	_ = w.Close()
+	*stream = orig
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	return buf.String()
+}
+
+// TestRender_DiscussionSectionBetweenReviewAndIncoming pins the static
+// dashboard's section order and format (discussion-01-awareness-loop.md §4.2).
+func TestRender_DiscussionSectionBetweenReviewAndIncoming(t *testing.T) {
+	data := &DashboardData{
+		Review: []DashboardItem{{SpecID: "PR #42", Title: "Review this", Detail: "repo  1h ago"}},
+		Discussion: []DashboardItem{
+			{SpecID: "SPEC-039", Title: "Rate limiting", Stage: "§technical_implementation",
+				Detail: `@carlos: "can we use token bucket instead?"`},
+		},
+		Incoming: []DashboardItem{{SpecID: "SPEC-010", Title: "New intake", Stage: "triage"}},
+	}
+
+	out := captureRenderOutput(t, func() { Render(data, "Dev", "engineer", "") })
+
+	reviewIdx := strings.Index(out, "─── REVIEW")
+	discussionIdx := strings.Index(out, "─── DISCUSSION")
+	incomingIdx := strings.Index(out, "─── INCOMING")
+	if reviewIdx < 0 || discussionIdx < 0 || incomingIdx < 0 {
+		t.Fatalf("expected all three section headers in output:\n%s", out)
+	}
+	if reviewIdx >= discussionIdx || discussionIdx >= incomingIdx {
+		t.Errorf("expected REVIEW < DISCUSSION < INCOMING, got indices %d, %d, %d", reviewIdx, discussionIdx, incomingIdx)
+	}
+	if !strings.Contains(out, "SPEC-039") || !strings.Contains(out, "§technical_implementation") {
+		t.Errorf("output missing discussion row content:\n%s", out)
+	}
+	if !strings.Contains(out, `@carlos: "can we use token bucket instead?"`) {
+		t.Errorf("output missing quoted detail line:\n%s", out)
+	}
+}
+
+// TestRender_NoDiscussionSectionWhenEmpty proves the DISCUSSION header is
+// omitted entirely when there is nothing to show, matching every other
+// per-section guard.
+func TestRender_NoDiscussionSectionWhenEmpty(t *testing.T) {
+	data := &DashboardData{Do: []DashboardItem{{SpecID: "SPEC-001", Title: "Active", Stage: "build"}}}
+	out := captureRenderOutput(t, func() { Render(data, "Dev", "engineer", "") })
+	if strings.Contains(out, "DISCUSSION") {
+		t.Errorf("expected no DISCUSSION header when empty:\n%s", out)
+	}
+}
+
+func TestDiscussionCount_NilConfig(t *testing.T) {
+	if count := DiscussionCount(nil, "engineer"); count != 0 {
+		t.Errorf("expected 0, got %d", count)
+	}
+}
+
+func TestDiscussionCount_EmptyDir(t *testing.T) {
+	rc := &config.ResolvedConfig{SpecsRepoDir: t.TempDir()}
+	if count := DiscussionCount(rc, "engineer"); count != 0 {
+		t.Errorf("expected 0, got %d", count)
+	}
+}
+
+// TestDiscussionCount_CountsOnlyTheViewersTurn proves DiscussionCount uses
+// the same isViewerTurn predicate as the DISCUSSION dashboard section: a
+// thread mentioning the viewer counts, one where the viewer replied last
+// does not.
+func TestDiscussionCount_CountsOnlyTheViewersTurn(t *testing.T) {
+	dir := t.TempDir()
+	writeSpec(t, dir, "SPEC-100", "engineering", nil)
+
+	store := thread.NewSidecarStore(dir)
+	th, err := store.Create("SPEC-100", "problem_statement", "@ben", "cc @ana thoughts?", nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	ana := &config.ResolvedConfig{SpecsRepoDir: dir, Team: scopedTeamConfig(),
+		User: userCfg("Ana", "@ana", "engineer")}
+
+	if count := DiscussionCount(ana, "engineer"); count != 1 {
+		t.Fatalf("DiscussionCount (mentioned, not yet replied) = %d, want 1", count)
+	}
+
+	if _, err := store.Reply("SPEC-100", th.ID, "@ana", "sounds good", nil); err != nil {
+		t.Fatalf("Reply: %v", err)
+	}
+	if count := DiscussionCount(ana, "engineer"); count != 0 {
+		t.Errorf("DiscussionCount (Ana replied last) = %d, want 0", count)
+	}
+}
+
+func TestPrintAwarenessLine_CombinesPendingAndDiscussion(t *testing.T) {
+	dir := t.TempDir()
+	writeSpec(t, dir, "SPEC-100", "engineering", []string{"@ana"})
+	store := thread.NewSidecarStore(dir)
+	if _, err := store.Create("SPEC-100", "problem_statement", "@ben", "cc @ana thoughts?", nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	ana := &config.ResolvedConfig{SpecsRepoDir: dir, Team: scopedTeamConfig(),
+		User: userCfg("Ana", "@ana", "engineer")}
+
+	out := captureStderr(t, func() { PrintAwarenessLine(ana, "engineer") })
+	if !strings.Contains(out, "1 pending") {
+		t.Errorf("output = %q, want it to mention 1 pending", out)
+	}
+	if !strings.Contains(out, "1 reply awaited") {
+		t.Errorf("output = %q, want it to mention 1 reply awaited", out)
+	}
+}
+
+func TestPrintAwarenessLine_OmitsZeroClauses(t *testing.T) {
+	dir := t.TempDir()
+	writeSpec(t, dir, "SPEC-100", "engineering", []string{"@ana"}) // pending, no discussion
+	ana := &config.ResolvedConfig{SpecsRepoDir: dir, Team: scopedTeamConfig(),
+		User: userCfg("Ana", "@ana", "engineer")}
+
+	out := captureStderr(t, func() { PrintAwarenessLine(ana, "engineer") })
+	if !strings.Contains(out, "1 pending") {
+		t.Errorf("output = %q, want it to mention 1 pending", out)
+	}
+	if strings.Contains(out, "awaited") {
+		t.Errorf("output = %q, want no discussion clause when there are none", out)
+	}
+}
+
+func TestPrintAwarenessLine_NothingPrintedWhenAllClear(t *testing.T) {
+	rc := &config.ResolvedConfig{SpecsRepoDir: t.TempDir()}
+	out := captureStderr(t, func() { PrintAwarenessLine(rc, "engineer") })
+	if out != "" {
+		t.Errorf("expected no output when all clear, got %q", out)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/thread"
 	"github.com/aaronl1011/spec/internal/urgency"
 )
 
@@ -41,11 +42,12 @@ type DashboardItem struct {
 
 // DashboardData holds all dashboard sections.
 type DashboardData struct {
-	Do       []DashboardItem `json:"do"`
-	Review   []DashboardItem `json:"review"`
-	Incoming []DashboardItem `json:"incoming"`
-	Blocked  []DashboardItem `json:"blocked"`
-	FYI      []DashboardItem `json:"fyi"`
+	Do         []DashboardItem `json:"do"`
+	Review     []DashboardItem `json:"review"`
+	Discussion []DashboardItem `json:"discussion"`
+	Incoming   []DashboardItem `json:"incoming"`
+	Blocked    []DashboardItem `json:"blocked"`
+	FYI        []DashboardItem `json:"fyi"`
 }
 
 // Render outputs the dashboard to the terminal.
@@ -94,6 +96,18 @@ func Render(data *DashboardData, userName, role, cycle string) {
 		anyOutput = true
 	}
 
+	if len(data.Discussion) > 0 {
+		fmt.Println()
+		fmt.Println("─── DISCUSSION ──────────────────────────────────────────────────")
+		for _, item := range data.Discussion {
+			fmt.Printf("💬 %-10s  %-30s  %s\n", item.SpecID, truncStr(item.Title, 30), item.Stage)
+			if item.Detail != "" {
+				fmt.Printf("   %s\n", item.Detail)
+			}
+		}
+		anyOutput = true
+	}
+
 	if len(data.Incoming) > 0 {
 		fmt.Println()
 		fmt.Println("─── INCOMING ────────────────────────────────────────────────────")
@@ -136,13 +150,20 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 	viewer := viewerFor(rc, role)
 	blockedCfg := blockedConfig(rc)
 	curve := dashboardCurve(rc)
+	// Shared by REVIEW (PR age) and DISCUSSION (thread age): both are "someone
+	// is waiting on you" items, so they share one opt-in staleness window
+	// rather than each needing its own config knob.
+	reviewWindow, _ := dashboardConfig(rc).ReviewWindow()
 	now := time.Now()
 
 	// DO section: specs scoped to the viewer by stage dashboard scope.
 	// BLOCKED section: blocked specs scoped by the team blocked config.
+	// DISCUSSION section: open threads on any spec (not just ones the viewer
+	// owns) where it is the viewer's turn.
 	if rc.SpecsRepoDir != "" {
 		specs, err := loadSpecs(rc)
 		if err == nil {
+			threadStore := thread.NewSidecarStore(rc.SpecsRepoDir)
 			for _, s := range specs {
 				view := s.view()
 				if s.Status == pipeline.StatusBlocked {
@@ -153,9 +174,7 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 							SortTime: stageEntryTime(s.StageEnteredAt, s.Updated),
 						})
 					}
-					continue
-				}
-				if VisibleInDo(pl, view, viewer) {
+				} else if VisibleInDo(pl, view, viewer) {
 					frac := StageUrgency(pl, curve, s.Status, s.StageEnteredAt, s.Updated, now)
 					data.Do = append(data.Do, DashboardItem{
 						SpecID:        s.ID,
@@ -167,6 +186,8 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 						SortTime:      stageEntryTime(s.StageEnteredAt, s.Updated),
 					})
 				}
+				data.Discussion = append(data.Discussion,
+					discussionItems(threadStore, s.ID, s.Title, viewer, reviewWindow, curve, now)...)
 			}
 		}
 
@@ -186,7 +207,6 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 	// REVIEW section: from repo adapter. Rows warm toward red as a PR's age
 	// (now - opened) approaches the opt-in review staleness window.
 	if reg != nil {
-		reviewWindow, _ := dashboardConfig(rc).ReviewWindow()
 		prs, err := reg.Repo().RequestedReviews(ctx, rc.IdentityForCategory("repo"))
 		if err == nil {
 			for _, pr := range prs {
@@ -208,6 +228,7 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 	sortItemsByOldest(data.Blocked)
 	sortItemsByOldest(data.Do)
 	sortItemsByOldest(data.Review)
+	sortItemsByOldest(data.Discussion)
 	sortItemsByOldest(data.Incoming)
 
 	return data, nil
