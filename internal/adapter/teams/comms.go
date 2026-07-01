@@ -62,6 +62,18 @@ func (c *Client) Notify(ctx context.Context, msg adapter.Notification) error {
 	return c.postCard(ctx, webhook, card)
 }
 
+// NotifyUser always returns adapter.ErrRecipientUnknown: outbound Teams
+// notifications go through an Incoming Webhook, which posts to one fixed
+// channel and has no per-user chat concept. Per-user delivery would need
+// Graph API chat-creation scopes (Chat.Create, admin-consented) this client
+// does not request. Returning ErrRecipientUnknown routes every recipient
+// through the channel-broadcast fallback, which is the safety net the
+// interface is designed around — a notification still goes out, just not
+// as a DM.
+func (c *Client) NotifyUser(ctx context.Context, handle string, msg adapter.Notification) error {
+	return adapter.ErrRecipientUnknown
+}
+
 // PostStandup posts a formatted standup to the standup webhook.
 func (c *Client) PostStandup(ctx context.Context, standup adapter.StandupReport) error {
 	card := buildStandupCard(standup)

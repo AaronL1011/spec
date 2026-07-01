@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
@@ -16,6 +17,14 @@ type Client struct {
 	api            *slackapi.Client
 	defaultChannel string
 	standupChannel string
+
+	// usersMu guards usersByHandle, a lazily-populated, process-lifetime
+	// cache of handle -> Slack user ID. A CLI invocation is one process
+	// running one command, so caching for its lifetime is safe and avoids a
+	// users.list call per recipient when routing a thread notification to
+	// several people.
+	usersMu       sync.Mutex
+	usersByHandle map[string]string
 }
 
 // NewClient creates a Slack CommsAdapter.
@@ -52,6 +61,75 @@ func (c *Client) Notify(ctx context.Context, msg adapter.Notification) error {
 		return fmt.Errorf("posting notification to %s: %w", channel, err)
 	}
 	return nil
+}
+
+// NotifyUser sends a direct message to a specific Slack user, resolving
+// handle against the workspace's user list (matched by Slack username or
+// display name, case-insensitively, tolerant of a leading '@'). Returns
+// adapter.ErrRecipientUnknown when the handle does not resolve to a user, so
+// the caller can fall back to a channel broadcast.
+func (c *Client) NotifyUser(ctx context.Context, handle string, msg adapter.Notification) error {
+	userID, err := c.resolveUserID(ctx, handle)
+	if err != nil {
+		return err
+	}
+
+	channel, _, _, err := c.api.OpenConversationContext(ctx, &slackapi.OpenConversationParameters{
+		Users: []string{userID},
+	})
+	if err != nil {
+		return fmt.Errorf("opening Slack DM with %s: %w", handle, err)
+	}
+
+	blocks := buildNotificationBlocks(msg)
+	_, _, err = c.api.PostMessageContext(
+		ctx,
+		channel.ID,
+		slackapi.MsgOptionBlocks(blocks...),
+		slackapi.MsgOptionText(msg.Message, false),
+	)
+	if err != nil {
+		return fmt.Errorf("posting Slack DM to %s: %w", handle, err)
+	}
+	return nil
+}
+
+// resolveUserID resolves handle to a Slack user ID via the workspace's user
+// list, populated lazily and cached for the process lifetime. Returns
+// adapter.ErrRecipientUnknown when no user matches.
+func (c *Client) resolveUserID(ctx context.Context, handle string) (string, error) {
+	key := normaliseHandle(handle)
+
+	c.usersMu.Lock()
+	defer c.usersMu.Unlock()
+
+	if c.usersByHandle == nil {
+		users, err := c.api.GetUsersContext(ctx)
+		if err != nil {
+			return "", fmt.Errorf("listing Slack workspace users: %w", err)
+		}
+		c.usersByHandle = make(map[string]string, len(users))
+		for _, u := range users {
+			if u.Name != "" {
+				c.usersByHandle[normaliseHandle(u.Name)] = u.ID
+			}
+			if u.Profile.DisplayName != "" {
+				c.usersByHandle[normaliseHandle(u.Profile.DisplayName)] = u.ID
+			}
+		}
+	}
+
+	id, ok := c.usersByHandle[key]
+	if !ok {
+		return "", adapter.ErrRecipientUnknown
+	}
+	return id, nil
+}
+
+// normaliseHandle lower-cases and strips a leading '@' so "@bob" and "bob"
+// resolve to the same cache key.
+func normaliseHandle(handle string) string {
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(handle)), "@")
 }
 
 // PostStandup posts a formatted standup to the standup channel.

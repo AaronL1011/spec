@@ -50,7 +50,8 @@ func runResolve(cmd *cobra.Command, args []string) error {
 	}
 
 	logThreadActivity(rc, specID, fmt.Sprintf("resolved %s", threadID), threadID)
-	notifyThreadParticipants(p, rc, specID,
+	recipients := excludeIdentity(resolved.Participants(), threadAuthor(rc))
+	notifyThreadParticipants(p, rc, specID, recipients,
 		fmt.Sprintf("%s resolved §%s: %s", threadAuthor(rc), resolved.Section, resolved.Question))
 
 	if p.JSONEnabled() {

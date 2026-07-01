@@ -12,7 +12,10 @@ import (
 // Comms is a no-op CommsAdapter.
 type Comms struct{}
 
-func (Comms) Notify(ctx context.Context, msg adapter.Notification) error           { return nil }
+func (Comms) Notify(ctx context.Context, msg adapter.Notification) error { return nil }
+func (Comms) NotifyUser(ctx context.Context, handle string, msg adapter.Notification) error {
+	return nil
+}
 func (Comms) PostStandup(ctx context.Context, standup adapter.StandupReport) error { return nil }
 func (Comms) FetchMentions(ctx context.Context, since time.Time) ([]adapter.Mention, error) {
 	return nil, nil
