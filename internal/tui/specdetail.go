@@ -31,6 +31,7 @@ type specDetailDataMsg struct {
 	Meta      *markdown.SpecMeta
 	Sections  []markdown.Section
 	Threads   []thread.Thread
+	Seen      map[string]time.Time
 	Hash      string
 	Archived  bool
 	BuildLine string
@@ -54,6 +55,10 @@ type sectionRenderedMsg struct {
 
 type navigateToSpecMsg struct{ SpecID string }
 type navigateBackMsg struct{}
+
+// readerFlashMsg surfaces a transient reader notice (e.g. the thread stepper
+// wrapping past the last thread) on the status bar.
+type readerFlashMsg struct{ Text string }
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
@@ -93,13 +98,24 @@ type specDetailModel struct {
 	readerErr      error
 	readerCache    map[string]string
 
-	// Threads — inline Q&A (SPEC-012)
-	threads      []thread.Thread
-	paneVisible  bool // thread pane shown (toggled with 't')
-	paneFocused  bool // arrow keys target the pane, not the prose
-	threadIdx    int  // selected thread within the focused section
-	threadScroll int  // scroll offset within the (possibly tall) pane body
-	input        threadInput
+	// Threads — inline Q&A (SPEC-012) + review cockpit (discussion-03)
+	threads          []thread.Thread
+	paneVisible      bool                 // thread pane shown (toggled with 't')
+	paneFocused      bool                 // arrow keys target the pane, not the prose
+	selectedThreadID string               // durable selection — survives refresh and filtering
+	threadScroll     int                  // scroll offset within the (possibly tall) pane body
+	threadFilter     string               // open | all | mine | unread
+	seen             map[string]time.Time // thread ID → latest activity viewed
+	unreadSnapshot   map[string]bool      // traversal set while filter == unread
+	input            threadInput
+
+	// Anchors — rendered-line mapping for the focused section, plus the
+	// pick-mode state for quoted asks. Rebuilt on render/thread changes,
+	// never inside view().
+	anchors               anchorMap
+	pickMode              bool
+	pickLine              int    // absolute rendered content line under the pick cursor
+	pendingAnchorThreadID string // scroll target once the next section render lands
 
 	// Render lifecycle — single-flight + pending coalesce
 	renderInFlight bool
@@ -147,6 +163,8 @@ func newSpecDetail(rc *config.ResolvedConfig, specID string, styles Styles, keys
 		renderer:             newRenderer(theme),
 		readerViewport:       vp,
 		paneVisible:          true,
+		threadFilter:         threadFilterOpen,
+		seen:                 make(map[string]time.Time),
 		pendingScrollRestore: -1,
 	}
 }
@@ -180,10 +198,10 @@ func (m specDetailModel) handleThreadsChanged(msg threadsChangedMsg) (specDetail
 		return m, nil
 	}
 	m.threads = msg.Threads
-	// Clamp selection to the new thread set for the focused section.
-	if n := len(m.threadsForSection(m.currentSectionSlug())); m.threadIdx >= n {
-		m.threadIdx = max(0, n-1)
-	}
+	// Selection is by ID, so no clamping is needed — selectedThread falls
+	// back to the section's first thread when the ID is gone. The anchor map
+	// tracks the thread set.
+	m.rebuildAnchors()
 	return m, nil
 }
 
@@ -218,6 +236,9 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	m.meta = msg.Meta
 	m.sections = msg.Sections
 	m.threads = msg.Threads
+	if msg.Seen != nil {
+		m.seen = msg.Seen
+	}
 	m.err = nil
 	m.contentHash = msg.Hash
 	m.isArchived = msg.Archived
@@ -265,22 +286,21 @@ func (m *specDetailModel) applyPendingSection() {
 }
 
 // applyRefresh merges freshly-read spec data into an already-loaded model,
-// preserving scroll offset, current section, thread selection, body scroll,
-// and any in-progress ask/reply input. It is the position-preserving path for
-// watcher- and poll-triggered refreshes (SPEC-007).
+// preserving scroll offset, current section, thread selection (by ID), body
+// scroll, and any in-progress ask/reply input. It is the position-preserving
+// path for watcher- and poll-triggered refreshes (SPEC-007).
 func (m specDetailModel) applyRefresh(msg specDetailDataMsg) (specDetailModel, tea.Cmd) {
 	// Capture position before swapping data.
 	prevScroll := m.readerViewport.YOffset()
 	prevSectionIdx := m.sectionIdx
 	prevThreadScroll := m.threadScroll
-	selectedID := ""
-	if t, ok := m.selectedThread(); ok {
-		selectedID = t.ID
-	}
 
 	m.meta = msg.Meta
 	m.sections = msg.Sections
 	m.threads = msg.Threads
+	if msg.Seen != nil {
+		m.seen = msg.Seen
+	}
 	m.err = nil
 	m.contentHash = msg.Hash
 	m.isArchived = msg.Archived
@@ -296,12 +316,13 @@ func (m specDetailModel) applyRefresh(msg specDetailDataMsg) (specDetailModel, t
 		return m, nil
 	}
 
-	// Reader: keep the same section (clamped), restore thread selection by ID,
-	// and preserve body scroll. The viewport offset is restored after the
-	// section re-renders, in handleRenderedMsg, via pendingScrollRestore.
+	// Reader: keep the same section (clamped) and preserve body scroll.
+	// Thread selection is by ID, so it survives the swap with no restore
+	// step — selectedThread falls back gracefully when the ID is gone. The
+	// viewport offset is restored after the section re-renders, in
+	// handleRenderedMsg, via pendingScrollRestore.
 	sections := m.readableSections()
 	m.sectionIdx = clampInt(prevSectionIdx, 0, len(sections)-1)
-	m.restoreThreadSelection(selectedID)
 	if mx := m.maxThreadScroll(); prevThreadScroll > mx {
 		prevThreadScroll = mx
 	}
@@ -309,27 +330,6 @@ func (m specDetailModel) applyRefresh(msg specDetailDataMsg) (specDetailModel, t
 	m.pendingScrollRestore = prevScroll
 	m.cancelRender()
 	return m.requestCurrentSectionRender()
-}
-
-// restoreThreadSelection re-selects the thread with the given ID within the
-// current section after a refresh. When that thread no longer exists (resolved
-// out of the open set, removed), selection falls back to the nearest valid
-// index in the same section so the pane never points past its slice.
-func (m *specDetailModel) restoreThreadSelection(id string) {
-	ts := m.threadsForSection(m.currentSectionSlug())
-	if len(ts) == 0 {
-		m.threadIdx = 0
-		return
-	}
-	if id != "" {
-		for i, t := range ts {
-			if t.ID == id {
-				m.threadIdx = i
-				return
-			}
-		}
-	}
-	m.threadIdx = clampInt(m.threadIdx, 0, len(ts)-1)
 }
 
 // clampInt bounds v to [lo, hi]. When hi < lo (e.g. an empty slice yields
@@ -441,6 +441,11 @@ func (m specDetailModel) updateReader(msg tea.KeyPressMsg) (specDetailModel, tea
 	if nm, cmd, handled := m.handleThreadInputKey(msg); handled {
 		return nm, cmd
 	}
+	// Anchor-pick mode is a self-contained key layer: it absorbs every key
+	// (the overlay pattern) so reader hotkeys cannot fire mid-pick.
+	if m.pickMode {
+		return m.updatePickMode(msg)
+	}
 	// Thread action keys (a/r/x/t/tab) take precedence over navigation so
 	// they work regardless of which pane has focus.
 	if nm, cmd, handled := m.handleThreadActionKey(msg); handled {
@@ -470,15 +475,22 @@ func (m specDetailModel) updateReader(msg tea.KeyPressMsg) (specDetailModel, tea
 	case msg.Code == tea.KeyPgDown:
 		m.readerViewport.PageDown()
 	case msg.Text == "n":
-		if m.paneFocused {
-			return m.selectThread(1), nil // next thread when reading threads
-		}
-		return m.withSection(m.sectionIdx + 1)
+		// Document-wide thread stepping — the core review motion. Section
+		// stepping moved to [ and ].
+		return m.stepThread(1)
 	case msg.Text == "p":
-		if m.paneFocused {
-			return m.selectThread(-1), nil
-		}
+		return m.stepThread(-1)
+	case msg.Text == "[":
 		return m.withSection(m.sectionIdx - 1)
+	case msg.Text == "]":
+		return m.withSection(m.sectionIdx + 1)
+	case msg.Text == "f":
+		m.cycleFilter()
+		return m, nil
+	case msg.Text == "u":
+		return m.toggleRead()
+	case msg.Text == "A":
+		return m.enterPickMode(), nil
 	case msg.Text == "g":
 		m.readerViewport.GotoTop()
 	case msg.Text == "G":
@@ -508,7 +520,7 @@ func (m specDetailModel) withSection(idx int) (specDetailModel, tea.Cmd) {
 	}
 	m.sectionIdx = idx
 	// Reset thread focus/selection when moving to a new section.
-	m.threadIdx = 0
+	m.selectedThreadID = ""
 	m.threadScroll = 0
 	m.paneFocused = false
 	m.readerViewport.GotoTop()
@@ -636,8 +648,8 @@ func renderSectionContent(ctx context.Context, renderer Renderer, heading, owner
 
 	nav := fmt.Sprintf("%s%s %d/%d", Indent(1), GlyphSection, sectionIdx+1, total)
 	hints := HintStrip(styles,
-		Hint("n", "next"), Hint("p", "prev"), Hint("1-9", "jump"),
-		Hint("o", "overview"), Hint("tab", "switch view"))
+		Hint("n/p", "thread"), Hint("[ ]", "section"), Hint("1-9", "jump"),
+		Hint("o", "overview"))
 	b.WriteString("\n")
 	b.WriteString(styles.Muted.Render(nav) + "  " + hints)
 	return strings.TrimRight(b.String(), "\n"), nil
@@ -771,9 +783,9 @@ func (m specDetailModel) viewReaderNarrow() string {
 	paneBudget := max(m.height/2, 6)
 	pane := m.renderThreadPane(max(m.width, 20), paneBudget)
 	if len(pane) == 0 {
-		return m.readerViewport.View()
+		return m.readerBodyView()
 	}
-	content := composeContentColumn(m.readerViewport.View(), pane, max(m.height, 3))
+	content := composeContentColumn(m.readerBodyView(), pane, max(m.height, 3))
 	return strings.Join(content, "\n")
 }
 
@@ -798,7 +810,7 @@ func (m specDetailModel) viewReaderWithSidebar() string {
 	// body scrolls when a thread is taller than its budget.
 	paneBudget := max(visible/2, 6)
 	pane := m.renderThreadPane(contentWidth, paneBudget)
-	content := composeContentColumn(m.readerViewport.View(), pane, visible)
+	content := composeContentColumn(m.readerBodyView(), pane, visible)
 
 	sep := m.styles.Separator.Render(GlyphVSep)
 	var out []string
@@ -1029,6 +1041,12 @@ func (m specDetailModel) readableSections() []markdown.Section {
 			out = append(out, sec)
 		}
 	}
+	// Threads whose section heading was reworded away must stay reachable:
+	// they collect under a synthetic trailing entry (discussion-03 §2.4).
+	// Appended (not prepended) so 1-9 section jumps keep their meaning.
+	if len(m.unanchoredThreads()) > 0 {
+		out = append(out, unanchoredSection())
+	}
 	return out
 }
 
@@ -1068,6 +1086,14 @@ func (m *specDetailModel) applyReaderContent(content string) {
 	m.contentLines = m.readerViewport.TotalLineCount()
 	if m.contentLines == 0 {
 		m.contentLines = 1
+	}
+	// Content changed — recompute the anchor map and honour a pending
+	// scroll-to-anchor from a cross-section thread step. This runs on both
+	// the async render path and the cache-hit path.
+	m.rebuildAnchors()
+	if id := m.pendingAnchorThreadID; id != "" {
+		m.pendingAnchorThreadID = ""
+		m.scrollToAnchor(id)
 	}
 }
 
@@ -1211,10 +1237,17 @@ func (m specDetailModel) fetchData() tea.Cmd {
 		// Threads are a best-effort sidecar load: a parse error must never
 		// block reading the spec.
 		threads, _ := thread.NewSidecarStore(filepath.Dir(path)).List(specID)
+		var seen map[string]time.Time
+		if db != nil {
+			// Best-effort: read-state is a progressive enhancement; a DB
+			// error just renders every thread unread.
+			seen, _ = db.ThreadSeen(specID)
+		}
 		return specDetailDataMsg{
 			Meta:      meta,
 			Sections:  markdown.ExtractSections(content),
 			Threads:   threads,
+			Seen:      seen,
 			Hash:      contentHash(data),
 			Archived:  isArchived,
 			BuildLine: buildStatusLine(db, specID, content),

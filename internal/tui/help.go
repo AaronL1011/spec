@@ -107,11 +107,16 @@ func (m helpModel) renderContent() string {
 	b.WriteString(m.section("Navigation", m.keys.NavigationBindings()))
 	b.WriteString(m.section("Views", m.keys.ViewBindings()))
 
-	switch m.context {
-	case "Settings":
+	switch {
+	case m.context == "Settings":
 		b.WriteString(m.section("Settings", m.keys.SettingsBindings()))
-	case "Triage":
+	case m.context == "Triage":
 		b.WriteString(m.section("Triage Actions", m.keys.TriageBindings()))
+	case strings.HasPrefix(m.context, "Detail"):
+		// The reader owns its own key layer (review cockpit); overview-mode
+		// spec actions still apply, so both sections render side by side.
+		b.WriteString(m.section("Reader (review cockpit)", m.keys.ReaderBindings()))
+		b.WriteString(m.section("Spec Actions", m.keys.ActionBindings()))
 	default:
 		b.WriteString(m.section("Spec Actions", m.keys.ActionBindings()))
 		b.WriteString(m.section("Creation", m.keys.CreationBindings()))

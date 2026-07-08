@@ -234,16 +234,16 @@ func TestSpecDetail_ReaderNavigation(t *testing.T) {
 		t.Fatal("should be in reader mode")
 	}
 
-	// Navigate to next section.
-	m, _ = m.update(keyMsg("n"))
+	// Navigate to next section (']' — n/p step threads now).
+	m, _ = m.update(keyMsg("]"))
 	if m.sectionIdx != 1 {
-		t.Errorf("after 'n': sectionIdx = %d, want 1", m.sectionIdx)
+		t.Errorf("after ']': sectionIdx = %d, want 1", m.sectionIdx)
 	}
 
 	// Navigate to previous.
-	m, _ = m.update(keyMsg("p"))
+	m, _ = m.update(keyMsg("["))
 	if m.sectionIdx != 0 {
-		t.Errorf("after 'p': sectionIdx = %d, want 0", m.sectionIdx)
+		t.Errorf("after '[': sectionIdx = %d, want 0", m.sectionIdx)
 	}
 
 	// Jump to section 3.
@@ -330,7 +330,7 @@ func TestSpecDetail_ReaderRenderOnDemand(t *testing.T) {
 	}
 
 	// Navigate to next section.
-	m, cmd = m.update(keyMsg("n"))
+	m, cmd = m.update(keyMsg("]"))
 	if m.sectionIdx != 1 {
 		t.Errorf("sectionIdx = %d, want 1", m.sectionIdx)
 	}
@@ -356,7 +356,7 @@ func TestSpecDetail_ReaderIgnoresStaleRender(t *testing.T) {
 	firstMsg := firstCmd().(sectionRenderedMsg)
 
 	// Navigate to section 1 while section 0 is still "in flight".
-	m, secondCmd := m.update(keyMsg("n"))
+	m, secondCmd := m.update(keyMsg("]"))
 	if secondCmd != nil {
 		t.Fatal("nav during in-flight render should only store pending, not emit a cmd")
 	}
@@ -391,9 +391,9 @@ func TestSpecDetail_ReaderUsesCacheForRenderedSection(t *testing.T) {
 
 	m, cmd := m.update(keyMsg("o"))
 	m, _ = m.update(cmd())
-	m, cmd = m.update(keyMsg("n"))
+	m, cmd = m.update(keyMsg("]"))
 	m, _ = m.update(cmd())
-	m, cmd = m.update(keyMsg("p"))
+	m, cmd = m.update(keyMsg("["))
 	if cmd != nil {
 		t.Fatal("returning to a rendered section should use the cache")
 	}

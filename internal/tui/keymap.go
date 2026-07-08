@@ -279,6 +279,28 @@ func (k KeyMap) GlobalBindings() []key.Binding {
 	return []key.Binding{k.Help, k.Search, k.Refresh, k.ExpandError, k.Quit}
 }
 
+// ReaderBindings returns the reader-mode (review cockpit) bindings for help
+// display. These are reader-local keys dispatched inside updateReader rather
+// than KeyMap fields — the reader deliberately owns its own key layer, and
+// g/G are reserved as top/bottom (no reader-mode g-chords, ever).
+func (k KeyMap) ReaderBindings() []key.Binding {
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("n"), key.WithHelp("n/p", "next/prev thread (document-wide)")),
+		key.NewBinding(key.WithKeys("["), key.WithHelp("[/]", "prev/next section")),
+		key.NewBinding(key.WithKeys("1"), key.WithHelp("1-9", "jump to section")),
+		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "ask on section")),
+		key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "ask on quoted text (pick a line)")),
+		key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply to selected thread")),
+		key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve selected thread")),
+		key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle read/unread")),
+		key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "cycle thread filter")),
+		key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "show/hide thread pane")),
+		key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "focus prose/threads")),
+		key.NewBinding(key.WithKeys("g"), key.WithHelp("g/G", "top/bottom of section")),
+		key.NewBinding(key.WithKeys("o"), key.WithHelp("o/esc", "close reader")),
+	}
+}
+
 // TriageBindings returns keybindings shown when the triage view is active.
 func (k KeyMap) TriageBindings() []key.Binding {
 	return []key.Binding{

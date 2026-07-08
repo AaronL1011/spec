@@ -29,6 +29,7 @@ const (
 	Bullet  = "•" // list bullet
 	Cursor  = "▸" // selection / focus cursor
 	Caret   = "▌" // text input caret
+	Gutter  = "▍" // reader gutter marker beside a thread-anchored line
 	Clock   = "◷" // stale / age badge
 	Urgent  = "▲" // urgent severity marker
 	Upgrade = "↑" // newer version available

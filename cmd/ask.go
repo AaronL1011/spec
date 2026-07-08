@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/thread"
 	"github.com/spf13/cobra"
 )
@@ -144,6 +146,8 @@ func listThreads(p *printer, rc *config.ResolvedConfig, specID string) error {
 		return nil
 	}
 
+	liveSlugs := liveSectionSlugs(dir, specID)
+
 	p.Line("Discussion threads for %s:\n", specID)
 	for _, t := range threads {
 		marker := "●"
@@ -151,7 +155,14 @@ func listThreads(p *printer, rc *config.ResolvedConfig, specID string) error {
 		if !t.IsOpen() {
 			marker, state = "✓", "resolved"
 		}
-		p.Line("%s %s  §%s  (%s)", marker, t.ID, t.Section, state)
+		// A slug that no longer resolves against the live document would
+		// otherwise print as if it still meant something — flag it so a
+		// CLI-only reviewer isn't left guessing (discussion-03 §2.4).
+		anchorNote := ""
+		if liveSlugs != nil && !liveSlugs[t.Section] {
+			anchorNote = "  ⚠ section not found — now unanchored"
+		}
+		p.Line("%s %s  §%s  (%s)%s", marker, t.ID, t.Section, state, anchorNote)
 		p.Line("    %s — %s", t.Author, t.Question)
 		if len(t.Mentions) > 0 {
 			p.Line("    → %s", mentionsLine(t.Mentions))
@@ -161,4 +172,20 @@ func listThreads(p *printer, rc *config.ResolvedConfig, specID string) error {
 		}
 	}
 	return nil
+}
+
+// liveSectionSlugs returns the current section slugs of a spec, or nil when
+// the spec file cannot be read — anchor validation is then skipped, never
+// failed, so listing threads keeps working without the spec file.
+func liveSectionSlugs(dir, specID string) map[string]bool {
+	path := filepath.Join(dir, strings.ToUpper(strings.TrimSpace(specID))+".md")
+	sections, err := markdown.ExtractSectionsFromFile(path)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]bool, len(sections))
+	for _, s := range sections {
+		out[s.Slug] = true
+	}
+	return out
 }

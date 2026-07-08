@@ -458,6 +458,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, cmd
 
+	case readerFlashMsg:
+		// Transient reader notice (e.g. the thread stepper wrapping) — shown
+		// on the status bar, never inline where it would shift the prose.
+		a.statusBar.SetStatusSuccess(msg.Text, 2*time.Second)
+		return a, nil
+
 	case settingsAppliedMsg:
 		return a, a.applySettingsField(msg.Field)
 

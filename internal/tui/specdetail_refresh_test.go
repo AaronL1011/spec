@@ -76,7 +76,7 @@ func TestApplyRefresh_PreservesThreadSelectionByID(t *testing.T) {
 		openThread("T-3", "Backoff?"),
 	}
 	m := loadedReader(threads)
-	m.threadIdx = 2 // T-3 selected
+	m.selectedThreadID = "T-3"
 
 	// Refresh reorders threads; T-3 must stay selected by ID.
 	reordered := []thread.Thread{
@@ -97,17 +97,15 @@ func TestApplyRefresh_ThreadSelectionFallbackWhenRemoved(t *testing.T) {
 		openThread("T-2", "Burst allowance?"),
 	}
 	m := loadedReader(threads)
-	m.threadIdx = 1 // T-2 selected
+	m.selectedThreadID = "T-2"
 
 	// Refresh removes T-2 (e.g. resolved out of the open set). Selection must
-	// fall back to a valid index without panicking.
+	// fall back to the section's first thread without panicking.
 	remaining := []thread.Thread{openThread("T-1", "Why Redis?")}
 	out, _ := m.handleDataMsg(refreshMsg("hash-v1", m.sections, remaining))
-	if out.threadIdx < 0 || out.threadIdx >= 1 {
-		t.Errorf("threadIdx = %d, want clamped to valid range [0,1)", out.threadIdx)
-	}
-	if _, ok := out.selectedThread(); !ok {
-		t.Error("expected a valid fallback selection after removal")
+	sel, ok := out.selectedThread()
+	if !ok || sel.ID != "T-1" {
+		t.Errorf("selected thread = %+v ok=%v, want fallback to T-1 after removal", sel, ok)
 	}
 }
 
@@ -154,12 +152,12 @@ type errFileGone struct{}
 
 func (errFileGone) Error() string { return "spec SPEC-007 not found" }
 
-func TestRestoreThreadSelection_EmptySection(t *testing.T) {
+func TestSelectedThread_EmptySection(t *testing.T) {
 	m := loadedReader(nil)
 	m.sectionIdx = 0 // problem_statement has no threads
-	m.restoreThreadSelection("T-9")
-	if m.threadIdx != 0 {
-		t.Errorf("threadIdx = %d, want 0 for an empty section", m.threadIdx)
+	m.selectedThreadID = "T-9"
+	if _, ok := m.selectedThread(); ok {
+		t.Error("selectedThread should report ok=false for an empty section")
 	}
 }
 
