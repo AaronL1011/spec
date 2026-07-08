@@ -428,53 +428,9 @@ func runStepsBlock(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Parse args: [id] [step] reason...
-	var specID string
-	var stepNum int
-	var reason string
-
-	// This is complex - we need to figure out what's a spec ID, step number, or reason
-	// Simplest: require "spec steps block SPEC-001 1 reason here"
-	if len(args) < 1 {
-		return fmt.Errorf("usage: spec steps block [id] [step-number] <reason>")
-	}
-
-	// Try to determine format
-	switch {
-	case len(args) == 1:
-		// Just a reason, need spec ID from context and current step
-		id, err := resolveSpecIDFromArgs(nil)
-		if err != nil {
-			return fmt.Errorf("no spec ID — use 'spec steps block SPEC-001 <reason>'")
-		}
-		specID = id
-		stepNum = 0 // will find current
-		reason = args[0]
-	case len(args) == 2:
-		// Could be: "SPEC-001 reason" or "1 reason"
-		if isNumber(args[0]) {
-			id, err := resolveSpecIDFromArgs(nil)
-			if err != nil {
-				return err
-			}
-			specID = id
-			stepNum = parseNumber(args[0])
-			reason = args[1]
-		} else {
-			specID = normalizeSpecID(args[0])
-			stepNum = 0
-			reason = args[1]
-		}
-	default:
-		// "SPEC-001 1 reason..." or "SPEC-001 reason reason..."
-		specID = normalizeSpecID(args[0])
-		if isNumber(args[1]) {
-			stepNum = parseNumber(args[1])
-			reason = strings.Join(args[2:], " ")
-		} else {
-			stepNum = 0
-			reason = strings.Join(args[1:], " ")
-		}
+	specID, stepNum, reason, err := parseBlockArgs(args)
+	if err != nil {
+		return err
 	}
 
 	path, err := resolveSpecPath(rc, specID)
@@ -522,6 +478,41 @@ func runStepsBlock(cmd *cobra.Command, args []string) error {
 	fmt.Println("\nTo unblock: spec steps unblock", specID, stepNum)
 
 	return nil
+}
+
+// parseBlockArgs disambiguates the `spec steps block [id] [step-number]
+// <reason>` argument forms. A step number of 0 means "the current step".
+func parseBlockArgs(args []string) (specID string, stepNum int, reason string, err error) {
+	if len(args) < 1 {
+		return "", 0, "", fmt.Errorf("usage: spec steps block [id] [step-number] <reason>")
+	}
+
+	switch {
+	case len(args) == 1:
+		// Just a reason, need spec ID from context and current step
+		id, err := resolveSpecIDFromArgs(nil)
+		if err != nil {
+			return "", 0, "", fmt.Errorf("no spec ID — use 'spec steps block SPEC-001 <reason>'")
+		}
+		return id, 0, args[0], nil
+	case len(args) == 2:
+		// Could be: "SPEC-001 reason" or "1 reason"
+		if isNumber(args[0]) {
+			id, err := resolveSpecIDFromArgs(nil)
+			if err != nil {
+				return "", 0, "", err
+			}
+			return id, parseNumber(args[0]), args[1], nil
+		}
+		return normalizeSpecID(args[0]), 0, args[1], nil
+	default:
+		// "SPEC-001 1 reason..." or "SPEC-001 reason reason..."
+		specID = normalizeSpecID(args[0])
+		if isNumber(args[1]) {
+			return specID, parseNumber(args[1]), strings.Join(args[2:], " "), nil
+		}
+		return specID, 0, strings.Join(args[1:], " "), nil
+	}
 }
 
 func runStepsUnblock(cmd *cobra.Command, args []string) error {

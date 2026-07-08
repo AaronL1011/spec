@@ -89,11 +89,17 @@ func runPlanShow(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Print plan header
+	printPlanDetails(specID, plan)
+	printPlanNextAction(specID, plan)
+	return nil
+}
+
+// printPlanDetails renders the plan header, review status, progress, and
+// per-step detail lines.
+func printPlanDetails(specID string, plan *planning.Plan) {
 	tui.PrintTitle(fmt.Sprintf("Build Plan: %s", specID))
 	fmt.Println()
 
-	// Print review status
 	if plan.Review != nil {
 		switch plan.Review.Status {
 		case planning.ReviewPending:
@@ -109,11 +115,9 @@ func runPlanShow(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
-	// Print progress
 	completed, total := plan.Progress()
 	fmt.Printf("  Progress: %d/%d steps\n\n", completed, total)
 
-	// Print steps
 	for _, step := range plan.Steps {
 		var statusIcon string
 		switch step.Status {
@@ -146,8 +150,11 @@ func runPlanShow(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
+}
 
-	// Suggest next action
+// printPlanNextAction suggests the next command based on the plan's review
+// and completion state.
+func printPlanNextAction(specID string, plan *planning.Plan) {
 	switch {
 	case plan.NeedsReview():
 		fmt.Printf("Run 'spec plan ready %s' to request review.\n", specID)
@@ -161,8 +168,6 @@ func runPlanShow(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Current step: %d. %s\n", current.Index, current.Description)
 		}
 	}
-
-	return nil
 }
 
 func runPlanEdit(cmd *cobra.Command, args []string) error {

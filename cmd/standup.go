@@ -51,27 +51,56 @@ func runStandup(cmd *cobra.Command, args []string) error {
 	}
 
 	userName := rc.UserName()
-	repoHandle := rc.IdentityForCategory("repo")
-	userRole := rc.OwnerRole("")
 	date := time.Now().Format("2006-01-02")
 
 	fmt.Printf("Your standup — %s — %s\n", userName, date)
 	fmt.Println("────────────────────────────────────────────────")
 
-	// Yesterday
-	fmt.Println("Yesterday:")
-	var yesterday []string
-	if len(entries) == 0 {
-		fmt.Println("  (no tracked activity)")
+	yesterday := printYesterday(entries)
+	today := printToday(rc, db, reg)
+
+	fmt.Println("\nBlockers:")
+	blockers := collectBlockers(db)
+	if len(blockers) == 0 {
+		fmt.Println("  (none)")
 	} else {
-		for _, e := range entries {
-			line := fmt.Sprintf("%s: %s", e.SpecID, e.Summary)
-			yesterday = append(yesterday, line)
-			fmt.Printf("  • %s\n", line)
+		for _, b := range blockers {
+			fmt.Printf("  • %s\n", b)
 		}
 	}
 
-	// Today (from active session + owned specs in active stages)
+	printRecentMentions(rc, reg, since)
+
+	maybePostStandup(rc, reg, adapter.StandupReport{
+		UserName:  userName,
+		Date:      date,
+		Yesterday: yesterday,
+		Today:     today,
+		Blockers:  blockers,
+	})
+
+	return nil
+}
+
+// printYesterday renders the last-24h activity section and returns its lines.
+func printYesterday(entries []store.ActivityEntry) []string {
+	fmt.Println("Yesterday:")
+	if len(entries) == 0 {
+		fmt.Println("  (no tracked activity)")
+		return nil
+	}
+	var yesterday []string
+	for _, e := range entries {
+		line := fmt.Sprintf("%s: %s", e.SpecID, e.Summary)
+		yesterday = append(yesterday, line)
+		fmt.Printf("  • %s\n", line)
+	}
+	return yesterday
+}
+
+// printToday renders the Today section (active session, owned specs, requested
+// PR reviews) and returns its lines.
+func printToday(rc *config.ResolvedConfig, db *store.DB, reg *adapter.Registry) []string {
 	fmt.Println("\nToday:")
 	var today []string
 
@@ -85,9 +114,8 @@ func runStandup(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Owned specs in active stages
-	ownedSpecs := collectOwnedSpecs(rc.SpecsRepoDir, userRole, rc.Pipeline())
-	for _, s := range ownedSpecs {
+	userRole := rc.OwnerRole("")
+	for _, s := range collectOwnedSpecs(rc.SpecsRepoDir, userRole, rc.Pipeline()) {
 		line := fmt.Sprintf("%s: %s [%s]", s.id, s.title, s.stage)
 		today = append(today, line)
 		fmt.Printf("  • %s\n", line)
@@ -97,7 +125,7 @@ func runStandup(cmd *cobra.Command, args []string) error {
 		fmt.Println("  (run 'spec do' to start)")
 	}
 
-	// PR review requests
+	repoHandle := rc.IdentityForCategory("repo")
 	if repoHandle != "" && rc.HasIntegration("repo") {
 		reviews, err := reg.Repo().RequestedReviews(ctx(), repoHandle)
 		if err == nil && len(reviews) > 0 {
@@ -108,64 +136,55 @@ func runStandup(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+	return today
+}
 
-	// Blockers (from blocked/ejected specs)
-	fmt.Println("\nBlockers:")
-	blockers := collectBlockers(db)
-	if len(blockers) == 0 {
-		fmt.Println("  (none)")
-	} else {
-		for _, b := range blockers {
-			fmt.Printf("  • %s\n", b)
-		}
+// printRecentMentions renders comms mentions since the given time, when a
+// comms integration is configured. Fetch failures degrade to a warning.
+func printRecentMentions(rc *config.ResolvedConfig, reg *adapter.Registry, since time.Time) {
+	if !rc.HasIntegration("comms") {
+		return
+	}
+	mentions, err := reg.Comms().FetchMentions(ctx(), since)
+	if err != nil {
+		warnf("could not fetch comms mentions: %v", err)
+		return
+	}
+	if len(mentions) == 0 {
+		return
+	}
+	fmt.Println("\nRecent mentions:")
+	for _, m := range mentions {
+		fmt.Printf("  • %s in #%s: %s\n", m.SpecID, m.Channel, m.Preview)
+	}
+}
+
+// maybePostStandup posts the report to the standup channel when auto-post is
+// enabled or the user confirms. Post failures degrade to a warning.
+func maybePostStandup(rc *config.ResolvedConfig, reg *adapter.Registry, report adapter.StandupReport) {
+	if !rc.HasIntegration("comms") {
+		return
+	}
+	autoPost := false
+	if rc.User != nil {
+		autoPost = rc.User.Preferences.StandupAutoPost
 	}
 
-	// Mentions from comms
-	if rc.HasIntegration("comms") {
-		mentions, err := reg.Comms().FetchMentions(ctx(), since)
-		if err != nil {
-			warnf("could not fetch comms mentions: %v", err)
-		} else if len(mentions) > 0 {
-			fmt.Println("\nRecent mentions:")
-			for _, m := range mentions {
-				fmt.Printf("  • %s in #%s: %s\n", m.SpecID, m.Channel, m.Preview)
-			}
-		}
+	should := autoPost
+	if !autoPost {
+		fmt.Print("\nPost to standup channel? [y/N] ")
+		var answer string
+		_, _ = fmt.Scanln(&answer)
+		should = strings.ToLower(strings.TrimSpace(answer)) == "y"
 	}
-
-	// Post option
-	if rc.HasIntegration("comms") {
-		autoPost := false
-		if rc.User != nil {
-			autoPost = rc.User.Preferences.StandupAutoPost
-		}
-
-		standupReport := adapter.StandupReport{
-			UserName:  userName,
-			Date:      date,
-			Yesterday: yesterday,
-			Today:     today,
-			Blockers:  blockers,
-		}
-
-		should := autoPost
-		if !autoPost {
-			fmt.Print("\nPost to standup channel? [y/N] ")
-			var answer string
-			_, _ = fmt.Scanln(&answer)
-			should = strings.ToLower(strings.TrimSpace(answer)) == "y"
-		}
-
-		if should {
-			if err := reg.Comms().PostStandup(ctx(), standupReport); err != nil {
-				warnf("could not post standup: %v", err)
-			} else {
-				fmt.Println("✓ Standup posted.")
-			}
-		}
+	if !should {
+		return
 	}
-
-	return nil
+	if err := reg.Comms().PostStandup(ctx(), report); err != nil {
+		warnf("could not post standup: %v", err)
+		return
+	}
+	fmt.Println("✓ Standup posted.")
 }
 
 // collectBlockers returns blocker descriptions from recent ejects and stalled specs.

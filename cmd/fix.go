@@ -54,50 +54,9 @@ func runFix(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Check if fast-track is enabled
-	if rc.Team == nil {
-		return fmt.Errorf("no team config found — run 'spec config init' first")
-	}
-
-	ftConfig := rc.Team.FastTrack
-	if ftConfig == nil || !ftConfig.IsEnabled() {
-		return fmt.Errorf("fast-track is not enabled for this team\n\nTo enable, add to spec.config.yaml:\n\nfast_track:\n  enabled: true")
-	}
-
-	// Check if user's role is allowed
-	userRole := ""
-	userName := "unknown"
-	if rc.User != nil {
-		userRole = rc.User.User.OwnerRole
-		userName = rc.User.User.Name
-		if userName == "" {
-			userName = rc.User.User.Handle
-		}
-	}
-
-	if !ftConfig.IsRoleAllowed(userRole) {
-		return fmt.Errorf("role %q cannot create fast-track specs\n\nAllowed roles: %s",
-			userRole, strings.Join(ftConfig.GetAllowedRoles(), ", "))
-	}
-
-	// Check required labels
-	if len(ftConfig.RequireLabels) > 0 {
-		hasRequired := false
-		for _, req := range ftConfig.RequireLabels {
-			for _, l := range labels {
-				if strings.EqualFold(l, req) {
-					hasRequired = true
-					break
-				}
-			}
-			if hasRequired {
-				break
-			}
-		}
-		if !hasRequired {
-			return fmt.Errorf("fast-track specs require one of these labels: %s\n\nUse: spec fix %q --label %s",
-				strings.Join(ftConfig.RequireLabels, ", "), title, ftConfig.RequireLabels[0])
-		}
+	ftConfig, userName, err := checkFastTrackAllowed(rc, title, labels)
+	if err != nil {
+		return err
 	}
 
 	// Ensure specs repo is available
@@ -151,6 +110,54 @@ func runFix(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// checkFastTrackAllowed enforces the fast-track gates: team config present,
+// fast-track enabled, the user's role allowed, and any required labels
+// supplied. It returns the fast-track config and the display name to credit
+// as the spec author.
+func checkFastTrackAllowed(rc *config.ResolvedConfig, title string, labels []string) (*config.FastTrackConfig, string, error) {
+	if rc.Team == nil {
+		return nil, "", fmt.Errorf("no team config found — run 'spec config init' first")
+	}
+
+	ftConfig := rc.Team.FastTrack
+	if ftConfig == nil || !ftConfig.IsEnabled() {
+		return nil, "", fmt.Errorf("fast-track is not enabled for this team\n\nTo enable, add to spec.config.yaml:\n\nfast_track:\n  enabled: true")
+	}
+
+	userRole := ""
+	userName := "unknown"
+	if rc.User != nil {
+		userRole = rc.User.User.OwnerRole
+		userName = rc.User.User.Name
+		if userName == "" {
+			userName = rc.User.User.Handle
+		}
+	}
+
+	if !ftConfig.IsRoleAllowed(userRole) {
+		return nil, "", fmt.Errorf("role %q cannot create fast-track specs\n\nAllowed roles: %s",
+			userRole, strings.Join(ftConfig.GetAllowedRoles(), ", "))
+	}
+
+	if len(ftConfig.RequireLabels) > 0 && !hasAnyLabel(labels, ftConfig.RequireLabels) {
+		return nil, "", fmt.Errorf("fast-track specs require one of these labels: %s\n\nUse: spec fix %q --label %s",
+			strings.Join(ftConfig.RequireLabels, ", "), title, ftConfig.RequireLabels[0])
+	}
+	return ftConfig, userName, nil
+}
+
+// hasAnyLabel reports whether labels contains any of required, case-insensitively.
+func hasAnyLabel(labels, required []string) bool {
+	for _, req := range required {
+		for _, l := range labels {
+			if strings.EqualFold(l, req) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // runHeadlessFix launches a headless agent build session for a freshly-created

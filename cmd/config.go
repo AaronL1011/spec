@@ -199,90 +199,85 @@ func promptProviderIdentities(reader *bufio.Reader, cfg *config.UserConfig) {
 }
 
 func runTeamConfigInit(cmd *cobra.Command) error {
-	reader := bufio.NewReader(os.Stdin)
-
 	tui.PrintTitle("Welcome to spec")
 	fmt.Println()
 	fmt.Println("Setting up team configuration (spec.config.yaml)")
 	fmt.Println()
 
-	// Select pipeline preset
-	var presetName string
-	presetFlag, _ := cmd.Flags().GetString("preset")
-	switch {
-	case presetFlag != "":
-		presetName = presetFlag
-	case tui.IsInteractive():
-		// Build preset options from available presets
-		var presetOptions []tui.PresetOption
-		for _, name := range pipeline.PresetNames() {
-			desc, features, stages, _ := pipeline.PresetInfo(name)
-			presetOptions = append(presetOptions, tui.PresetOption{
-				Name:        name,
-				Description: desc,
-				Stages:      stages,
-				Features:    features,
-			})
-		}
-
-		selected, err := tui.SelectPreset(presetOptions)
-		if err != nil {
-			return err
-		}
-		presetName = selected
-
-		// Show preview and confirm
-		for _, p := range presetOptions {
-			if p.Name == selected {
-				confirmed, err := tui.ConfirmPreset(p)
-				if err != nil {
-					return err
-				}
-				if !confirmed {
-					return fmt.Errorf("cancelled")
-				}
-				break
-			}
-		}
-	default:
-		// Non-interactive: use minimal preset
-		presetName = "minimal"
-		fmt.Printf("Using preset: %s (use --preset to specify)\n", presetName)
+	presetName, err := selectTeamPreset(cmd)
+	if err != nil {
+		return err
 	}
 
 	fmt.Println()
 
-	// Team name
-	fmt.Print("Team name: ")
-	teamName, _ := reader.ReadString('\n')
-	teamName = strings.TrimSpace(teamName)
+	reader := bufio.NewReader(os.Stdin)
+	teamName := promptLine(reader, "Team name: ", "")
+	cycleLabel := promptLine(reader, "Current cycle label (e.g., Cycle 7): ", "")
+	repoProvider := strings.ToLower(promptLine(reader, "Specs repo provider (github | gitlab | bitbucket) [github]: ", "github"))
+	repoOwner := promptLine(reader, "Specs repo owner/org: ", "")
+	repoName := promptLine(reader, "Specs repo name [specs]: ", "specs")
 
-	// Cycle label
-	fmt.Print("Current cycle label (e.g., Cycle 7): ")
-	cycleLabel, _ := reader.ReadString('\n')
-	cycleLabel = strings.TrimSpace(cycleLabel)
+	return writeTeamConfig(teamName, cycleLabel, repoProvider, repoOwner, repoName, presetName)
+}
 
-	// Specs repo provider
-	fmt.Print("Specs repo provider (github | gitlab | bitbucket) [github]: ")
-	repoProvider, _ := reader.ReadString('\n')
-	repoProvider = strings.TrimSpace(strings.ToLower(repoProvider))
-	if repoProvider == "" {
-		repoProvider = "github"
+// selectTeamPreset picks the pipeline preset from the --preset flag, an
+// interactive selector, or the "minimal" fallback in non-interactive contexts.
+func selectTeamPreset(cmd *cobra.Command) (string, error) {
+	presetFlag, _ := cmd.Flags().GetString("preset")
+	if presetFlag != "" {
+		return presetFlag, nil
+	}
+	if !tui.IsInteractive() {
+		fmt.Printf("Using preset: %s (use --preset to specify)\n", "minimal")
+		return "minimal", nil
 	}
 
-	// Specs repo owner
-	fmt.Print("Specs repo owner/org: ")
-	repoOwner, _ := reader.ReadString('\n')
-	repoOwner = strings.TrimSpace(repoOwner)
-
-	// Specs repo name
-	fmt.Print("Specs repo name [specs]: ")
-	repoName, _ := reader.ReadString('\n')
-	repoName = strings.TrimSpace(repoName)
-	if repoName == "" {
-		repoName = "specs"
+	var presetOptions []tui.PresetOption
+	for _, name := range pipeline.PresetNames() {
+		desc, features, stages, _ := pipeline.PresetInfo(name)
+		presetOptions = append(presetOptions, tui.PresetOption{
+			Name:        name,
+			Description: desc,
+			Stages:      stages,
+			Features:    features,
+		})
 	}
 
+	selected, err := tui.SelectPreset(presetOptions)
+	if err != nil {
+		return "", err
+	}
+
+	for _, p := range presetOptions {
+		if p.Name == selected {
+			confirmed, err := tui.ConfirmPreset(p)
+			if err != nil {
+				return "", err
+			}
+			if !confirmed {
+				return "", fmt.Errorf("cancelled")
+			}
+			break
+		}
+	}
+	return selected, nil
+}
+
+// promptLine prints a prompt, reads one trimmed line from the reader, and
+// falls back to def when the input is empty.
+func promptLine(reader *bufio.Reader, prompt, def string) string {
+	fmt.Print(prompt)
+	line, _ := reader.ReadString('\n')
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return def
+	}
+	return line
+}
+
+// writeTeamConfig renders and writes spec.config.yaml from the wizard answers.
+func writeTeamConfig(teamName, cycleLabel, repoProvider, repoOwner, repoName, presetName string) error {
 	content := fmt.Sprintf(`version: "1"
 
 team:
