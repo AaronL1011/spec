@@ -69,7 +69,7 @@ func (db *DB) Conn() *sql.DB {
 	return db.conn
 }
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 func (db *DB) migrate() error {
 	// Create migrations table if not exists
@@ -115,6 +115,11 @@ func (db *DB) migrate() error {
 	}
 	if currentVersion < 6 {
 		if err := db.migrateV6(); err != nil {
+			return err
+		}
+	}
+	if currentVersion < 7 {
+		if err := db.migrateV7(); err != nil {
 			return err
 		}
 	}
@@ -392,6 +397,40 @@ func (db *DB) migrateV6() error {
 	for _, stmt := range statements {
 		if _, err := tx.Exec(stmt); err != nil {
 			return fmt.Errorf("migration v6 statement failed: %w\nSQL: %s", err, stmt)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// migrateV7 creates the thread_seen table: per-user, per-machine read-state
+// for discussion threads (docs/discussion-03-reader-cockpit.md §4.2).
+// Read-state is personal and high-churn, so it lives here rather than in the
+// git-synced sidecar, where it would create noise commits and merge churn.
+func (db *DB) migrateV7() error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning migration v7: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }() // Rollback is no-op after Commit
+
+	statements := []string{
+		// last_seen is the latest thread-activity timestamp (unix seconds)
+		// the user has viewed. A thread is unread when its latest activity
+		// is after last_seen, or when no row exists.
+		`CREATE TABLE IF NOT EXISTS thread_seen (
+			spec_id   TEXT NOT NULL,
+			thread_id TEXT NOT NULL,
+			last_seen INTEGER NOT NULL,
+			PRIMARY KEY (spec_id, thread_id)
+		)`,
+
+		`INSERT INTO migrations (version) VALUES (7)`,
+	}
+
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("migration v7 statement failed: %w\nSQL: %s", err, stmt)
 		}
 	}
 
