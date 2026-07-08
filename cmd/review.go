@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/planning"
 	"github.com/aaronl1011/spec/internal/tui"
@@ -149,33 +150,46 @@ func runPlanReview(cmd *cobra.Command, specID string) error {
 
 	// If no action specified, show the plan for review
 	if !approve && !requestChanges {
-		tui.PrintTitle(fmt.Sprintf("Plan Review: %s", specID))
-		fmt.Println()
-
-		fmt.Printf("  Requested: %s\n", plan.Review.RequestedAt.Format("2006-01-02 15:04"))
-		fmt.Printf("  Reviewers: %s\n", strings.Join(plan.Review.Reviewers, ", "))
-		fmt.Println()
-
-		fmt.Println("  Build Plan:")
-		for _, step := range plan.Steps {
-			repoPrefix := ""
-			if step.Repo != "" {
-				repoPrefix = fmt.Sprintf("[%s] ", step.Repo)
-			}
-			fmt.Printf("    %d. %s%s\n", step.Index, repoPrefix, step.Description)
-		}
-
-		fmt.Println()
-		fmt.Println("To approve:")
-		fmt.Printf("  spec review %s --plan --approve\n", specID)
-		fmt.Println()
-		fmt.Println("To request changes:")
-		fmt.Printf("  spec review %s --plan --request-changes --feedback \"your feedback\"\n", specID)
-
+		printPlanForReview(specID, plan)
 		return nil
 	}
 
-	// Determine min approvals from config
+	if approve {
+		return approvePlan(rc, plan, meta, specID, path, string(content), reviewer)
+	}
+	return requestPlanChanges(plan, meta, specID, path, string(content), reviewer, feedback)
+}
+
+// printPlanForReview renders the pending plan and the approve/request-changes
+// follow-up commands.
+func printPlanForReview(specID string, plan *planning.Plan) {
+	tui.PrintTitle(fmt.Sprintf("Plan Review: %s", specID))
+	fmt.Println()
+
+	fmt.Printf("  Requested: %s\n", plan.Review.RequestedAt.Format("2006-01-02 15:04"))
+	fmt.Printf("  Reviewers: %s\n", strings.Join(plan.Review.Reviewers, ", "))
+	fmt.Println()
+
+	fmt.Println("  Build Plan:")
+	for _, step := range plan.Steps {
+		repoPrefix := ""
+		if step.Repo != "" {
+			repoPrefix = fmt.Sprintf("[%s] ", step.Repo)
+		}
+		fmt.Printf("    %d. %s%s\n", step.Index, repoPrefix, step.Description)
+	}
+
+	fmt.Println()
+	fmt.Println("To approve:")
+	fmt.Printf("  spec review %s --plan --approve\n", specID)
+	fmt.Println()
+	fmt.Println("To request changes:")
+	fmt.Printf("  spec review %s --plan --request-changes --feedback \"your feedback\"\n", specID)
+}
+
+// approvePlan records an approval and persists the review state to the spec
+// frontmatter.
+func approvePlan(rc *config.ResolvedConfig, plan *planning.Plan, meta *markdown.SpecMeta, specID, path, content, reviewer string) error {
 	minApprovals := 1
 	if rc.Team != nil {
 		pl := rc.Pipeline()
@@ -185,64 +199,55 @@ func runPlanReview(cmd *cobra.Command, specID string) error {
 		}
 	}
 
-	if approve {
-		if err := plan.Approve(reviewer, minApprovals); err != nil {
-			return err
-		}
-
-		// Update frontmatter
-		steps, review := plan.ToFrontmatter()
-		meta.Steps = steps
-		meta.Review = review
-
-		newContent, err := markdown.UpdateFrontmatter(string(content), meta)
-		if err != nil {
-			return fmt.Errorf("updating frontmatter: %w", err)
-		}
-
-		if err := os.WriteFile(path, []byte(newContent), 0o644); err != nil {
-			return fmt.Errorf("writing spec: %w", err)
-		}
-
-		if plan.IsReviewApproved() {
-			tui.PrintSuccess(fmt.Sprintf("Plan approved for %s", specID))
-			fmt.Println("The engineer can now begin build work with 'spec do'.")
-		} else {
-			tui.PrintSuccess(fmt.Sprintf("Approval recorded for %s (%d/%d required)", specID, len(plan.Review.Approvals), minApprovals))
-		}
-
-		return nil
+	if err := plan.Approve(reviewer, minApprovals); err != nil {
+		return err
+	}
+	if err := writePlanFrontmatter(plan, meta, path, content); err != nil {
+		return err
 	}
 
-	if requestChanges {
-		if feedback == "" {
-			return fmt.Errorf("--feedback is required when requesting changes")
-		}
+	if plan.IsReviewApproved() {
+		tui.PrintSuccess(fmt.Sprintf("Plan approved for %s", specID))
+		fmt.Println("The engineer can now begin build work with 'spec do'.")
+	} else {
+		tui.PrintSuccess(fmt.Sprintf("Approval recorded for %s (%d/%d required)", specID, len(plan.Review.Approvals), minApprovals))
+	}
+	return nil
+}
 
-		if err := plan.RequestChanges(reviewer, feedback); err != nil {
-			return err
-		}
-
-		// Update frontmatter
-		steps, review := plan.ToFrontmatter()
-		meta.Steps = steps
-		meta.Review = review
-
-		newContent, err := markdown.UpdateFrontmatter(string(content), meta)
-		if err != nil {
-			return fmt.Errorf("updating frontmatter: %w", err)
-		}
-
-		if err := os.WriteFile(path, []byte(newContent), 0o644); err != nil {
-			return fmt.Errorf("writing spec: %w", err)
-		}
-
-		tui.PrintSuccess(fmt.Sprintf("Changes requested for %s plan", specID))
-		fmt.Printf("Feedback: %s\n", feedback)
-		fmt.Println("\nThe engineer should update the plan and run 'spec plan ready' again.")
-
-		return nil
+// requestPlanChanges records a change request with feedback and persists the
+// review state to the spec frontmatter.
+func requestPlanChanges(plan *planning.Plan, meta *markdown.SpecMeta, specID, path, content, reviewer, feedback string) error {
+	if feedback == "" {
+		return fmt.Errorf("--feedback is required when requesting changes")
 	}
 
+	if err := plan.RequestChanges(reviewer, feedback); err != nil {
+		return err
+	}
+	if err := writePlanFrontmatter(plan, meta, path, content); err != nil {
+		return err
+	}
+
+	tui.PrintSuccess(fmt.Sprintf("Changes requested for %s plan", specID))
+	fmt.Printf("Feedback: %s\n", feedback)
+	fmt.Println("\nThe engineer should update the plan and run 'spec plan ready' again.")
+	return nil
+}
+
+// writePlanFrontmatter mirrors the plan's steps + review into the spec
+// frontmatter and writes the file.
+func writePlanFrontmatter(plan *planning.Plan, meta *markdown.SpecMeta, path, content string) error {
+	steps, review := plan.ToFrontmatter()
+	meta.Steps = steps
+	meta.Review = review
+
+	newContent, err := markdown.UpdateFrontmatter(content, meta)
+	if err != nil {
+		return fmt.Errorf("updating frontmatter: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(newContent), 0o644); err != nil {
+		return fmt.Errorf("writing spec: %w", err)
+	}
 	return nil
 }

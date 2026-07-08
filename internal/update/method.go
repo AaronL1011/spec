@@ -50,15 +50,30 @@ func isHomebrewPath(resolved string) bool {
 }
 
 // isGoInstallPath reports whether dir is a Go install bin directory: GOBIN,
-// $GOPATH/bin, or the default $HOME/go/bin.
+// $GOPATH/bin, or the default $HOME/go/bin. Candidates are symlink-resolved
+// before comparison because DetectMethod resolves the binary path (on macOS,
+// /var vs /private/var, or a symlinked $HOME) — comparing a resolved dir
+// against unresolved candidates would misclassify a go-install binary as a raw
+// binary and make `spec update` self-replace it instead of delegating to
+// `go install`.
 func isGoInstallPath(dir string) bool {
-	dir = filepath.Clean(dir)
+	dir = resolvePath(dir)
 	for _, candidate := range goBinDirs() {
-		if candidate != "" && filepath.Clean(candidate) == dir {
+		if candidate != "" && resolvePath(candidate) == dir {
 			return true
 		}
 	}
 	return false
+}
+
+// resolvePath cleans a path and resolves symlinks when possible, falling back
+// to the cleaned path when resolution fails (e.g., the path does not exist).
+func resolvePath(p string) string {
+	p = filepath.Clean(p)
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 // goBinDirs returns the candidate Go install directories, consulting the

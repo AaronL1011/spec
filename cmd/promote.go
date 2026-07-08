@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/spf13/cobra"
@@ -95,6 +96,13 @@ func runPromote(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	return finishPromote(p, rc, reg, triageID, newSpecID, title)
+}
+
+// finishPromote runs the post-promotion side effects (PM epic, comms
+// notification) and prints the result. Integration failures degrade to
+// warnings; only output errors are returned.
+func finishPromote(p *printer, rc *config.ResolvedConfig, reg *adapter.Registry, triageID, newSpecID, title string) error {
 	// Find-or-create the PM epic if configured (idempotent, crash-safe).
 	var epicKey string
 	if rc.HasIntegration("pm") {

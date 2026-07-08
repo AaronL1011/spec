@@ -440,54 +440,114 @@ func runPipelineAdd(cmd *cobra.Command, args []string) error {
 		existingNames[i] = s.Name
 	}
 
-	// Get stage name
+	stageName, err := resolveNewStageName(args, existingNames)
+	if err != nil {
+		return err
+	}
+
+	newStage, err := collectStageInputs(cmd, stageName)
+	if err != nil {
+		return err
+	}
+
+	insertIdx, err := resolveStageInsertIndex(cmd, existingNames)
+	if err != nil {
+		return err
+	}
+
+	printStageSummary(newStage, insertIdx, existingNames)
+
+	confirmed, err := tui.PromptConfirm("Add this stage?")
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return fmt.Errorf("cancelled")
+	}
+
+	if err := addStageToConfig(newStage, insertIdx, pipelineCfg); err != nil {
+		return err
+	}
+
+	tui.PrintSuccess(fmt.Sprintf("Stage %q added to pipeline", stageName))
+	fmt.Println("  Run 'spec pipeline' to see the updated pipeline.")
+	return nil
+}
+
+// resolveNewStageName takes the stage name from args or prompts for it, and
+// rejects names that collide with an existing stage.
+func resolveNewStageName(args, existingNames []string) (string, error) {
 	var stageName string
 	if len(args) > 0 {
 		stageName = args[0]
 	} else {
+		var err error
 		stageName, err = tui.PromptStageName(existingNames)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
-
-	// Check if stage already exists
 	for _, name := range existingNames {
 		if name == stageName {
-			return fmt.Errorf("stage %q already exists — use 'spec pipeline edit %s' to modify it", stageName, stageName)
+			return "", fmt.Errorf("stage %q already exists — use 'spec pipeline edit %s' to modify it", stageName, stageName)
 		}
 	}
+	return stageName, nil
+}
 
-	// Get owner
+// collectStageInputs assembles the new stage from flags, prompting for any
+// value not supplied on the command line.
+func collectStageInputs(cmd *cobra.Command, stageName string) (config.StageConfig, error) {
+	var zero config.StageConfig
+
 	owner, _ := cmd.Flags().GetString("owner")
 	if owner == "" {
+		var err error
 		owner, err = tui.PromptStageOwner("engineer")
 		if err != nil {
-			return err
+			return zero, err
 		}
 	}
 
-	// Get icon
 	icon, _ := cmd.Flags().GetString("icon")
 	if icon == "" {
+		var err error
 		icon, err = tui.PromptStageIcon()
 		if err != nil {
-			return err
+			return zero, err
 		}
 	}
 
-	// Get position
+	optional, _ := cmd.Flags().GetBool("optional")
+
+	gates, err := promptStageGates()
+	if err != nil {
+		return zero, err
+	}
+
+	return config.StageConfig{
+		Name:     stageName,
+		Owner:    config.Owners{owner},
+		Icon:     icon,
+		Optional: optional,
+		Gates:    gates,
+	}, nil
+}
+
+// resolveStageInsertIndex determines where the new stage slots in, from
+// --after/--before flags or an interactive prompt. Defaults to appending.
+func resolveStageInsertIndex(cmd *cobra.Command, existingNames []string) (int, error) {
 	afterStage, _ := cmd.Flags().GetString("after")
 	beforeStage, _ := cmd.Flags().GetString("before")
 
 	if afterStage == "" && beforeStage == "" {
+		var err error
 		afterStage, err = tui.PromptStagePosition(existingNames)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
-	// Determine insert index
 	insertIdx := len(existingNames) // default: append
 	if afterStage != "" {
 		for i, name := range existingNames {
@@ -504,73 +564,72 @@ func runPipelineAdd(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+	return insertIdx, nil
+}
 
-	// Get optional flag
-	optional, _ := cmd.Flags().GetBool("optional")
-
-	// Collect gates interactively
+// promptStageGates interactively collects gates for a new stage. Returns nil
+// (no gates) in non-interactive contexts.
+func promptStageGates() ([]config.GateConfig, error) {
+	if !tui.IsInteractive() {
+		return nil, nil
+	}
 	var gates []config.GateConfig
-	if tui.IsInteractive() {
-		for {
-			gateType, err := tui.PromptGateType()
-			if err != nil {
-				return err
-			}
+	for {
+		gateType, err := tui.PromptGateType()
+		if err != nil {
+			return nil, err
+		}
+		if gateType == "none" {
+			return gates, nil
+		}
 
-			if gateType == "none" {
-				break
-			}
+		gate, err := gateFromPromptType(gateType)
+		if err != nil {
+			return nil, err
+		}
+		gates = append(gates, gate)
 
-			var gate config.GateConfig
-			switch gateType {
-			case "section_not_empty":
-				section, err := tui.PromptSectionSlug()
-				if err != nil {
-					return err
-				}
-				gate = config.GateConfig{SectionNotEmpty: section}
-
-			case "pr_stack_exists":
-				t := true
-				gate = config.GateConfig{PRStackExists: &t}
-
-			case "prs_approved":
-				t := true
-				gate = config.GateConfig{PRsApproved: &t}
-
-			case "decisions_resolved":
-				gate = config.GateConfig{Expr: "decisions.unresolved == 0", Message: "All decisions must be resolved"}
-
-			case "expr":
-				expr, msg, err := tui.PromptExpression()
-				if err != nil {
-					return err
-				}
-				gate = config.GateConfig{Expr: expr, Message: msg}
-			}
-
-			gates = append(gates, gate)
-
-			another, err := tui.PromptAddAnotherGate()
-			if err != nil {
-				return err
-			}
-			if !another {
-				break
-			}
+		another, err := tui.PromptAddAnotherGate()
+		if err != nil {
+			return nil, err
+		}
+		if !another {
+			return gates, nil
 		}
 	}
+}
 
-	// Build the new stage
-	newStage := config.StageConfig{
-		Name:     stageName,
-		Owner:    config.Owners{owner},
-		Icon:     icon,
-		Optional: optional,
-		Gates:    gates,
+// gateFromPromptType builds a GateConfig for a prompt-selected gate type,
+// prompting for the type-specific inputs where needed.
+func gateFromPromptType(gateType string) (config.GateConfig, error) {
+	switch gateType {
+	case "section_not_empty":
+		section, err := tui.PromptSectionSlug()
+		if err != nil {
+			return config.GateConfig{}, err
+		}
+		return config.GateConfig{SectionNotEmpty: section}, nil
+	case "pr_stack_exists":
+		t := true
+		return config.GateConfig{PRStackExists: &t}, nil
+	case "prs_approved":
+		t := true
+		return config.GateConfig{PRsApproved: &t}, nil
+	case "decisions_resolved":
+		return config.GateConfig{Expr: "decisions.unresolved == 0", Message: "All decisions must be resolved"}, nil
+	case "expr":
+		expr, msg, err := tui.PromptExpression()
+		if err != nil {
+			return config.GateConfig{}, err
+		}
+		return config.GateConfig{Expr: expr, Message: msg}, nil
+	default:
+		return config.GateConfig{}, fmt.Errorf("unknown gate type %q", gateType)
 	}
+}
 
-	// Show summary and confirm
+// printStageSummary echoes the collected stage before the confirm prompt.
+func printStageSummary(newStage config.StageConfig, insertIdx int, existingNames []string) {
 	fmt.Println()
 	fmt.Println("Summary:")
 	fmt.Printf("  Stage: %s %s\n", newStage.Name, newStage.Icon)
@@ -578,33 +637,16 @@ func runPipelineAdd(cmd *cobra.Command, args []string) error {
 	if insertIdx > 0 && insertIdx <= len(existingNames) {
 		fmt.Printf("  Position: after %s\n", existingNames[insertIdx-1])
 	}
-	if len(gates) > 0 {
+	if len(newStage.Gates) > 0 {
 		fmt.Println("  Gates:")
-		for _, g := range gates {
+		for _, g := range newStage.Gates {
 			fmt.Printf("    • %s: %s\n", g.Type(), g.Value())
 		}
 	}
-	if optional {
+	if newStage.Optional {
 		fmt.Println("  Optional: yes")
 	}
 	fmt.Println()
-
-	confirmed, err := tui.PromptConfirm("Add this stage?")
-	if err != nil {
-		return err
-	}
-	if !confirmed {
-		return fmt.Errorf("cancelled")
-	}
-
-	// Update the config file
-	if err := addStageToConfig(newStage, insertIdx, pipelineCfg); err != nil {
-		return err
-	}
-
-	tui.PrintSuccess(fmt.Sprintf("Stage %q added to pipeline", stageName))
-	fmt.Println("  Run 'spec pipeline' to see the updated pipeline.")
-	return nil
 }
 
 func addStageToConfig(newStage config.StageConfig, insertIdx int, currentCfg config.PipelineConfig) error {
@@ -628,94 +670,21 @@ func addStageToConfig(newStage config.StageConfig, insertIdx int, currentCfg con
 		rawConfig["pipeline"] = pipelineSection
 	}
 
-	// If using a preset, we need to add stages as overrides
-	if currentCfg.Preset != "" {
-		// Add to stages array (overrides)
-		stages, _ := pipelineSection["stages"].([]interface{})
+	stageMap := stageToYAMLMap(newStage)
+	stages, _ := pipelineSection["stages"].([]interface{})
 
-		// Build stage map
-		stageMap := map[string]interface{}{
-			"name":  newStage.Name,
-			"owner": newStage.Owner,
-		}
-		if newStage.Icon != "" {
-			stageMap["icon"] = newStage.Icon
-		}
-		if newStage.Optional {
-			stageMap["optional"] = true
-		}
-		if len(newStage.Gates) > 0 {
-			var gatesList []interface{}
-			for _, g := range newStage.Gates {
-				gateMap := make(map[string]interface{})
-				switch {
-				case g.SectionNotEmpty != "":
-					gateMap["section_not_empty"] = g.SectionNotEmpty
-				case g.PRStackExists != nil:
-					gateMap["pr_stack_exists"] = true
-				case g.PRsApproved != nil:
-					gateMap["prs_approved"] = true
-				case g.Expr != "":
-					gateMap["expr"] = g.Expr
-					if g.Message != "" {
-						gateMap["message"] = g.Message
-					}
-				}
-				gatesList = append(gatesList, gateMap)
-			}
-			stageMap["gates"] = gatesList
-		}
-
+	switch {
+	case currentCfg.Preset != "":
+		// Preset pipelines: stages are appended as overrides and merged.
+		// Note: For presets, we'd ideally track insert position, but full
+		// ordering control would require more sophisticated config management.
 		stages = append(stages, stageMap)
-		pipelineSection["stages"] = stages
-
-		// Note: For presets, we'd ideally track insert position, but for now
-		// stages are added as overrides and merged. Full ordering control
-		// would require more sophisticated config management.
-	} else {
-		// Direct stages array manipulation
-		stages, _ := pipelineSection["stages"].([]interface{})
-
-		stageMap := map[string]interface{}{
-			"name":  newStage.Name,
-			"owner": newStage.Owner,
-		}
-		if newStage.Icon != "" {
-			stageMap["icon"] = newStage.Icon
-		}
-		if newStage.Optional {
-			stageMap["optional"] = true
-		}
-		if len(newStage.Gates) > 0 {
-			var gatesList []interface{}
-			for _, g := range newStage.Gates {
-				gateMap := make(map[string]interface{})
-				switch {
-				case g.SectionNotEmpty != "":
-					gateMap["section_not_empty"] = g.SectionNotEmpty
-				case g.PRStackExists != nil:
-					gateMap["pr_stack_exists"] = true
-				case g.PRsApproved != nil:
-					gateMap["prs_approved"] = true
-				case g.Expr != "":
-					gateMap["expr"] = g.Expr
-					if g.Message != "" {
-						gateMap["message"] = g.Message
-					}
-				}
-				gatesList = append(gatesList, gateMap)
-			}
-			stageMap["gates"] = gatesList
-		}
-
-		// Insert at position
-		if insertIdx >= len(stages) {
-			stages = append(stages, stageMap)
-		} else {
-			stages = append(stages[:insertIdx], append([]interface{}{stageMap}, stages[insertIdx:]...)...)
-		}
-		pipelineSection["stages"] = stages
+	case insertIdx >= len(stages):
+		stages = append(stages, stageMap)
+	default:
+		stages = append(stages[:insertIdx], append([]interface{}{stageMap}, stages[insertIdx:]...)...)
 	}
+	pipelineSection["stages"] = stages
 
 	// Write back
 	output, err := yaml.Marshal(rawConfig)
@@ -728,6 +697,49 @@ func addStageToConfig(newStage config.StageConfig, insertIdx int, currentCfg con
 	}
 
 	return nil
+}
+
+// stageToYAMLMap converts a StageConfig into the generic YAML map shape used
+// when splicing a stage into spec.config.yaml without disturbing the rest of
+// the document.
+func stageToYAMLMap(stage config.StageConfig) map[string]interface{} {
+	stageMap := map[string]interface{}{
+		"name":  stage.Name,
+		"owner": stage.Owner,
+	}
+	if stage.Icon != "" {
+		stageMap["icon"] = stage.Icon
+	}
+	if stage.Optional {
+		stageMap["optional"] = true
+	}
+	if len(stage.Gates) > 0 {
+		var gatesList []interface{}
+		for _, g := range stage.Gates {
+			gatesList = append(gatesList, gateToYAMLMap(g))
+		}
+		stageMap["gates"] = gatesList
+	}
+	return stageMap
+}
+
+// gateToYAMLMap converts a GateConfig into its generic YAML map shape.
+func gateToYAMLMap(g config.GateConfig) map[string]interface{} {
+	gateMap := make(map[string]interface{})
+	switch {
+	case g.SectionNotEmpty != "":
+		gateMap["section_not_empty"] = g.SectionNotEmpty
+	case g.PRStackExists != nil:
+		gateMap["pr_stack_exists"] = true
+	case g.PRsApproved != nil:
+		gateMap["prs_approved"] = true
+	case g.Expr != "":
+		gateMap["expr"] = g.Expr
+		if g.Message != "" {
+			gateMap["message"] = g.Message
+		}
+	}
+	return gateMap
 }
 
 func runPipelineRemove(cmd *cobra.Command, args []string) error {
@@ -933,62 +945,7 @@ func runPipelineValidate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var errors []string
-	var warnings []string
-
-	// Validate each stage
-	for _, stage := range resolved.Stages {
-		// Check owner is valid
-		owner := stage.GetOwner()
-		if owner == "" {
-			errors = append(errors, fmt.Sprintf("stage %q: no owner specified", stage.Name))
-		} else if !isValidOwner(owner) {
-			warnings = append(warnings, fmt.Sprintf("stage %q: owner %q is not a standard role", stage.Name, owner))
-		}
-
-		// Validate gates
-		for i, gate := range stage.Gates {
-			if gate.Expr != "" {
-				// Try to compile the expression
-				if compileErr := expr.Compile(gate.Expr); compileErr != nil {
-					errors = append(errors, fmt.Sprintf("stage %q gate %d: invalid expression %q: %v",
-						stage.Name, i+1, gate.Expr, compileErr))
-				}
-			}
-		}
-
-		// Validate skip_when expression
-		if stage.SkipWhen != "" {
-			if compileErr := expr.Compile(stage.SkipWhen); compileErr != nil {
-				errors = append(errors, fmt.Sprintf("stage %q: invalid skip_when expression %q: %v",
-					stage.Name, stage.SkipWhen, compileErr))
-			}
-		}
-	}
-
-	// Check for duplicate stage names
-	seen := make(map[string]bool)
-	for _, stage := range resolved.Stages {
-		if seen[stage.Name] {
-			errors = append(errors, fmt.Sprintf("duplicate stage name: %q", stage.Name))
-		}
-		seen[stage.Name] = true
-	}
-
-	// Check skip list references valid stages
-	for _, skip := range pipelineCfg.Skip {
-		found := false
-		for _, stage := range resolved.Stages {
-			if stage.Name == skip {
-				found = true
-				break
-			}
-		}
-		// Note: skip might reference a preset stage that was removed, which is ok
-		if !found && pipelineCfg.Preset == "" {
-			warnings = append(warnings, fmt.Sprintf("skip references unknown stage: %q", skip))
-		}
-	}
+	errors, warnings := validatePipelineStages(resolved, pipelineCfg)
 
 	// Print results
 	if len(errors) == 0 && len(warnings) == 0 {
@@ -1020,6 +977,58 @@ func runPipelineValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// validatePipelineStages checks stage owners, gate and skip_when expressions,
+// duplicate names, and skip-list references, returning errors and warnings.
+func validatePipelineStages(resolved *pipeline.ResolvedPipeline, pipelineCfg config.PipelineConfig) (errors, warnings []string) {
+	for _, stage := range resolved.Stages {
+		owner := stage.GetOwner()
+		if owner == "" {
+			errors = append(errors, fmt.Sprintf("stage %q: no owner specified", stage.Name))
+		} else if !isValidOwner(owner) {
+			warnings = append(warnings, fmt.Sprintf("stage %q: owner %q is not a standard role", stage.Name, owner))
+		}
+
+		for i, gate := range stage.Gates {
+			if gate.Expr != "" {
+				if compileErr := expr.Compile(gate.Expr); compileErr != nil {
+					errors = append(errors, fmt.Sprintf("stage %q gate %d: invalid expression %q: %v",
+						stage.Name, i+1, gate.Expr, compileErr))
+				}
+			}
+		}
+
+		if stage.SkipWhen != "" {
+			if compileErr := expr.Compile(stage.SkipWhen); compileErr != nil {
+				errors = append(errors, fmt.Sprintf("stage %q: invalid skip_when expression %q: %v",
+					stage.Name, stage.SkipWhen, compileErr))
+			}
+		}
+	}
+
+	seen := make(map[string]bool)
+	for _, stage := range resolved.Stages {
+		if seen[stage.Name] {
+			errors = append(errors, fmt.Sprintf("duplicate stage name: %q", stage.Name))
+		}
+		seen[stage.Name] = true
+	}
+
+	for _, skip := range pipelineCfg.Skip {
+		found := false
+		for _, stage := range resolved.Stages {
+			if stage.Name == skip {
+				found = true
+				break
+			}
+		}
+		// Note: skip might reference a preset stage that was removed, which is ok
+		if !found && pipelineCfg.Preset == "" {
+			warnings = append(warnings, fmt.Sprintf("skip references unknown stage: %q", skip))
+		}
+	}
+	return errors, warnings
 }
 
 func isValidOwner(owner string) bool {

@@ -66,15 +66,31 @@ func runRetro(cmd *cobra.Command, args []string) error {
 
 	m := metrics.Compute(entries, specsByStage, stageNames, terminalStages)
 
-	// Render header
 	label := cycle
 	if label == "" {
 		label = fmt.Sprintf("last %s", cmd.Flag("since").Value.String())
 	}
+	printRetroReport(db, m, stageNames, label, since, len(entries) == 0)
+
+	// Optionally write retrospective section into completed spec files
+	if writeFlag {
+		written := writeRetroSections(rc.SpecsRepoDir, terminalStages, entries, m, stageNames, label)
+		if written > 0 {
+			fmt.Printf("\n✓ Wrote retrospective section to %d completed spec(s).\n", written)
+		} else {
+			fmt.Println("\n  (no completed specs to write retrospective into)")
+		}
+	}
+
+	return nil
+}
+
+// printRetroReport renders the retrospective header, summary metrics, stage
+// dwell times, and reversion/ejection detail to stdout.
+func printRetroReport(db *store.DB, m *metrics.PipelineMetrics, stageNames []string, label string, since time.Time, noActivity bool) {
 	fmt.Printf("Retrospective — %s\n", label)
 	fmt.Println("────────────────────────────────────────────────")
 
-	// Summary metrics
 	fmt.Println("\nMetrics:")
 	fmt.Printf("  Specs completed:     %d\n", m.SpecsCompleted)
 	fmt.Printf("  Total advances:      %d\n", m.TotalAdvances)
@@ -91,7 +107,6 @@ func runRetro(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Bottleneck stage:    —\n")
 	}
 
-	// Stage dwell times
 	if len(m.AvgTimePerStage) > 0 {
 		fmt.Println("\nStage dwell times:")
 		for _, name := range stageNames {
@@ -101,39 +116,25 @@ func runRetro(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Reversions detail
-	reverts, _ := db.ActivityForType("revert", since)
-	if len(reverts) > 0 {
-		fmt.Println("\nReversions:")
-		for _, r := range reverts {
-			fmt.Printf("  • %s: %s\n", r.SpecID, r.Summary)
-		}
-	}
+	printActivityDetail(db, "revert", "Reversions", since)
+	printActivityDetail(db, "eject", "Ejections", since)
 
-	// Ejections
-	ejects, _ := db.ActivityForType("eject", since)
-	if len(ejects) > 0 {
-		fmt.Println("\nEjections:")
-		for _, e := range ejects {
-			fmt.Printf("  • %s: %s\n", e.SpecID, e.Summary)
-		}
-	}
-
-	if len(entries) == 0 {
+	if noActivity {
 		fmt.Println("\n  (no activity in time window — advance/revert specs to generate data)")
 	}
+}
 
-	// Optionally write retrospective section into completed spec files
-	if writeFlag {
-		written := writeRetroSections(rc.SpecsRepoDir, terminalStages, entries, m, stageNames, label)
-		if written > 0 {
-			fmt.Printf("\n✓ Wrote retrospective section to %d completed spec(s).\n", written)
-		} else {
-			fmt.Println("\n  (no completed specs to write retrospective into)")
-		}
+// printActivityDetail lists activity entries of one event type under a heading,
+// printing nothing when there are none.
+func printActivityDetail(db *store.DB, eventType, heading string, since time.Time) {
+	entries, _ := db.ActivityForType(eventType, since)
+	if len(entries) == 0 {
+		return
 	}
-
-	return nil
+	fmt.Printf("\n%s:\n", heading)
+	for _, e := range entries {
+		fmt.Printf("  • %s: %s\n", e.SpecID, e.Summary)
+	}
 }
 
 // writeRetroSections writes a ## Retrospective section into specs in terminal stages.
