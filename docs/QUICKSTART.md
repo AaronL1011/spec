@@ -513,6 +513,10 @@ daily actions also have a dashboard keybinding.
 | `spec link [id] --section <s> --url <url>` | Attach a resource link |
 | `spec edit [id]` | Open in `$EDITOR` (or print the docs URL) |
 | `spec decide [id]` | Manage the decision log (`--question`, `--resolve`, `--list`) |
+| `spec ask [id] "question"` | Open a section-anchored discussion thread (`--section`) |
+| `spec answer [id] <thread-id> "reply"` | Reply to an open discussion thread |
+| `spec resolve [id] <thread-id>` | Resolve (close) a discussion thread |
+| `spec assign [id] [@user...]` | Assign a spec (defaults to you; `--clear` to unassign) |
 | `spec search "query"` | Full-text search across active + archived specs |
 | `spec context "question"` | Keyword search across specs and decisions |
 
@@ -539,6 +543,7 @@ daily actions also have a dashboard keybinding.
 | `spec join <repo>` | Join a team by cloning its specs repo |
 | `spec config init` / `init --user` / `test` | Configuration wizards & validation |
 | `spec completion <shell>` | Generate shell completion scripts |
+| `spec update` | Update the spec binary (Homebrew / go install / binary swap) |
 
 Run `spec <command> --help` for full flags on any command.
 
@@ -656,4 +661,3 @@ spec <command> --help
 spec config test
 spec pipeline --verbose
 ```
-

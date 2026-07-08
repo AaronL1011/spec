@@ -203,7 +203,7 @@ The full product specification and PR stack plan live in [`SPEC.md`](SPEC.md).
 | [SPEC.md](SPEC.md) | Full product specification and PR stack plan |
 | [AGENTS.md](AGENTS.md) | Coding standards for contributors and AI agents |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
-| `docs/man/` | Generated man pages (`make docs` to regenerate) |
+| `docs/man/` | Man pages, generated on demand (`make docs` creates them) |
 
 ---
 
