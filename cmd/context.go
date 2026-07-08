@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aaronl1011/spec/internal/search"
 	"github.com/spf13/cobra"
 )
 
@@ -54,13 +55,15 @@ func runContext(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("specs repo not configured")
 	}
 
-	// Search using the first keyword (simplified)
+	// Search using each keyword via the shared search keyword scan (the
+	// relocated substring logic), so spec context and the search overlay share
+	// one source of truth.
 	for _, kw := range keywords {
-		results := searchDir(rc.SpecsRepoDir, kw)
+		results := search.KeywordScan(rc, kw)
 		if len(results) > 0 {
 			fmt.Printf("Relevant specs for %q:\n\n", kw)
 			for _, r := range results {
-				fmt.Printf("  %-10s  %s  [%s]\n", r.id, r.title, r.status)
+				fmt.Printf("  %-10s  %s  [%s]\n", r.SpecID, r.Title, r.Status)
 			}
 			fmt.Println()
 		}
