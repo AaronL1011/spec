@@ -10,6 +10,7 @@ import (
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/search"
 	"github.com/aaronl1011/spec/internal/store"
 	"github.com/aaronl1011/spec/internal/tui/components"
 	"github.com/aaronl1011/spec/internal/tui/watch"
@@ -108,6 +109,11 @@ type App struct {
 	standup standupOverlay
 	intake  intakeFormState
 	revert  revertOverlay
+	search  searchOverlayModel
+
+	// searchIx is the shared FTS5 indexer backing the global search overlay
+	// (SPEC-028). Nil-safe: a nil store degrades search to the live fallback.
+	searchIx *search.Indexer
 
 	// Triage detail pane and action overlays.
 	showTriageDetail      bool
@@ -120,6 +126,11 @@ type App struct {
 	// Exit escalation — double-esc-to-quit state.
 	exitArmed   bool
 	exitArmedAt time.Time
+
+	// detailFromSearch records that the open spec was opened from the search
+	// overlay so Esc (navigateBackMsg) returns to the overlay with the query
+	// intact instead of the underlying view.
+	detailFromSearch bool
 
 	// g-prefix state machine for g a / g r / g s sequences.
 	gPrefixArmed bool
@@ -248,6 +259,8 @@ func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string,
 		settings:        newSettings(rc, styles, keys),
 		help:            newHelp(keys, styles),
 		modal:           components.NewModal(modalStyles(theme, styles)),
+		search:          newSearchOverlay(styles, theme),
+		searchIx:        search.NewIndexer(rc, db),
 		refreshInterval: parseRefreshInterval(rc),
 		refreshInFlight: make(map[string]bool),
 		focusedSpecID:   loadFocusedSpec(db),
@@ -286,7 +299,22 @@ func (a App) Init() tea.Cmd {
 		a.tick(),
 		a.spinnerTick(),
 		a.checkForUpdate(),
+		a.reconcileSearch(),
 	)
+}
+
+// reconcileSearch kicks off a background incremental reindex of the FTS5 spec
+// search index (SPEC-028). Non-blocking: the overlay falls back to a live
+// scan until it completes, and a completion message clears the indexing chip.
+func (a App) reconcileSearch() tea.Cmd {
+	ix := a.searchIx
+	if ix == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		stats, err := ix.Reconcile(context.Background())
+		return searchReconcileDoneMsg{Stats: stats, Err: err}
+	}
 }
 
 // checkForUpdate runs the passive update check off the UI thread, emitting an
@@ -387,6 +415,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(
 			a.scheduleRefresh(a.detailRefreshKey(), a.detail.fetchData()),
 			waitForChange(a.watcher),
+			a.reconcileSearch(),
 		)
 
 	case specDetailDataMsg:
@@ -469,8 +498,35 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case navigateToSpecMsg:
 		return a, a.openDetail(msg.SpecID)
 
+	case navigateToSpecSectionMsg:
+		return a, a.openDetailAtSection(msg.SpecID, msg.SectionSlug)
+
 	case navigateBackMsg:
+		if a.detailFromSearch {
+			// Esc from a search-opened reader returns to the overlay (query and
+			// results intact) instead of the underlying view.
+			a.detailFromSearch = false
+			a.closeDetail()
+			a.search.visible = true
+			a.search.input.Focus()
+			return a, nil
+		}
 		return a, a.closeDetail()
+
+	// Search overlay messages — debounce ticks, ranked results, and the
+	// background reconcile completion all route to the overlay model.
+	case searchDebounceMsg:
+		var cmd tea.Cmd
+		a.search, cmd = a.search.update(msg)
+		return a, cmd
+	case searchResultsMsg:
+		var cmd tea.Cmd
+		a.search, cmd = a.search.update(msg)
+		return a, cmd
+	case searchReconcileDoneMsg:
+		var cmd tea.Cmd
+		a.search, cmd = a.search.update(msg)
+		return a, cmd
 
 	case triageDetailOpenMsg:
 		a.showTriageDetail = true
@@ -542,6 +598,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(
 				a.scheduleRefresh(refreshKeyTriage, a.triage.refresh()),
 			)
+		}
+		// After a successful spec mutation that changes the set of on-disk
+		// specs (archive, restore, new), reconcile the search index so the
+		// overlay sees the change without waiting for the next startup pass.
+		if msg.Err == nil && (msg.Action == "archive" || msg.Action == "restore" || msg.Action == "new") {
+			cmd := a.reconcileSearch()
+			if cmd != nil {
+				return a, tea.Batch(a.refreshActiveView(), cmd)
+			}
 		}
 		return a, a.refreshActiveView()
 

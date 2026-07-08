@@ -32,15 +32,13 @@ type specListItem struct {
 type specListModel struct {
 	rc *config.ResolvedConfig
 
-	allSpecs     []specListItem
-	filtered     []specListItem
-	loading      bool
-	loaded       bool // true once at least one fetch has succeeded
-	err          error
-	cursor       int
-	searchActive bool
-	searchQuery  string
-	archiveMode  bool // true = showing archived specs
+	allSpecs    []specListItem
+	filtered    []specListItem
+	loading     bool
+	loaded      bool // true once at least one fetch has succeeded
+	err         error
+	cursor      int
+	archiveMode bool // true = showing archived specs
 
 	width  int
 	height int
@@ -79,9 +77,6 @@ func (m specListModel) update(msg tea.Msg) (specListModel, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
-		if m.searchActive {
-			return m.updateSearch(msg)
-		}
 		switch {
 		case key.Matches(msg, m.keys.Up):
 			if m.cursor > 0 {
@@ -91,46 +86,12 @@ func (m specListModel) update(msg tea.Msg) (specListModel, tea.Cmd) {
 			if m.cursor < len(m.filtered)-1 {
 				m.cursor++
 			}
-		case key.Matches(msg, m.keys.Back):
-			// Esc when not searching clears the active filter.
-			if m.searchQuery != "" {
-				m.searchQuery = ""
-				m.applyFilter()
-			}
-		case key.Matches(msg, m.keys.Search):
-			m.searchActive = true
-			m.searchQuery = ""
 		case key.Matches(msg, m.keys.ToggleArchive):
-			// ` toggles archive list mode
+			// ` toggles archive list mode. (The global `/` search overlay now
+			// owns spec search; this list no longer filters in place.)
 			m.archiveMode = !m.archiveMode
 			m.cursor = 0
-			m.searchQuery = ""
-			m.searchActive = false
 			return m, m.fetchData()
-		}
-	}
-	return m, nil
-}
-
-func (m specListModel) updateSearch(msg tea.KeyPressMsg) (specListModel, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		// First Esc exits search mode (keeps filter). Second clears filter.
-		m.searchActive = false
-	case "backspace":
-		if m.searchQuery != "" {
-			m.searchQuery = dropLastRune(m.searchQuery)
-			m.applyFilter()
-		}
-	case "enter":
-		m.searchActive = false
-	case "space":
-		m.searchQuery += " "
-		m.applyFilter()
-	default:
-		if msg.Text != "" {
-			m.searchQuery += msg.Text
-			m.applyFilter()
 		}
 	}
 	return m, nil
@@ -146,32 +107,22 @@ func (m specListModel) view() string {
 
 	var b strings.Builder
 
-	// Search bar + hints
+	// Count line + hints. The global `/` search overlay now owns spec search;
+	// this list shows its count and the archive toggle hint only.
 	label := "specs"
 	if m.archiveMode {
 		label = "archived specs"
 	}
-	switch {
-	case m.searchActive:
-		prompt := m.styles.Accent.Render("  / ") + m.searchQuery + m.styles.Muted.Render(IconCaret)
-		b.WriteString(prompt)
-	case m.searchQuery != "":
-		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  filter: %s  ", m.searchQuery)))
-		b.WriteString(m.styles.Muted.Render("(/ to search, esc to clear)"))
-	default:
-		b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  %d %s  ", len(m.filtered), label)))
-		toggle := Hint("`", "archive")
-		if m.archiveMode {
-			toggle = Hint("`", "specs")
-		}
-		b.WriteString(HintStrip(m.styles, toggle, Hint("/", "search"), Hint("?", "help")))
+	b.WriteString(m.styles.Muted.Render(fmt.Sprintf("  %d %s  ", len(m.filtered), label)))
+	toggle := Hint("`", "archive")
+	if m.archiveMode {
+		toggle = Hint("`", "specs")
 	}
+	b.WriteString(HintStrip(m.styles, toggle, Hint("/", "global search"), Hint("?", "help")))
 	b.WriteString("\n\n")
 
 	if len(m.filtered) == 0 {
 		switch {
-		case m.searchQuery != "":
-			b.WriteString(m.styles.Muted.Render("  No specs matching search"))
 		case m.archiveMode:
 			b.WriteString(m.styles.Muted.Render("  No archived specs"))
 		default:
@@ -286,18 +237,6 @@ func (m specListModel) formatRow(id, title, status, author, updated string, widt
 	)
 }
 
-// isInputActive returns true when the search bar is capturing keystrokes.
-func (m specListModel) isInputActive() bool {
-	return m.searchActive
-}
-
-// hasActiveFilter returns true when a committed search filter is applied but the
-// search bar is no longer capturing input. In this state Esc should clear the
-// filter rather than arm the app's exit guard.
-func (m specListModel) hasActiveFilter() bool {
-	return !m.searchActive && m.searchQuery != ""
-}
-
 func (m specListModel) selectedSpecID() string {
 	if m.cursor >= 0 && m.cursor < len(m.filtered) {
 		return m.filtered[m.cursor].ID
@@ -314,21 +253,12 @@ func (m *specListModel) setSize(w, h int) {
 	m.height = h
 }
 
+// applyFilter sets the visible slice to the full spec set. The in-list
+// substring filter was removed when the global `/` search overlay took over
+// (SPEC-028); the list now only splits active vs archived via archiveMode,
+// which is selected at fetch time.
 func (m *specListModel) applyFilter() {
-	if m.searchQuery == "" {
-		m.filtered = m.allSpecs
-	} else {
-		q := strings.ToLower(m.searchQuery)
-		m.filtered = nil
-		for _, s := range m.allSpecs {
-			if strings.Contains(strings.ToLower(s.ID), q) ||
-				strings.Contains(strings.ToLower(s.Title), q) ||
-				strings.Contains(strings.ToLower(s.Status), q) ||
-				strings.Contains(strings.ToLower(s.Author), q) {
-				m.filtered = append(m.filtered, s)
-			}
-		}
-	}
+	m.filtered = m.allSpecs
 	if m.cursor >= len(m.filtered) {
 		m.cursor = max(0, len(m.filtered)-1)
 	}

@@ -147,7 +147,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Search: key.NewBinding(
 			key.WithKeys("/"),
-			key.WithHelp("/", "search"),
+			key.WithHelp("/", "global search"),
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
