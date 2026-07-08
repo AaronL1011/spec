@@ -57,6 +57,15 @@ type Thread struct {
 	// Derived from the body (and any explicit --to handles) at write time;
 	// never hand-edited.
 	Mentions []string `yaml:"mentions,omitempty"`
+
+	// Quote is the verbatim text span the thread refers to within Section.
+	// Optional. When the text no longer appears in the section, the thread
+	// degrades to a section-level anchor — it is never orphaned.
+	Quote string `yaml:"quote,omitempty"`
+
+	// QuotePrefix is a short run of text immediately before Quote, used to
+	// disambiguate when Quote appears more than once in the section.
+	QuotePrefix string `yaml:"quote_prefix,omitempty"`
 }
 
 // Reply is a single message appended to a thread.
@@ -69,6 +78,16 @@ type Reply struct {
 
 // IsOpen reports whether the thread is still awaiting resolution.
 func (t Thread) IsOpen() bool { return t.Status != StatusResolved }
+
+// LastActivity returns the thread's most recent activity timestamp: the last
+// reply's time when replies exist, else the creation time. Read-state
+// tracking compares against this so a new reply re-marks a thread unread.
+func (t Thread) LastActivity() time.Time {
+	if n := len(t.Replies); n > 0 {
+		return t.Replies[n-1].At
+	}
+	return t.Created
+}
 
 // Participants returns the deduplicated set of handles involved in a thread:
 // the author, every replier, and every mentioned handle. Order is stable
