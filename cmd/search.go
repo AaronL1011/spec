@@ -2,28 +2,38 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 
 	gitpkg "github.com/aaronl1011/spec/internal/git"
-	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/search"
 	"github.com/spf13/cobra"
+)
+
+var (
+	searchReindex bool
+	searchScope   string
 )
 
 var searchCmd = &cobra.Command{
 	Use:   "search <query>",
 	Short: "Full-text search across active and archived specs",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runSearch,
+	Long: `Full-text search across active and archived specs using a local FTS5 index.
+
+Results are ranked by bm25 relevance and anchored to the matching section.
+The index lives in the local spec store and is reconciled before each query;
+pass --reindex to force a full rebuild. --scope limits results to active or
+archived specs (default: all).`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSearch,
 }
 
 func init() {
+	searchCmd.Flags().BoolVar(&searchReindex, "reindex", false, "drop the index and rebuild it fully before querying")
+	searchCmd.Flags().StringVar(&searchScope, "scope", "all", "search scope: all | active | archived")
 	rootCmd.AddCommand(searchCmd)
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
-	query := strings.ToLower(args[0])
+	query := args[0]
 
 	rc, err := resolveConfig()
 	if err != nil {
@@ -40,88 +50,84 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("specs repo not configured — run 'spec config init' to set up")
 	}
 
-	// Search in active specs
-	results := searchDir(rc.SpecsRepoDir, query)
+	scope, err := parseSearchScope(searchScope)
+	if err != nil {
+		return err
+	}
 
-	// Search in archive
-	archiveDir := filepath.Join(rc.SpecsRepoDir, "archive")
-	results = append(results, searchDir(archiveDir, query)...)
+	db, err := openDB()
+	if err != nil {
+		return fmt.Errorf("opening local store: %w", err)
+	}
+	defer func() { _ = db.Close() }()
 
-	if len(results) == 0 {
-		fmt.Println("No matches found.")
+	ix := search.NewIndexer(rc, db)
+
+	if searchReindex {
+		if err := db.TruncateSearchIndex(ctx()); err != nil {
+			return fmt.Errorf("clearing search index: %w", err)
+		}
+	}
+
+	// Reconcile before querying so a fresh or externally-edited repo is current.
+	stats, _ := ix.Reconcile(ctx())
+	if searchReindex {
+		p := newPrinter(cmd)
+		if !p.JSONEnabled() {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+				"reindexed %d specs (%d deleted, %d skipped, %d failed)\n",
+				stats.Reindexed, stats.Deleted, stats.Skipped, stats.Failed)
+		}
+	}
+
+	hits, err := ix.Search(ctx(), query, search.Options{Scope: scope, Limit: search.DefaultLimit})
+	if err != nil {
+		return fmt.Errorf("searching: %w", err)
+	}
+
+	p := newPrinter(cmd)
+	if p.JSONEnabled() {
+		return p.JSON(hits)
+	}
+
+	if len(hits) == 0 {
+		p.Line("No matches found.")
 		return nil
 	}
 
-	fmt.Printf("Found %d match(es) for %q:\n\n", len(results), args[0])
-	for _, r := range results {
-		fmt.Printf("  %-10s  %-30s  [%s]\n", r.id, truncate(r.title, 30), r.status)
-		for _, excerpt := range r.excerpts {
-			fmt.Printf("             ...%s...\n", excerpt)
+	p.Line("Found %d match(es) for %q:", len(hits), query)
+	for _, h := range hits {
+		marker := ""
+		if h.Archived {
+			marker = " [archived]"
 		}
-		fmt.Println()
+		author := ""
+		if h.Author != "" {
+			author = "  by " + h.Author
+		}
+		section := ""
+		if h.SectionHeading != "" {
+			section = "  " + h.SectionHeading
+		}
+		p.Line("  %-10s  %-30s  [%s]%s%s%s", h.SpecID, truncate(h.Title, 30), h.Status, author, marker, section)
+		if h.Snippet != "" {
+			p.Line("             %s", h.Snippet)
+		}
+		p.Line("")
 	}
-
 	return nil
 }
 
-type searchResult struct {
-	id       string
-	title    string
-	status   string
-	excerpts []string
-}
-
-func searchDir(dir string, query string) []searchResult {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
+// parseSearchScope maps the --scope flag to a search.SearchScope.
+func parseSearchScope(s string) (search.SearchScope, error) {
+	switch s {
+	case "all", "":
+		return search.ScopeAll, nil
+	case "active":
+		return search.ScopeActive, nil
+	case "archived":
+		return search.ScopeArchived, nil
+	default:
+		return search.ScopeAll, fmt.Errorf("invalid --scope %q — use all, active, or archived", s)
 	}
-
-	var results []searchResult
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-
-		path := filepath.Join(dir, e.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		content := strings.ToLower(string(data))
-		if !strings.Contains(content, query) {
-			continue
-		}
-
-		meta, err := markdown.ReadMeta(path)
-		if err != nil {
-			continue
-		}
-
-		// Extract matching excerpts
-		var excerpts []string
-		lines := strings.Split(string(data), "\n")
-		for _, line := range lines {
-			if strings.Contains(strings.ToLower(line), query) {
-				excerpt := strings.TrimSpace(line)
-				if len(excerpt) > 80 {
-					excerpt = excerpt[:80]
-				}
-				excerpts = append(excerpts, excerpt)
-				if len(excerpts) >= 3 {
-					break
-				}
-			}
-		}
-
-		results = append(results, searchResult{
-			id:       meta.ID,
-			title:    meta.Title,
-			status:   meta.Status,
-			excerpts: excerpts,
-		})
-	}
-
-	return results
 }

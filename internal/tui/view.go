@@ -65,6 +65,8 @@ func (a App) render() string {
 
 	var content string
 	switch {
+	case a.search.visible:
+		content = a.search.view()
 	case a.standup.visible:
 		content = a.standup.view()
 	case a.intake.active:

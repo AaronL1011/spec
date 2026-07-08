@@ -668,7 +668,8 @@ func TestApp_SearchSuppressesHotkeys(t *testing.T) {
 	app.height = 24
 	app.propagateSize()
 
-	// Switch to Specs tab and load data.
+	// On the specs tab, `/` opens the global overlay — the input captures the
+	// next keystroke and no spec hotkey should fire while it is open.
 	app.switchView(ViewSpecs)
 	app.specs.loading = false
 	app.specs.allSpecs = []specListItem{
@@ -676,38 +677,37 @@ func TestApp_SearchSuppressesHotkeys(t *testing.T) {
 	}
 	app.specs.applyFilter()
 
-	// Activate search.
 	model, _ := app.Update(keyMsg("/"))
 	a := model.(App)
-	if !a.specs.isInputActive() {
-		t.Fatal("search should be active after '/'")
+	if !a.search.visible {
+		t.Fatal("search overlay should be visible after '/'")
 	}
 
-	// Type 'a' — should go into search query, NOT open advance modal.
+	// Type 'a' — should land in the query, NOT open the advance modal.
 	model, _ = a.Update(keyMsg("a"))
 	a = model.(App)
 	if a.modal.Visible {
 		t.Error("'a' during search should not open advance modal")
 	}
-	if a.specs.searchQuery != "a" {
-		t.Errorf("searchQuery = %q, want 'a'", a.specs.searchQuery)
+	if got := a.search.input.Value(); got != "a" {
+		t.Errorf("query = %q, want 'a'", got)
 	}
 
-	// Type 'f' — should append to query, NOT focus a spec.
+	// Type 'f' — appends to query, NOT focus a spec.
 	model, _ = a.Update(keyMsg("f"))
 	a = model.(App)
-	if a.specs.searchQuery != "af" {
-		t.Errorf("searchQuery = %q, want 'af'", a.specs.searchQuery)
+	if got := a.search.input.Value(); got != "af" {
+		t.Errorf("query = %q, want 'af'", got)
 	}
 
-	// Type 'q' — should append to query, NOT quit.
-	model, cmd := a.Update(keyMsg("q"))
+	// Type 'q' — appends to query, NOT quit (overlay stays open).
+	model, _ = a.Update(keyMsg("q"))
 	a = model.(App)
-	if a.specs.searchQuery != "afq" {
-		t.Errorf("searchQuery = %q, want 'afq'", a.specs.searchQuery)
+	if got := a.search.input.Value(); got != "afq" {
+		t.Errorf("query = %q, want 'afq'", got)
 	}
-	if cmd != nil {
-		t.Error("'q' during search should not produce a quit command")
+	if !a.search.visible {
+		t.Error("'q' during search should not close the overlay")
 	}
 }
 
@@ -1201,14 +1201,14 @@ func TestApp_SearchAcceptsSpaces(t *testing.T) {
 	app.specs.applyFilter()
 	app.switchView(ViewSpecs)
 
-	// Activate search and type with a space.
+	// Activate the overlay and type a multi-word query with a space.
 	model, _ := app.Update(keyMsg("/"))
 	model, _ = model.Update(keyMsg("my"))
-	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	model, _ = model.Update(keyMsg("spec"))
 	a := model.(App)
-	if a.specs.searchQuery != "my spec" {
-		t.Errorf("searchQuery = %q, want 'my spec'", a.specs.searchQuery)
+	if got := a.search.input.Value(); got != "my spec" {
+		t.Errorf("query = %q, want 'my spec'", got)
 	}
 }
 
@@ -1252,7 +1252,7 @@ func TestApp_IntakeAcceptsSpaces(t *testing.T) {
 // double-esc exit guard hijacked esc and made clearing a committed search
 // filter impossible. Sequence: / type → esc (leave bar) → esc (clear filter,
 // not arm) → esc (arm exit).
-func TestApp_EscClearsSearchFilterBeforeArmingExit(t *testing.T) {
+func TestApp_EscClearsSearchOverlayBeforeArmingExit(t *testing.T) {
 	app := testApp()
 	app.width = 100
 	app.height = 30
@@ -1265,45 +1265,32 @@ func TestApp_EscClearsSearchFilterBeforeArmingExit(t *testing.T) {
 	}
 	app.specs.applyFilter()
 
-	// '/' enters search; type a query.
+	// '/' opens the overlay; type a query.
 	model, _ := app.Update(keyMsg("/"))
 	a := model.(App)
-	if !a.specs.searchActive {
-		t.Fatal("'/' should activate the search bar")
+	if !a.search.visible {
+		t.Fatal("'/' should open the search overlay")
 	}
 	model, _ = a.Update(keyMsg("auth"))
 	a = model.(App)
-	if a.specs.searchQuery == "" {
+	if got := a.search.input.Value(); got == "" {
 		t.Fatal("typing should build the search query")
 	}
 
-	// esc #1: leave the search bar but keep the filter; must not arm exit.
+	// esc #1: close the overlay; must NOT arm exit.
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
-	if a.specs.searchActive {
-		t.Error("first esc should exit the search bar")
-	}
-	if a.specs.searchQuery == "" {
-		t.Error("first esc should keep the committed filter")
+	if a.search.visible {
+		t.Error("first esc should close the overlay")
 	}
 	if a.exitArmed {
 		t.Error("first esc should not arm exit")
 	}
 
-	// esc #2: clear the filter; must not arm exit.
-	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	a = model.(App)
-	if a.specs.searchQuery != "" {
-		t.Errorf("second esc should clear the filter, got %q", a.specs.searchQuery)
-	}
-	if a.exitArmed {
-		t.Error("second esc should clear the filter, not arm exit")
-	}
-
-	// esc #3: nothing left to pop → arm exit.
+	// esc #2: nothing left to pop → arm exit.
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
 	if !a.exitArmed {
-		t.Error("third esc with no filter should arm exit")
+		t.Error("second esc with nothing open should arm exit")
 	}
 }

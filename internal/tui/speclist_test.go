@@ -1,7 +1,6 @@
 package tui
 
 import (
-	tea "charm.land/bubbletea/v2"
 	"strings"
 	"testing"
 )
@@ -48,75 +47,27 @@ func TestSpecList_WithSpecs(t *testing.T) {
 	}
 }
 
-func TestSpecList_FuzzyFilter(t *testing.T) {
-	m := testSpecListModel()
-	m.allSpecs = []specListItem{
-		{ID: "SPEC-001", Title: "Auth service"},
-		{ID: "SPEC-002", Title: "Payments v2"},
-		{ID: "SPEC-003", Title: "Auth middleware"},
-	}
-
-	m.searchQuery = "auth"
-	m.applyFilter()
-
-	if len(m.filtered) != 2 {
-		t.Fatalf("expected 2 filtered results for 'auth', got %d", len(m.filtered))
-	}
-	if m.filtered[0].ID != "SPEC-001" {
-		t.Errorf("first result = %s, want SPEC-001", m.filtered[0].ID)
-	}
-}
-
-func TestSpecList_FilterByStatus(t *testing.T) {
-	m := testSpecListModel()
-	m.allSpecs = []specListItem{
-		{ID: "SPEC-001", Title: "A", Status: "build"},
-		{ID: "SPEC-002", Title: "B", Status: "draft"},
-		{ID: "SPEC-003", Title: "C", Status: "build"},
-	}
-
-	m.searchQuery = "build"
-	m.applyFilter()
-
-	if len(m.filtered) != 2 {
-		t.Fatalf("expected 2 filtered results for 'build', got %d", len(m.filtered))
-	}
-}
-
-func TestSpecList_ClearFilter(t *testing.T) {
-	m := testSpecListModel()
-	m.allSpecs = []specListItem{
-		{ID: "SPEC-001", Title: "A"},
-		{ID: "SPEC-002", Title: "B"},
-	}
-
-	m.searchQuery = "zzz"
-	m.applyFilter()
-	if len(m.filtered) != 0 {
-		t.Fatalf("expected 0 results for 'zzz', got %d", len(m.filtered))
-	}
-
-	m.searchQuery = ""
-	m.applyFilter()
-	if len(m.filtered) != 2 {
-		t.Fatalf("clearing filter should show all %d specs, got %d", len(m.allSpecs), len(m.filtered))
-	}
-}
-
-func TestSpecList_CursorClampOnFilter(t *testing.T) {
+// The in-list substring filter was removed when the global `/` search overlay
+// took over spec search (SPEC-028). applyFilter now just exposes the full
+// spec set (split by archiveMode, selected at fetch time), so the old
+// FuzzyFilter / FilterByStatus / ClearFilter / CursorClampOnFilter cases no
+// longer apply. This test pins the new contract: all specs are visible.
+func TestSpecList_ApplyFilterShowsAll(t *testing.T) {
 	m := testSpecListModel()
 	m.allSpecs = []specListItem{
 		{ID: "SPEC-001", Title: "A"},
 		{ID: "SPEC-002", Title: "B"},
 		{ID: "SPEC-003", Title: "C"},
 	}
+	m.cursor = 2
 	m.applyFilter()
-	m.cursor = 2 // last item
 
-	m.searchQuery = "A"
-	m.applyFilter()
-	if m.cursor != 0 {
-		t.Errorf("cursor should clamp to 0 after filter reduces list, got %d", m.cursor)
+	if len(m.filtered) != len(m.allSpecs) {
+		t.Fatalf("applyFilter should show all %d specs, got %d", len(m.allSpecs), len(m.filtered))
+	}
+	// Cursor clamps within the (now full) list.
+	if m.cursor < 0 || m.cursor >= len(m.filtered) {
+		t.Errorf("cursor = %d out of range [0,%d)", m.cursor, len(m.filtered))
 	}
 }
 
@@ -232,37 +183,5 @@ func TestScrollWindow(t *testing.T) {
 			t.Errorf("scrollWindow(%d,%d,%d) = (%d,%d), want (%d,%d)",
 				tt.cursor, tt.total, tt.visible, s, e, tt.wantStart, tt.wantEnd)
 		}
-	}
-}
-
-func TestSpecList_HasActiveFilter(t *testing.T) {
-	m := testSpecListModel()
-	if m.hasActiveFilter() {
-		t.Error("no filter and not searching → false")
-	}
-	m.searchActive = true
-	m.searchQuery = "auth"
-	if m.hasActiveFilter() {
-		t.Error("while actively typing → false (search bar owns esc)")
-	}
-	m.searchActive = false
-	if !m.hasActiveFilter() {
-		t.Error("committed filter, not searching → true")
-	}
-}
-
-func TestSpecList_EscClearsCommittedFilter(t *testing.T) {
-	m := testSpecListModel()
-	m.allSpecs = []specListItem{{ID: "SPEC-001", Title: "Auth"}, {ID: "SPEC-002", Title: "Pay"}}
-	m.searchQuery = "auth"
-	m.searchActive = false
-	m.applyFilter()
-
-	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.searchQuery != "" {
-		t.Errorf("esc (not searching) should clear filter, got %q", m.searchQuery)
-	}
-	if len(m.filtered) != 2 {
-		t.Errorf("clearing filter should restore all specs, got %d", len(m.filtered))
 	}
 }

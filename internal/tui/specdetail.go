@@ -80,6 +80,11 @@ type specDetailModel struct {
 	scroll       int
 	contentLines int
 
+	// pendingSectionSlug is set by a search-overlay deep-link and resolved to
+	// readerMode + sectionIdx once the spec data (and thus readableSections)
+	// lands. Empty for normal opens.
+	pendingSectionSlug string
+
 	// Reader
 	readerMode     bool
 	sectionIdx     int
@@ -219,6 +224,7 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	m.buildLine = msg.BuildLine
 	m.readerCache = make(map[string]string)
 	m.contentLines = m.estimateContentLines()
+	m.applyPendingSection()
 	if m.readerMode {
 		if sections := m.readableSections(); m.sectionIdx >= len(sections) {
 			m.sectionIdx = max(0, len(sections)-1)
@@ -228,6 +234,34 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	}
 	m.scroll = 0
 	return m, nil
+}
+
+// applyPendingSection honours a search-overlay deep-link: jumps straight into
+// reader mode on the requested section. If the slug no longer exists (the spec
+// was edited since indexing), it lands on the first readable section and notes
+// the move. No-op when no deep-link is pending.
+func (m *specDetailModel) applyPendingSection() {
+	if m.pendingSectionSlug == "" {
+		return
+	}
+	slug := m.pendingSectionSlug
+	m.pendingSectionSlug = ""
+	sections := m.readableSections()
+	for i, sec := range sections {
+		if sec.Slug == slug {
+			m.readerMode = true
+			m.sectionIdx = i
+			m.scroll = 0
+			return
+		}
+	}
+	// Slug gone — fall back to the first readable section in reader mode.
+	if len(sections) > 0 {
+		m.readerMode = true
+		m.sectionIdx = m.firstReadableSectionIndex()
+		m.scroll = 0
+		m.notice = "section moved — opening first section"
+	}
 }
 
 // applyRefresh merges freshly-read spec data into an already-loaded model,

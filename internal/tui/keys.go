@@ -13,6 +13,9 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// ── Layer 1: Overlays (absorb all keys) ──────────────────────────
 	// These are modal states that must capture every keystroke.
 
+	if a.search.visible {
+		return a.updateSearchOverlay(msg)
+	}
 	if a.standup.visible {
 		return a.updateStandup(msg)
 	}
@@ -138,6 +141,8 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.help.setContext(a.activeView.Label())
 		a.help.toggle()
 		return a, nil
+	case key.Matches(msg, a.keys.Search):
+		return a, a.openSearchOverlay()
 	case key.Matches(msg, a.keys.ExpandError):
 		a.expandError()
 		return a, nil
@@ -196,24 +201,22 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // viewCapturingInput returns true when the active view is in a text
-// input mode (e.g. search bar) and keystrokes should be routed to
+// input mode (e.g. a settings field) and keystrokes should be routed to
 // the view instead of being interpreted as hotkeys.
 func (a App) viewCapturingInput() bool {
-	if a.activeView == ViewSpecs {
-		return a.specs.isInputActive()
-	}
 	if a.activeView == ViewSettings {
 		return a.settings.isEditing()
 	}
 	return false
 }
 
-// activeViewCanPopEsc reports whether the active view has dismissible state that
-// esc should clear (e.g. a committed search filter) before the app treats esc
-// as the exit-arm. This keeps the double-esc exit guard from hijacking esc when
-// the user is trying to clear a filter.
+// activeViewCanPopEsc reports whether the active view has dismissible state
+// that esc should clear before the app treats esc as the exit-arm. The specs
+// list no longer holds an in-place search filter (the global `/` overlay owns
+// search now), so there is nothing for the list to pop; this stays false for
+// every view.
 func (a App) activeViewCanPopEsc() bool {
-	return a.activeView == ViewSpecs && a.specs.hasActiveFilter()
+	return false
 }
 
 // handleSpecAction processes action hotkeys for a given spec ID.

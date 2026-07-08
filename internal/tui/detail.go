@@ -45,6 +45,20 @@ func (a *App) openDetail(specID string) tea.Cmd {
 	return tea.Batch(a.detail.init(), a.startWatch())
 }
 
+// openDetailAtSection opens a spec detail pinned to a specific section, used
+// by the search overlay to deep-link straight to the matching passage. The
+// section is resolved once the spec data lands (sections are not known until
+// the first specDetailDataMsg); until then a pending slug is stashed on the
+// detail model. Missing slug falls back to the first readable section with a
+// soft notice. Records detailFromSearch so Esc returns to the overlay.
+func (a *App) openDetailAtSection(specID, sectionSlug string) tea.Cmd {
+	a.detailFromSearch = true
+	cmd := a.openDetail(specID)
+	a.detail.pendingSectionSlug = sectionSlug
+	a.statusBar.SetView("search › " + specID)
+	return cmd
+}
+
 func (a *App) closeDetail() tea.Cmd {
 	a.markDetailRefreshDone()
 	a.detail.cancelRender()
@@ -120,6 +134,12 @@ func (a App) updateDetail(msg tea.KeyPressMsg) (App, tea.Cmd) {
 		a.help.setContext("Detail: " + a.detail.specID)
 		a.help.toggle()
 		return a, nil
+	}
+
+	// Global search works from inside the reader too: `/` opens the overlay
+	// over the open spec, and Esc from a search-opened reader returns there.
+	if key.Matches(msg, a.keys.Search) {
+		return a, a.openSearchOverlay()
 	}
 
 	// Expand the current error to full text (no-op when there is none, and only

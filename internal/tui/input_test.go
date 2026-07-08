@@ -94,13 +94,17 @@ func TestRevertBackspace_RuneSafe(t *testing.T) {
 	}
 }
 
-func TestSpecListSearchBackspace_RuneSafe(t *testing.T) {
-	m := newSpecList(nil, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
-	m.searchActive = true
-	m.searchQuery = "café"
+// TestSearchOverlayBackspace_RuneSafe verifies the overlay's text input drops
+// a full multi-byte rune on backspace rather than a single byte, leaving
+// valid UTF-8. The bubbles textinput handles this natively; this test pins
+// that contract so a future swap never regresses it.
+func TestSearchOverlayBackspace_RuneSafe(t *testing.T) {
+	m := newSearchOverlay(NewStyles(ResolveTheme("auto")), ResolveTheme("auto"))
+	m.input.SetValue("café")
+	m.input.Focus()
 
-	m, _ = m.updateSearch(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	if m.searchQuery != "caf" || !utf8.ValidString(m.searchQuery) {
-		t.Errorf("search backspace = %q, want %q (valid=%v)", m.searchQuery, "caf", utf8.ValidString(m.searchQuery))
+	m, _ = m.update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if got := m.input.Value(); got != "caf" || !utf8.ValidString(got) {
+		t.Errorf("search backspace = %q, want %q (valid=%v)", got, "caf", utf8.ValidString(got))
 	}
 }
