@@ -10,10 +10,14 @@ package tui
 //	rows [0, headerHeight)                      header
 //	row   headerHeight                          tab strip
 //	rows [contentTop, contentTop+contentHeight) active view / overlay
+//	row   statusRow-1                           gap (always blank)
 //	row   statusRow                             status bar
 //
+// The blank gap row above the status bar is deliberate polish: it gives the
+// eye a natural break so body content never visually collides with the bar.
+//
 // The total always equals a.height: headerHeight + 1 (tabs) + contentHeight +
-// 1 (status) == height.
+// 1 (gap) + 1 (status) == height.
 
 // chromeLayout describes where each fixed band of the main screen sits. All
 // fields are 0-based screen rows except contentHeight, which is a count.
@@ -41,7 +45,7 @@ const (
 // both must stay defined here so mouse and render share one definition.
 func (a App) layout() chromeLayout {
 	headerHeight := a.header.Height()
-	contentHeight := a.height - headerHeight - 2 // tabs + status bar
+	contentHeight := a.height - headerHeight - 3 // tabs + gap + status bar
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
@@ -51,7 +55,7 @@ func (a App) layout() chromeLayout {
 		tabsRow:       headerHeight,
 		contentTop:    contentTop,
 		contentHeight: contentHeight,
-		statusRow:     contentTop + contentHeight,
+		statusRow:     contentTop + contentHeight + 1, // +1 skips the gap row
 	}
 }
 

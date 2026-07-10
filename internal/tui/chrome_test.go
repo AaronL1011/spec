@@ -11,8 +11,9 @@ func TestChromeLayout_RegionAt(t *testing.T) {
 	//   0,1   header
 	//   2     tabs
 	//   3..7  content
-	//   8     status
-	c := chromeLayout{headerHeight: 2, tabsRow: 2, contentTop: 3, contentHeight: 5, statusRow: 8}
+	//   8     gap (blank; owned by no band)
+	//   9     status
+	c := chromeLayout{headerHeight: 2, tabsRow: 2, contentTop: 3, contentHeight: 5, statusRow: 9}
 
 	cases := []struct {
 		y    int
@@ -24,8 +25,9 @@ func TestChromeLayout_RegionAt(t *testing.T) {
 		{2, regionTabs},
 		{3, regionContent},
 		{7, regionContent},
-		{8, regionStatus},
-		{9, regionNone},
+		{8, regionNone}, // the gap row belongs to no interactive band
+		{9, regionStatus},
+		{10, regionNone},
 	}
 	for _, tc := range cases {
 		if got := c.regionAt(tc.y); got != tc.want {
@@ -35,8 +37,8 @@ func TestChromeLayout_RegionAt(t *testing.T) {
 }
 
 func TestChromeLayout_SingleRowHeader(t *testing.T) {
-	// headerHeight 1: tabs on row 1, content starts row 2.
-	c := chromeLayout{headerHeight: 1, tabsRow: 1, contentTop: 2, contentHeight: 3, statusRow: 5}
+	// headerHeight 1: tabs on row 1, content starts row 2, gap row 5, status 6.
+	c := chromeLayout{headerHeight: 1, tabsRow: 1, contentTop: 2, contentHeight: 3, statusRow: 6}
 	if got := c.regionAt(0); got != regionHeader {
 		t.Errorf("row 0 region = %v, want header", got)
 	}
@@ -49,7 +51,7 @@ func TestChromeLayout_SingleRowHeader(t *testing.T) {
 }
 
 func TestChromeLayout_ContentRow(t *testing.T) {
-	c := chromeLayout{headerHeight: 2, tabsRow: 2, contentTop: 3, contentHeight: 5, statusRow: 8}
+	c := chromeLayout{headerHeight: 2, tabsRow: 2, contentTop: 3, contentHeight: 5, statusRow: 9}
 	cases := []struct {
 		y       int
 		wantRow int
@@ -58,7 +60,8 @@ func TestChromeLayout_ContentRow(t *testing.T) {
 		{2, 0, false}, // tabs row, not content
 		{3, 0, true},  // first content row
 		{7, 4, true},  // last content row
-		{8, 0, false}, // status row
+		{8, 0, false}, // gap row
+		{9, 0, false}, // status row
 	}
 	for _, tc := range cases {
 		row, ok := c.contentRow(tc.y)
@@ -82,8 +85,10 @@ func TestApp_LayoutMatchesHeight(t *testing.T) {
 		if lay.statusRow != h-1 {
 			t.Errorf("height %d: statusRow = %d, want %d", h, lay.statusRow, h-1)
 		}
-		if lay.contentTop+lay.contentHeight != lay.statusRow {
-			t.Errorf("height %d: content band [%d,%d) does not abut status row %d",
+		// The gap row sits between the content band and the status bar, so
+		// content must end exactly one row above the status row.
+		if lay.contentTop+lay.contentHeight != lay.statusRow-1 {
+			t.Errorf("height %d: content band [%d,%d) does not leave a one-row gap before status row %d",
 				h, lay.contentTop, lay.contentTop+lay.contentHeight, lay.statusRow)
 		}
 	}
