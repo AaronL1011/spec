@@ -493,8 +493,12 @@ func markdownToStorage(md, specID string, meta *markdown.SpecMeta) string {
 				out.WriteString(closeList(listType))
 				inList = false
 			}
-			slug := slugify(text)
-			fmt.Fprintf(&out, "<!-- spec-section: %s -->\n", slug)
+			// No marker for the level-1 title heading: locally the H1 "section"
+			// spans the entire document, so keying an (empty) remote fragment
+			// against it invites inbound to wipe the whole spec body.
+			if level > 1 {
+				fmt.Fprintf(&out, "<!-- spec-section: %s -->\n", slugify(text))
+			}
 			fmt.Fprintf(&out, "<h%d>%s</h%d>\n", level, formatInline(text), level)
 			continue
 		}
@@ -620,6 +624,11 @@ func parseStorageByHeadings(storage string) map[string]string {
 
 	sections := make(map[string]string)
 	for i, match := range matches {
+		// Skip the page title (h1): its slug maps to the local section that
+		// spans the entire spec body, which must never be an inbound target.
+		if storage[match[2]:match[3]] == "1" {
+			continue
+		}
 		heading := storage[match[4]:match[5]]
 		slug := slugify(stripTags(heading))
 

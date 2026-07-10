@@ -505,7 +505,9 @@ func pushSpec(rc *config.ResolvedConfig, specID string) tea.Cmd {
 	}
 }
 
-// syncSpec runs a bidirectional sync between the spec and external docs.
+// syncSpec publishes the spec outbound to the external docs mirror. The spec
+// is the source of truth: the TUI never applies docs-provider content inbound
+// (that requires an explicit 'spec sync --direction in' plus confirmation).
 func syncSpec(rc *config.ResolvedConfig, reg *adapter.Registry, db *store.DB, specID, role string) tea.Cmd {
 	return func() tea.Msg {
 		if !rc.HasIntegration("docs") {
@@ -526,7 +528,7 @@ func syncSpec(rc *config.ResolvedConfig, reg *adapter.Registry, db *store.DB, sp
 			prepared, sErr = engine.Prepare(context.Background(), syncengine.Options{
 				SpecID:           specID,
 				SpecPath:         path,
-				Direction:        syncengine.DirectionBoth,
+				Direction:        syncengine.DirectionOut,
 				ConflictStrategy: strategy,
 				OwnerRole:        role,
 				UserName:         rc.UserName(),

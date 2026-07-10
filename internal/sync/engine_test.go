@@ -441,3 +441,159 @@ func index(s, substr string) int {
 	}
 	return -1
 }
+
+// wipeSpec is a filled spec with an H1 title heading, mirroring the field
+// report where inbound sync deleted every section below the title.
+const wipeSpec = `---
+id: SPEC-001
+title: Test
+status: plan_review
+created: 2026-01-01
+updated: 2026-01-01
+---
+
+# SPEC-001 - Test
+
+## Problem Statement <!-- owner: tl -->
+Local content
+`
+
+func TestRun_DefaultDirection_IsOutboundOnly(t *testing.T) {
+	specPath := writeSpec(t, wipeSpec)
+	db := openMemoryDB(t)
+	// Prime state so an inbound leg WOULD apply the remote edit.
+	if err := db.SyncStateSet("SPEC-001", "problem_statement", "out", Hash("Local content")); err != nil {
+		t.Fatalf("SyncStateSet(out) error = %v", err)
+	}
+	if err := db.SyncStateSet("SPEC-001", "problem_statement", "in", Hash("Local content")); err != nil {
+		t.Fatalf("SyncStateSet(in) error = %v", err)
+	}
+	docs := &fakeDocs{sections: map[string]string{"problem_statement": "Remote content"}}
+
+	report, err := NewEngine(docs, db).Run(context.Background(), Options{
+		SpecID:    "SPEC-001",
+		SpecPath:  specPath,
+		OwnerRole: "tl",
+		// Direction deliberately empty: the default must be outbound-only.
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if report.Direction != DirectionOut {
+		t.Fatalf("default direction = %q, want %q", report.Direction, DirectionOut)
+	}
+	if len(report.InboundApplied) != 0 {
+		t.Fatalf("InboundApplied = %#v, want none by default", report.InboundApplied)
+	}
+	if !report.OutboundPushed {
+		t.Fatal("OutboundPushed = false, want outbound publish by default")
+	}
+	data, _ := os.ReadFile(specPath)
+	if !contains(string(data), "Local content") {
+		t.Fatalf("local spec rewritten by default sync: %q", string(data))
+	}
+}
+
+func TestRun_Inbound_EmptyRemote_RefusesToDeleteLocal(t *testing.T) {
+	specPath := writeSpec(t, wipeSpec)
+	db := openMemoryDB(t)
+	// State says local is unchanged since last push — the exact condition
+	// under which the old code auto-applied an empty remote section.
+	if err := db.SyncStateSet("SPEC-001", "problem_statement", "out", Hash("Local content")); err != nil {
+		t.Fatalf("SyncStateSet(out) error = %v", err)
+	}
+	if err := db.SyncStateSet("SPEC-001", "problem_statement", "in", Hash("Local content")); err != nil {
+		t.Fatalf("SyncStateSet(in) error = %v", err)
+	}
+	docs := &fakeDocs{sections: map[string]string{"problem_statement": ""}}
+
+	// Even ConflictForce must not let an empty remote delete local content.
+	report, err := NewEngine(docs, db).Run(context.Background(), Options{
+		SpecID:           "SPEC-001",
+		SpecPath:         specPath,
+		Direction:        DirectionIn,
+		ConflictStrategy: ConflictForce,
+		OwnerRole:        "tl",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(report.InboundApplied) != 0 {
+		t.Fatalf("InboundApplied = %#v, want none", report.InboundApplied)
+	}
+	if len(report.Skipped) != 1 || report.Skipped[0].Section != "problem_statement" {
+		t.Fatalf("Skipped = %#v, want empty-remote skip for problem_statement", report.Skipped)
+	}
+	data, _ := os.ReadFile(specPath)
+	if !contains(string(data), "Local content") {
+		t.Fatalf("empty remote deleted local content: %q", string(data))
+	}
+}
+
+// TestRun_Inbound_TitleSection_NeverApplied reproduces the reported wipe: a
+// filled spec whose H1 title slug maps remotely to an empty fragment (pages
+// pushed by older builds carry a marker for the H1). The title section spans
+// the whole document locally, so applying it deleted everything but the title.
+func TestRun_Inbound_TitleSection_NeverApplied(t *testing.T) {
+	specPath := writeSpec(t, wipeSpec)
+	db := openMemoryDB(t)
+	original, _ := os.ReadFile(specPath)
+	// Whole-body hash recorded by an old outbound push primes the wipe.
+	bodyHash := Hash("\n## Problem Statement <!-- owner: tl -->\nLocal content\n")
+	for _, dir := range []string{"out", "in"} {
+		if err := db.SyncStateSet("SPEC-001", "spec_001_test", dir, bodyHash); err != nil {
+			t.Fatalf("SyncStateSet(%s) error = %v", dir, err)
+		}
+	}
+	docs := &fakeDocs{sections: map[string]string{
+		"spec_001_test":     "", // H1 slug from a legacy page: empty fragment
+		"problem_statement": "Local content",
+	}}
+
+	report, err := NewEngine(docs, db).Run(context.Background(), Options{
+		SpecID:           "SPEC-001",
+		SpecPath:         specPath,
+		Direction:        DirectionIn,
+		ConflictStrategy: ConflictForce,
+		OwnerRole:        "tl",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	for _, applied := range report.InboundApplied {
+		if applied == "spec_001_test" {
+			t.Fatal("title section was applied inbound")
+		}
+	}
+	data, _ := os.ReadFile(specPath)
+	if string(data) != string(original) {
+		t.Fatalf("spec rewritten:\n got: %q\nwant: %q", string(data), string(original))
+	}
+}
+
+func TestRun_Outbound_ExcludesTitleSectionFromState(t *testing.T) {
+	specPath := writeSpec(t, wipeSpec)
+	db := openMemoryDB(t)
+
+	report, err := NewEngine(&fakeDocs{}, db).Run(context.Background(), Options{
+		SpecID:    "SPEC-001",
+		SpecPath:  specPath,
+		Direction: DirectionOut,
+		OwnerRole: "tl",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	for _, slug := range report.OutboundSections {
+		if slug == "spec_001_test" {
+			t.Fatal("title heading listed as an outbound section")
+		}
+	}
+	state, err := db.SyncStateGet("SPEC-001", "spec_001_test", "out")
+	if err != nil {
+		t.Fatalf("SyncStateGet() error = %v", err)
+	}
+	if state != nil {
+		t.Fatalf("state recorded for title section = %#v, want nil", state)
+	}
+}
