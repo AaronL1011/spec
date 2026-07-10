@@ -1,41 +1,44 @@
-# spec — Work _flow_ in the Terminal
+# spec — developer workflow in the terminal
 
-`spec` was built for flow. Born out of desire to escape the tangled webs of
-development lifecycle software — free to solve problems in peace and serenity.
+`spec` is a terminal control plane for turning an idea into reviewed,
+implemented work.
 
-It keeps spec documents, pipeline state, decisions, review context, and build
-context in one workflow.
+It keeps specifications, pipeline state, decisions, review threads, build
+plans, and coding-agent context together. Markdown in Git remains the source
+of truth; the interactive terminal UI is where people read and move the work.
 
-Run `spec` with no arguments to open the interactive terminal dashboard. The
-dashboard is the primary interface for day-to-day work: triage incoming items,
-read specs, advance stages, review work, and start builds from one keyboard-driven
-view. The same actions are also available as commands for scripts, CI, and
-automation.
+```bash
+brew install aaronl1011/tap/spec
+spec
+```
+
+On first run, `spec` opens an onboarding wizard. It collects your identity,
+connects you to your team's specs repository, and then opens the dashboard —
+no config files to find or commands to memorise first.
 
 ![Demonstration of a spec review](docs/demos/demo.gif)
 
-> **New here?** Start with the **[QUICKSTART guide →](docs/QUICKSTART.md)**.
+> New here? Follow the **[TUI-first quickstart](docs/QUICKSTART.md)**.
 
 ---
 
-## Why spec?
+## What spec gives you
 
-- **A terminal-first workflow.** A streamlined TUI is the primary surface:
-  six tabs, keyboard navigation, drill-down spec reading and inline actions for
-  triage, stage changes, reviews, and builds. Commands provide the same operations
-  for scripting and CI.
-- **One place for the work.** Specs, pipeline state, decisions, reviews, and build
-  context live together.
-- **Configurable pipeline state.** Stages, gates, and automated effects are
-  config-driven. Start from a preset and adjust it as your process changes.
-- **Markdown in git as the source of truth.** No proprietary database, no lock-in.
-  A spec is a structured `SPEC-NNN.md` you can read, diff, and review.
-- **Local-first and resilient.** Every integration is optional. Unconfigured tools
-  use noop adapters. `spec` works fully offline.
-- **Agent build context.** `spec build` assembles structured context for coding agents
-  (Pi, Claude Code, Cursor, Copilot) over an MCP server or a context file.
-- **AI is optional.** Drafting features are available when configured; the core
-  workflow works without them.
+- **A daily terminal workspace.** Run `spec` to see what to do, what needs
+  review, what is incoming, and what is blocked.
+- **A readable review cockpit.** Move through a spec section by section,
+  traverse every discussion thread, anchor comments to exact blocks, filter
+  review work, and track unread replies.
+- **A configurable delivery pipeline.** Teams define stages, ownership,
+  advancement gates, warnings, and transition effects.
+- **Git-backed specifications.** Specs are structured Markdown, reviewable in
+  normal Git tooling and usable without a hosted spec database.
+- **Integrated build context.** Build plans become a dependency graph that
+  `spec build` can hand to Pi or Claude Code through MCP.
+- **Progressive enhancement.** Git is enough to start. Jira, Confluence,
+  GitHub, Slack, Teams, deployment, and AI integrations are optional.
+- **A scriptable CLI when you need it.** TUI actions have command equivalents
+  for automation, CI, hooks, and advanced workflows.
 
 ---
 
@@ -47,9 +50,9 @@ automation.
 brew install aaronl1011/tap/spec
 ```
 
-### Go install
+### Go
 
-Requires Go 1.25+.
+Requires Go 1.25.8 or newer.
 
 ```bash
 go install github.com/aaronl1011/spec@latest
@@ -57,153 +60,212 @@ go install github.com/aaronl1011/spec@latest
 
 ### Prebuilt binaries
 
-Download from [GitHub Releases](https://github.com/aaronl1011/spec/releases) for
-linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64.
+Download a release for Linux, macOS, or Windows from
+[GitHub Releases](https://github.com/aaronl1011/spec/releases).
 
 ### Build from source
 
 ```bash
 git clone https://github.com/aaronl1011/spec.git
 cd spec
-make build      # → ./bin/spec
+make build                 # writes ./bin/spec
 ```
 
-Verify:
+Verify the install:
 
 ```bash
 spec version
-spec --help
-```
-
-### Shell completions & man pages
-
-```bash
-make install              # build + install to ~/.local/bin
-make install-completions  # auto-detects bash / zsh / fish
-make install-man          # install man pages (spec(1), spec-advance(1), …)
 ```
 
 ---
 
-## The 30-second tour
-
-Set up once, then open the dashboard:
+## Start here: run `spec`
 
 ```bash
-spec config init --user        # set up your identity (once)
-spec join acme/specs           # join your team's specs repo
-spec                           # open the interactive dashboard
+spec
 ```
 
-Inside the dashboard, use the keyboard to read and act on work: `enter` opens a
-spec, `a` advances it, `b` starts or resumes a build, `f` toggles focus, and `n`
-creates a new spec. The same operations are available as commands:
+If this is your first run, the wizard guides you through two steps:
+
+1. **Identity** — name, role, and an optional stable spec handle.
+2. **Team** — join an existing specs repository using `org/repo` or a full
+   GitHub, GitLab, or Bitbucket URL.
+
+Set the provider token before starting, or paste it into the password field:
 
 ```bash
-spec new --title "Auth fix"    # scaffold a spec
-spec focus SPEC-042            # set your working context
-spec advance                   # advance through the pipeline
-spec do                        # resume where you left off
+export SPEC_GITHUB_TOKEN="..."     # or SPEC_GITLAB_TOKEN / SPEC_BITBUCKET_TOKEN
+spec
 ```
 
-Once you `spec focus` a spec, most commands infer the ID automatically — no need to
-repeat it. The full walkthrough lives in the **[QUICKSTART guide →](docs/QUICKSTART.md)**.
+After joining, the wizard opens the dashboard directly.
+
+Creating a brand-new team is an administrative path. Choose **Create a new
+team** in onboarding, then run `spec config init` in the repository that will
+hold `spec.config.yaml`. See [Configuration](docs/CONFIGURATION.md).
+
+### Your first minute in the TUI
+
+```text
+j / k or arrows   move
+enter             open the selected item
+1 … 6             Dashboard, Pipeline, Specs, Triage, Reviews, Settings
+?                 help for the current screen
+/                 search specs
+esc               go back; twice at top level exits
+```
+
+A useful first pass:
+
+1. Press `3` to browse all specs.
+2. Select a spec and press `enter` for its overview.
+3. Press `o` to open the reader.
+4. Use `]` / `[` for sections and `n` / `p` for discussion threads.
+5. Press `esc` to return, then `1` for your personal dashboard.
+
+See the full [TUI guide](docs/TUI.md) for lifecycle actions, triage, the review
+cockpit, and Settings.
+
+---
+
+## The workflow
+
+### Capture work
+
+Use `i` in the TUI for a lightweight triage item, or `n` for a full spec. A PM
+can promote a triage item later with `p` from its detail pane.
+
+### Shape and review the spec
+
+Specs move through the team's configured pipeline. Ownership and gates make the
+next action visible without hiding the underlying document.
+
+In the reader:
+
+- `A` selects a paragraph, list item, table row, or code block and asks a
+  precisely anchored question;
+- `n` / `p` traverse matching threads across the whole document;
+- `r`, `x`, and `u` reply, resolve, or preserve something as unread;
+- `f` cycles open, all, mine, and unread views.
+
+### Plan and build
+
+Engineers add build steps and dependencies to the technical plan. `b` in the
+TUI, or `spec build`, validates the plan and launches the configured coding
+agent with deterministic spec and repository context.
+
+### Advance with confidence
+
+`a` advances the selected spec only after its current gates pass. Configured
+effects can publish documentation, update Jira, notify a channel, or trigger a
+webhook. Integration failures degrade without corrupting pipeline state.
+
+---
+
+## TUI and CLI: clear responsibilities
+
+**Use the TUI for human workflow:** onboarding, finding work, reading specs,
+triage, discussion, lifecycle actions, builds, and personal settings.
+
+**Use commands for explicit or automated tasks:** scripts, CI, configuration
+administration, detailed build-plan editing, integration preflight, and MCP.
+
+Once a spec is focused, commands can usually omit its ID:
+
+```bash
+spec focus SPEC-042
+spec status
+spec validate
+spec build --check
+spec do
+```
+
+The TUI and CLI share the same Git-backed specs, local focus, read-state, and
+build ledger.
 
 ---
 
 ## Core concepts
 
-### The spec
+### Specs repository
 
-A `SPEC-NNN.md` is a structured markdown document with YAML frontmatter and
-role-scoped sections. `<!-- owner: role -->` markers define who can write to each
-section, which powers section-scoped sync (a PM edits the problem statement in
-Confluence, an engineer edits the technical plan in the terminal) and gate
-validation (you can't advance past design if the design inputs are empty).
+The team repository contains the shared config at its root and the documents
+under `specs/`:
 
-### The pipeline
-
-Specs flow through configurable stages — each with an owner role, gates that must
-pass before advancing, and effects that fire on transition (notify a channel, sync
-to docs, log a decision). Start from a preset (`minimal`, `startup`, `product`,
-`platform`, `kanban`) and customise from there.
-
-### Focus mode
-
-Most commands operate on a single spec. Set a focused spec once with `spec focus`
-and it persists across terminal sessions. Commands such as `spec status`,
-`spec advance`, and `spec build` use the focused spec unless you pass an explicit
-ID.
-
-### Interfaces
-
-`spec` exposes the same workflow through two interfaces.
-
-**The dashboard (TUI)** — running `spec` in an interactive terminal launches a
-persistent, auto-refreshing dashboard with six tabs: **Dashboard, Pipeline, Specs,
-Triage, Reviews, Settings**. It supports keyboard navigation, drill-down spec
-reading, inline lifecycle actions (advance, revert, block, focus, build, decide,
-push, sync, archive), and a role-gated triage flow (open a detail view, add notes,
-edit, close, escalate, promote to a spec). Settings are editable live. Destructive
-actions require confirmation.
-
-**The command interface** — every dashboard action is also a first-class command,
-so the workflow can run from scripts, hooks, and CI. In non-interactive
-contexts (pipes, CI) the dashboard falls back to a static render; force it anywhere
-with `--static`.
-
-For the complete command reference, configuration schema, and keybindings, see the
-**[QUICKSTART guide →](docs/QUICKSTART.md)**.
-
-## Development
-
-### Prerequisites
-
-- Go 1.25+
-- Git
-
-### Common tasks
-
-```bash
-make build        # → ./bin/spec
-make install      # → $BINDIR/spec (default ~/.local/bin)
-make test         # go test ./... -race -count=1
-make test-cover   # coverage report → coverage.html
-make lint         # go vet + golangci-lint
-make fmt          # gofmt -s -w .
-make docs         # regenerate man pages into docs/man/
+```text
+spec.config.yaml
+specs/
+├── SPEC-042.md
+├── SPEC-042.threads.yaml
+├── triage/TRIAGE-088.md
+└── archive/SPEC-001.md
 ```
 
-## Contributing
+Joining creates a managed local clone at
+`~/.spec/repos/<owner>/<repo>/`. `spec` reads and writes through that clone and
+publishes changes according to the team's `sync.auto_push` policy.
 
-Contributions are welcome. To keep the codebase coherent:
+### Pipeline
 
-1. **Read [`AGENTS.md`](AGENTS.md)** — it defines the Go standards, naming, error
-   handling, and design principles (KISS, loose coupling, robustness) we hold to.
-2. **Adding a command:** create `cmd/<name>.go` (flags only), call into `internal/`
-   for all logic, and register it with `rootCmd.AddCommand()` in `init()`.
-3. **Adding an adapter:** implement the category interface from
-   `internal/adapter/<category>.go` in `internal/adapter/<provider>/`, then wire it
-   into the registry by provider string — engine code never changes.
-4. **Commits:** use [Conventional Commits](https://www.conventionalcommits.org/)
-   (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`). One logical change
-   per commit.
-5. **Before opening a PR:** run `make fmt lint test` clean. PR descriptions should
-   reference the spec (`Implements US-12` / `Addresses §7.9`).
+A pipeline is an ordered set of stages. Each stage may define:
 
-The full product specification and PR stack plan live in [`SPEC.md`](SPEC.md).
+- one or more owning roles;
+- gates that must pass before advancement;
+- dashboard scope and claim behavior;
+- warnings, review requirements, and auto-advance rules;
+- effects on entry, exit, advance, or revert.
+
+Choose a built-in preset or define stages directly. The interactive preset
+selector is available through `spec config init`.
+
+### Identity and ownership
+
+Your local identity includes a name, role, stable spec handle, and optional
+provider-specific identities. It controls personal queues, section ownership,
+assignment matching, thread authorship, and integration calls.
+
+Personal settings live in `~/.spec/config.yaml` and are never committed. Shared
+team behavior lives in `spec.config.yaml` and is committed.
+
+### Focus
+
+Focus is the CLI's working context. In the TUI press `f` on a spec; from the
+shell run `spec focus SPEC-042`. Commands such as `status`, `advance`, `plan`,
+`steps`, and `build` then infer that ID.
 
 ---
 
-## Project layout & further reading
+## Documentation
 
-| Document | Purpose |
-|---|---|
-| **[QUICKSTART.md](docs/QUICKSTART.md)** | Setup, configuration, and day-to-day usage |
-| [SPEC.md](SPEC.md) | Full product specification and PR stack plan |
-| [AGENTS.md](AGENTS.md) | Coding standards for contributors and AI agents |
+| Guide | Use it for |
+| --- | --- |
+| **[Quickstart](docs/QUICKSTART.md)** | First run and first TUI workflow |
+| **[TUI guide](docs/TUI.md)** | Reader, review, triage, actions, Settings |
+| **[Configuration](docs/CONFIGURATION.md)** | Team and pipeline config |
+| **[Agent integration](docs/AGENT_INTEGRATION.md)** | MCP build-port contract |
+| **[Team contract](docs/TEAM_CONTRACT.md)** | Collaboration conventions |
+| [SPEC.md](SPEC.md) | Product specification and architecture |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
-| `docs/man/` | Man pages, generated on demand (`make docs` creates them) |
+
+Use `spec --help`, `spec <command> --help`, and `?` inside the TUI for the
+reference closest to your current task.
+
+---
+
+## Development and contributing
+
+Requires Go 1.25.8+ and Git.
+
+```bash
+make build
+make test
+make lint-strict
+make docs
+```
+
+Read [`AGENTS.md`](AGENTS.md) before contributing. It defines architecture,
+Go, testing, lint, and commit conventions. Contributions use conventional
+commits and should reference the relevant product specification or discussion.
 
 ---
 

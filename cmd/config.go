@@ -25,17 +25,18 @@ var configInitCmd = &cobra.Command{
 
 var configTestCmd = &cobra.Command{
 	Use:   "test",
-	Short: "Validate all configured integrations",
+	Short: "Show resolved config and integration status (no network calls)",
 	RunE:  runConfigTest,
 }
 
 var configCheckCmd = &cobra.Command{
 	Use:   "check",
-	Short: "Preflight-validate live integrations (PM credentials, project, board, workflow)",
-	Long: `Validate configured integrations against their live APIs before they are
-used. For Jira, this verifies authentication, the project, the configured
-issue types, and the board, then prints the project's workflow statuses so you
-can author an accurate pm.status_map.`,
+	Short: "Preflight live PM/Jira configuration",
+	Long: `Preflight the configured PM integration against its live API. The
+current implementation validates Jira authentication, project, issue types,
+and board, then prints the project's workflow statuses so you can author an
+accurate pm.status_map. Other integration categories are not called by this
+command.`,
 	RunE: runConfigCheck,
 }
 
@@ -345,7 +346,7 @@ func runConfigTest(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Println("Configuration test results:")
+	fmt.Println("Configuration status:")
 	fmt.Println()
 
 	// User config
