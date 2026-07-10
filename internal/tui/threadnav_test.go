@@ -189,6 +189,20 @@ func TestStepThread_CrossesSectionBoundary(t *testing.T) {
 	}
 }
 
+func TestStepThread_ForwardWrapShowsReviewPassSummary(t *testing.T) {
+	m := cockpitModel()
+	m.threads = []thread.Thread{threadIn("T-1", "problem_statement", "q1")}
+	m.selectedThreadID = "T-1"
+	m.reviewVisited["T-1"] = true
+	out, cmd := m.stepThread(1)
+	if !out.reviewPassComplete || cmd == nil {
+		t.Error("forward wrap should pause on a review-pass summary")
+	}
+	if out.selectedThreadID != "T-1" {
+		t.Error("summary should preserve the last reviewed thread")
+	}
+}
+
 func TestStepThread_MarksSeen(t *testing.T) {
 	m := cockpitModel()
 	th := threadIn("T-1", "problem_statement", "q1")

@@ -38,10 +38,9 @@ func TestResolveAnchor(t *testing.T) {
 			wantLine: 3,
 		},
 		{
-			name:     "duplicate without prefix picks first",
-			quote:    "The gate can require review.",
-			found:    true,
-			wantLine: 0,
+			name:  "duplicate without prefix is ambiguous",
+			quote: "The gate can require review.",
+			found: false,
 		},
 		{
 			name:  "absent quote is a graceful miss",
@@ -68,10 +67,10 @@ func TestResolveAnchor(t *testing.T) {
 	}
 }
 
-func TestResolveAnchor_PrefixMissFallsBackToFirst(t *testing.T) {
+func TestResolveAnchor_PrefixMissIsAmbiguous(t *testing.T) {
 	body := "alpha beta\ngamma\nalpha beta\n"
 	got := ResolveAnchor(body, "alpha beta", "nonexistent prefix")
-	if !got.Found || got.Line != 0 {
-		t.Errorf("expected fallback to first match at line 0, got %+v", got)
+	if got.Found || !got.Ambiguous {
+		t.Errorf("expected visible ambiguous miss, got %+v", got)
 	}
 }

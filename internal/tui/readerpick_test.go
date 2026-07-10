@@ -55,6 +55,9 @@ func TestPickMode_EnterCapturesBlockQuote(t *testing.T) {
 	for m.pickLine < target {
 		m, _ = m.updatePickMode(tea.KeyPressMsg{Code: tea.KeyDown})
 	}
+	for m.pickLine > target {
+		m, _ = m.updatePickMode(tea.KeyPressMsg{Code: tea.KeyUp})
+	}
 
 	m, _ = m.updatePickMode(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.pickMode {
@@ -72,19 +75,23 @@ func TestPickMode_EnterCapturesBlockQuote(t *testing.T) {
 	}
 }
 
-func TestPickMode_EscFallsBackToSectionAsk(t *testing.T) {
+func TestPickMode_EscCancels(t *testing.T) {
 	m := pickerModel(t)
 	m = m.enterPickMode()
 	m, _ = m.updatePickMode(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.pickMode {
 		t.Error("esc should leave pick mode")
 	}
-	if !m.input.active() || m.input.quote != "" {
-		t.Errorf("esc should fall back to a section-level ask, got quote=%q active=%v",
-			m.input.quote, m.input.active())
+	if m.input.active() {
+		t.Error("esc should cancel rather than silently open a section ask")
 	}
-	if m.input.section != "problem_statement" {
-		t.Errorf("section = %q, want problem_statement", m.input.section)
+}
+
+func TestPickMode_SectionKeyFallsBackToSectionAsk(t *testing.T) {
+	m := pickerModel(t).enterPickMode()
+	m, _ = m.updatePickMode(tea.KeyPressMsg{Text: "s"})
+	if !m.input.active() || m.input.quote != "" || m.input.section != "problem_statement" {
+		t.Errorf("s should open section ask, got %+v", m.input)
 	}
 }
 

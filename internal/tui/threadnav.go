@@ -95,6 +95,26 @@ func (m *specDetailModel) cycleFilter() {
 		}
 		m.unreadSnapshot = snap
 	}
+	m.reconcileThreadSelection()
+	m.rebuildAnchors()
+	m.syncViewportHeight()
+}
+
+// reconcileThreadSelection keeps the selected ID honest after filters or a
+// live sidecar refresh. Rendering never invents a fallback that navigation
+// does not know about.
+func (m *specDetailModel) reconcileThreadSelection() {
+	ordered := m.orderedThreads()
+	if len(ordered) == 0 {
+		m.selectedThreadID = ""
+		return
+	}
+	for _, t := range ordered {
+		if t.ID == m.selectedThreadID {
+			return
+		}
+	}
+	m.selectedThreadID = ordered[0].ID
 }
 
 // ── Read-state ──────────────────────────────────────────────────────────────
@@ -130,14 +150,14 @@ func (m *specDetailModel) markSeen(t thread.Thread) tea.Cmd {
 		m.seen = make(map[string]time.Time)
 	}
 	m.seen[t.ID] = la
-	db, specID, threadID := m.db, m.specID, t.ID
+	db, specID, threadID, viewer := m.db, m.specID, t.ID, m.author()
 	if db == nil {
 		return nil
 	}
 	return func() tea.Msg {
 		// Best-effort: read-state is a progressive enhancement; a failed
 		// write just leaves the thread unread on the next load.
-		_ = db.MarkThreadSeen(specID, threadID, la)
+		_ = db.MarkThreadSeen(specID, threadID, viewer, la)
 		return nil
 	}
 }
@@ -158,13 +178,13 @@ func (m specDetailModel) toggleRead() (specDetailModel, tea.Cmd) {
 	if m.unreadSnapshot != nil {
 		m.unreadSnapshot[t.ID] = true
 	}
-	db, specID, threadID := m.db, m.specID, t.ID
+	db, specID, threadID, viewer := m.db, m.specID, t.ID, m.author()
 	if db == nil {
 		return m, nil
 	}
 	return m, func() tea.Msg {
 		// Best-effort, mirroring markSeen.
-		_ = db.MarkThreadUnseen(specID, threadID)
+		_ = db.MarkThreadUnseen(specID, threadID, viewer)
 		return nil
 	}
 }
@@ -190,7 +210,15 @@ func (m specDetailModel) orderedThreads() []thread.Thread {
 func (m specDetailModel) stepThread(delta int) (specDetailModel, tea.Cmd) {
 	ordered := m.orderedThreads()
 	if len(ordered) == 0 {
-		return m, nil
+		return m, func() tea.Msg {
+			return readerFlashMsg{Text: "no threads match filter: " + m.threadFilter + " · f to change"}
+		}
+	}
+	if m.reviewPassComplete {
+		m.reviewPassComplete = false
+		if delta > 0 {
+			m.selectedThreadID = ""
+		}
 	}
 	cur := -1
 	for i, t := range ordered {
@@ -218,6 +246,10 @@ func (m specDetailModel) stepThread(delta int) (specDetailModel, tea.Cmd) {
 
 	t := ordered[next]
 	m.selectedThreadID = t.ID
+	if m.reviewVisited == nil {
+		m.reviewVisited = make(map[string]bool)
+	}
+	m.reviewVisited[t.ID] = true
 	m.paneVisible = true
 	m.paneFocused = true
 	m.threadScroll = 0
@@ -226,9 +258,19 @@ func (m specDetailModel) stepThread(delta int) (specDetailModel, tea.Cmd) {
 	if cmd := m.markSeen(t); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	if wrapped {
-		text := fmt.Sprintf("wrapped · thread %d/%d", next+1, len(ordered))
-		cmds = append(cmds, func() tea.Msg { return readerFlashMsg{Text: text} })
+	if wrapped && delta > 0 {
+		m.reviewPassComplete = true
+		open, unread := 0, 0
+		for _, candidate := range ordered {
+			if candidate.IsOpen() {
+				open++
+			}
+			if m.isUnread(candidate) {
+				unread++
+			}
+		}
+		text := fmt.Sprintf("review pass complete · %d visited · %d open · %d unread · n continue", len(m.reviewVisited), open, unread)
+		return m, func() tea.Msg { return readerFlashMsg{Text: text} }
 	}
 
 	targetSlug := t.Section
@@ -256,6 +298,34 @@ func (m specDetailModel) stepThread(delta int) (specDetailModel, tea.Cmd) {
 		m.scrollToAnchor(t.ID)
 	}
 	return m, tea.Batch(cmds...)
+}
+
+func (m specDetailModel) threadByID(id string) (thread.Thread, bool) {
+	for _, t := range m.threads {
+		if t.ID == id {
+			return t, true
+		}
+	}
+	return thread.Thread{}, false
+}
+
+func (m specDetailModel) followThread(t thread.Thread) (specDetailModel, tea.Cmd) {
+	target := t.Section
+	if !m.sectionExists(target) {
+		target = unanchoredSlug
+	}
+	for i, section := range m.readableSections() {
+		if section.Slug == target {
+			if i != m.sectionIdx {
+				m.sectionIdx = i
+				m.pendingAnchorThreadID = t.ID
+				return m.requestCurrentSectionRender()
+			}
+			m.scrollToAnchor(t.ID)
+			break
+		}
+	}
+	return m, nil
 }
 
 // sectionExists reports whether a slug resolves against any live section.
@@ -317,7 +387,8 @@ func (m *specDetailModel) rebuildAnchors() {
 		return
 	}
 	sec := sections[m.sectionIdx]
-	m.anchors = buildAnchorMap(sec.Content, m.readerContent, m.allThreadsForSection(sec.Slug))
+	m.anchors = buildAnchorMapState(sec.Content, m.readerContent,
+		m.threadsForSection(sec.Slug), m.selectedThreadID, m.isUnread)
 }
 
 // scrollToAnchor scrolls the reader so the thread's anchor line is visible

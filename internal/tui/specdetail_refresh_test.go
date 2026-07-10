@@ -69,6 +69,34 @@ func TestApplyRefresh_NoOpOnIdenticalHash(t *testing.T) {
 	}
 }
 
+func TestApplyRefresh_SidecarOnlyChangeUpdatesThreads(t *testing.T) {
+	m := loadedReader([]thread.Thread{openThread("T-1", "old")})
+	msg := refreshMsg("hash-v0", m.sections, []thread.Thread{
+		openThread("T-1", "old"), openThread("T-2", "new reply thread"),
+	})
+	msg.ThreadsHash = "sidecar-v2"
+	out, cmd := m.handleDataMsg(msg)
+	if cmd != nil {
+		t.Error("sidecar-only refresh should not rerender markdown")
+	}
+	if len(out.threads) != 2 || out.threadsHash != "sidecar-v2" {
+		t.Errorf("sidecar state not applied: threads=%d hash=%q", len(out.threads), out.threadsHash)
+	}
+}
+
+func TestApplyRefresh_SidecarErrorKeepsLastGoodThreads(t *testing.T) {
+	m := loadedReader([]thread.Thread{openThread("T-1", "known")})
+	msg := refreshMsg("hash-v0", m.sections, nil)
+	msg.ThreadsErr = errBadSidecar{}
+	out, _ := m.handleDataMsg(msg)
+	if len(out.threads) != 1 || out.threads[0].ID != "T-1" {
+		t.Fatalf("last-good threads lost: %+v", out.threads)
+	}
+	if out.notice == "" {
+		t.Error("sidecar error should surface a calm notice")
+	}
+}
+
 func TestApplyRefresh_PreservesThreadSelectionByID(t *testing.T) {
 	threads := []thread.Thread{
 		openThread("T-1", "Why Redis?"),
@@ -151,6 +179,10 @@ func TestHandleDataMsg_DeletedFileKeepsContentWithNotice(t *testing.T) {
 type errFileGone struct{}
 
 func (errFileGone) Error() string { return "spec SPEC-007 not found" }
+
+type errBadSidecar struct{}
+
+func (errBadSidecar) Error() string { return "invalid yaml" }
 
 func TestSelectedThread_EmptySection(t *testing.T) {
 	m := loadedReader(nil)

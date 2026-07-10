@@ -28,21 +28,27 @@ import (
 // ── Messages ──────────────────────────────────────────────────────────────────
 
 type specDetailDataMsg struct {
-	Meta      *markdown.SpecMeta
-	Sections  []markdown.Section
-	Threads   []thread.Thread
-	Seen      map[string]time.Time
-	Hash      string
-	Archived  bool
-	BuildLine string
-	Err       error
+	Meta          *markdown.SpecMeta
+	Sections      []markdown.Section
+	Threads       []thread.Thread
+	Seen          map[string]time.Time
+	Hash          string
+	ThreadsHash   string
+	ThreadsErr    error
+	ResumeSection string
+	ResumeOffset  int
+	Archived      bool
+	BuildLine     string
+	Err           error
 }
 
 // threadsChangedMsg carries the refreshed thread set after a mutation.
 type threadsChangedMsg struct {
-	Threads []thread.Thread
-	Err     error
-	Toast   string
+	Threads      []thread.Thread
+	Err          error
+	Toast        string
+	SelectID     string
+	FollowAnchor bool
 }
 
 type sectionRenderedMsg struct {
@@ -53,7 +59,10 @@ type sectionRenderedMsg struct {
 	RenderMillis int64
 }
 
-type navigateToSpecMsg struct{ SpecID string }
+type navigateToSpecMsg struct {
+	SpecID       string
+	ReviewIntent bool
+}
 type navigateBackMsg struct{}
 
 // readerFlashMsg surfaces a transient reader notice (e.g. the thread stepper
@@ -79,6 +88,7 @@ type specDetailModel struct {
 	err         error
 	notice      string // calm inline notice (e.g. file removed); non-fatal
 	contentHash string
+	threadsHash string
 	isArchived  bool // true if spec is in archive/
 
 	// Overview scroll
@@ -99,15 +109,24 @@ type specDetailModel struct {
 	readerCache    map[string]string
 
 	// Threads — inline Q&A (SPEC-012) + review cockpit (discussion-03)
-	threads          []thread.Thread
-	paneVisible      bool                 // thread pane shown (toggled with 't')
-	paneFocused      bool                 // arrow keys target the pane, not the prose
-	selectedThreadID string               // durable selection — survives refresh and filtering
-	threadScroll     int                  // scroll offset within the (possibly tall) pane body
-	threadFilter     string               // open | all | mine | unread
-	seen             map[string]time.Time // thread ID → latest activity viewed
-	unreadSnapshot   map[string]bool      // traversal set while filter == unread
-	input            threadInput
+	threads            []thread.Thread
+	paneVisible        bool                 // thread pane shown (toggled with 't')
+	paneFocused        bool                 // arrow keys target the pane, not the prose
+	selectedThreadID   string               // durable selection — survives refresh and filtering
+	threadScroll       int                  // scroll offset within the (possibly tall) pane body
+	threadFilter       string               // open | all | mine | unread
+	seen               map[string]time.Time // thread ID → latest activity viewed
+	unreadSnapshot     map[string]bool      // traversal set while filter == unread
+	input              threadInput
+	paneMode           string // peek | review | conversation
+	reviewPassComplete bool
+	reviewVisited      map[string]bool
+	reviewIntent       bool
+	resumeSection      string
+	resumeOffset       int
+	undoThreadID       string
+	undoSection        string
+	undoUntil          time.Time
 
 	// Anchors — rendered-line mapping for the focused section, plus the
 	// pick-mode state for quoted asks. Rebuilt on render/thread changes,
@@ -165,6 +184,8 @@ func newSpecDetail(rc *config.ResolvedConfig, specID string, styles Styles, keys
 		paneVisible:          true,
 		threadFilter:         threadFilterOpen,
 		seen:                 make(map[string]time.Time),
+		paneMode:             paneModeReview,
+		reviewVisited:        make(map[string]bool),
 		pendingScrollRestore: -1,
 	}
 }
@@ -198,10 +219,20 @@ func (m specDetailModel) handleThreadsChanged(msg threadsChangedMsg) (specDetail
 		return m, nil
 	}
 	m.threads = msg.Threads
-	// Selection is by ID, so no clamping is needed — selectedThread falls
-	// back to the section's first thread when the ID is gone. The anchor map
-	// tracks the thread set.
+	if msg.Toast == "Thread change undone" {
+		m.undoThreadID, m.undoSection, m.undoUntil = "", "", time.Time{}
+	}
+	if msg.SelectID != "" {
+		m.selectedThreadID = msg.SelectID
+	}
+	m.reconcileThreadSelection()
 	m.rebuildAnchors()
+	m.syncViewportHeight()
+	if msg.FollowAnchor && msg.SelectID != "" {
+		if t, ok := m.threadByID(msg.SelectID); ok {
+			return m.followThread(t)
+		}
+	}
 	return m, nil
 }
 
@@ -219,10 +250,24 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 		return m, nil
 	}
 	m.notice = ""
-	// No change — skip re-render. Hash-gating keeps an unchanged file (or an
-	// editor's identical re-save) from disturbing the view at all. The build
-	// line still refreshes: an agent may advance a step via MCP without
-	// touching the spec file.
+	// Thread and read-state application is independent of the markdown render
+	// hash. A sidecar-only watcher event must update the cockpit even when the
+	// spec body is byte-identical.
+	if m.meta != nil {
+		if msg.ThreadsErr != nil {
+			m.notice = "threads file unreadable — showing last known state · see spec ask --list"
+		} else {
+			m.threads = msg.Threads
+			m.threadsHash = msg.ThreadsHash
+			m.reconcileThreadSelection()
+			m.rebuildAnchors()
+		}
+		if msg.Seen != nil {
+			m.seen = msg.Seen
+		}
+	}
+	// No content change — skip only the markdown re-render. The build line,
+	// threads, and read-state above have already refreshed.
 	if msg.Hash != "" && msg.Hash == m.contentHash && m.meta != nil {
 		m.err = nil
 		m.buildLine = msg.BuildLine
@@ -236,6 +281,10 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	m.meta = msg.Meta
 	m.sections = msg.Sections
 	m.threads = msg.Threads
+	m.threadsHash = msg.ThreadsHash
+	if msg.ThreadsErr != nil {
+		m.notice = "threads file unreadable — discussion unavailable · see spec ask --list"
+	}
 	if msg.Seen != nil {
 		m.seen = msg.Seen
 	}
@@ -245,7 +294,9 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	m.buildLine = msg.BuildLine
 	m.readerCache = make(map[string]string)
 	m.contentLines = m.estimateContentLines()
+	m.resumeSection, m.resumeOffset = msg.ResumeSection, msg.ResumeOffset
 	m.applyPendingSection()
+	m.applyReviewIntent()
 	if m.readerMode {
 		if sections := m.readableSections(); m.sectionIdx >= len(sections) {
 			m.sectionIdx = max(0, len(sections)-1)
@@ -261,6 +312,27 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 // reader mode on the requested section. If the slug no longer exists (the spec
 // was edited since indexing), it lands on the first readable section and notes
 // the move. No-op when no deep-link is pending.
+func (m *specDetailModel) applyReviewIntent() {
+	if !m.reviewIntent {
+		return
+	}
+	m.reviewIntent = false
+	m.readerMode = true
+	if ordered := m.orderedThreads(); len(ordered) > 0 {
+		t := ordered[0]
+		m.selectedThreadID = t.ID
+		m.paneFocused = true
+		for i, section := range m.readableSections() {
+			if section.Slug == t.Section {
+				m.sectionIdx = i
+				m.pendingAnchorThreadID = t.ID
+				return
+			}
+		}
+	}
+	m.sectionIdx = m.firstReadableSectionIndex()
+}
+
 func (m *specDetailModel) applyPendingSection() {
 	if m.pendingSectionSlug == "" {
 		return
@@ -297,7 +369,12 @@ func (m specDetailModel) applyRefresh(msg specDetailDataMsg) (specDetailModel, t
 
 	m.meta = msg.Meta
 	m.sections = msg.Sections
-	m.threads = msg.Threads
+	if msg.ThreadsErr == nil {
+		m.threads = msg.Threads
+		m.threadsHash = msg.ThreadsHash
+	} else {
+		m.notice = "threads file unreadable — showing last known state · see spec ask --list"
+	}
 	if msg.Seen != nil {
 		m.seen = msg.Seen
 	}
@@ -428,6 +505,13 @@ func (m specDetailModel) updateOverview(msg tea.KeyPressMsg) (specDetailModel, t
 	case key.Matches(msg, m.keys.Open):
 		m.readerMode = true
 		m.sectionIdx = m.firstReadableSectionIndex()
+		for i, section := range m.readableSections() {
+			if section.Slug == m.resumeSection {
+				m.sectionIdx = i
+				m.pendingScrollRestore = m.resumeOffset
+				break
+			}
+		}
 		m.scroll = 0
 		return m.requestCurrentSectionRender()
 	case key.Matches(msg, m.keys.Back):
@@ -485,6 +569,7 @@ func (m specDetailModel) updateReader(msg tea.KeyPressMsg) (specDetailModel, tea
 	case msg.Text == "]":
 		return m.withSection(m.sectionIdx + 1)
 	case msg.Text == "f":
+		m.reviewPassComplete = false
 		m.cycleFilter()
 		return m, nil
 	case msg.Text == "u":
@@ -503,6 +588,9 @@ func (m specDetailModel) updateReader(msg tea.KeyPressMsg) (specDetailModel, tea
 				return m.withSection(i)
 			}
 		}
+	case m.reviewPassComplete && key.Matches(msg, m.keys.Back):
+		m.reviewPassComplete = false
+		return m, nil
 	case key.Matches(msg, m.keys.Open), key.Matches(msg, m.keys.Back):
 		m.cancelRender()
 		m.readerMode = false
@@ -778,10 +866,7 @@ func (m specDetailModel) sectionAtClick(x, y int) (int, bool) {
 // The thread pane drops to a full-width bottom drawer so the prose stays
 // readable.
 func (m specDetailModel) viewReaderNarrow() string {
-	// Cap the pane to roughly half the reader so prose stays visible; the pane
-	// body scrolls when a thread is taller than its budget.
-	paneBudget := max(m.height/2, 6)
-	pane := m.renderThreadPane(max(m.width, 20), paneBudget)
+	pane := m.renderThreadPane(max(m.width, 20), m.readerPaneBudget())
 	if len(pane) == 0 {
 		return m.readerBodyView()
 	}
@@ -806,10 +891,7 @@ func (m specDetailModel) viewReaderWithSidebar() string {
 	// content column to exactly `visible` rows: prose on top, pane pinned to
 	// the bottom, so the input line is always the last visible row.
 	contentWidth := max(m.width-sidebarWidth-1, 20)
-	// Cap the pane to roughly half the reader so prose stays visible; the pane
-	// body scrolls when a thread is taller than its budget.
-	paneBudget := max(visible/2, 6)
-	pane := m.renderThreadPane(contentWidth, paneBudget)
+	pane := m.renderThreadPane(contentWidth, m.readerPaneBudget())
 	content := composeContentColumn(m.readerBodyView(), pane, visible)
 
 	sep := m.styles.Separator.Render(GlyphVSep)
@@ -1083,6 +1165,7 @@ func (m specDetailModel) readerCacheKey(sec markdown.Section, idx, width int) st
 func (m *specDetailModel) applyReaderContent(content string) {
 	m.readerContent = content
 	m.readerViewport.SetContent(content)
+	m.syncViewportHeight()
 	m.contentLines = m.readerViewport.TotalLineCount()
 	if m.contentLines == 0 {
 		m.contentLines = 1
@@ -1102,7 +1185,7 @@ func (m *specDetailModel) setSize(w, h int) {
 	m.width = w
 	m.height = h
 	m.readerViewport.SetWidth(m.effectiveWidth())
-	m.readerViewport.SetHeight(max(h, 3))
+	m.syncViewportHeight()
 	if m.readerMode && m.effectiveWidth() != oldWidth {
 		// Width changed — cached renders are invalid at new width.
 		m.readerCache = make(map[string]string)
@@ -1234,23 +1317,33 @@ func (m specDetailModel) fetchData() tea.Cmd {
 		if err != nil {
 			return specDetailDataMsg{Err: err}
 		}
-		// Threads are a best-effort sidecar load: a parse error must never
-		// block reading the spec.
-		threads, _ := thread.NewSidecarStore(filepath.Dir(path)).List(specID)
+		threadStore := thread.NewSidecarStore(filepath.Dir(path))
+		threads, threadsErr := threadStore.List(specID)
+		threadsHash, hashErr := fileContentHash(threadStore.SidecarPath(specID))
+		if hashErr != nil && !os.IsNotExist(hashErr) && threadsErr == nil {
+			threadsErr = hashErr
+		}
 		var seen map[string]time.Time
+		var resumeSection string
+		var resumeOffset int
 		if db != nil {
 			// Best-effort: read-state is a progressive enhancement; a DB
 			// error just renders every thread unread.
-			seen, _ = db.ThreadSeen(specID)
+			seen, _ = db.ThreadSeen(specID, m.author())
+			resumeSection, resumeOffset, _ = db.ReaderPositionGet(specID)
 		}
 		return specDetailDataMsg{
-			Meta:      meta,
-			Sections:  markdown.ExtractSections(content),
-			Threads:   threads,
-			Seen:      seen,
-			Hash:      contentHash(data),
-			Archived:  isArchived,
-			BuildLine: buildStatusLine(db, specID, content),
+			Meta:          meta,
+			Sections:      markdown.ExtractSections(content),
+			Threads:       threads,
+			Seen:          seen,
+			Hash:          contentHash(data),
+			ThreadsHash:   threadsHash,
+			ThreadsErr:    threadsErr,
+			ResumeSection: resumeSection,
+			ResumeOffset:  resumeOffset,
+			Archived:      isArchived,
+			BuildLine:     buildStatusLine(db, specID, content),
 		}
 	}
 }
@@ -1305,4 +1398,12 @@ func acceptanceCounts(content string) (total, checked int) {
 func contentHash(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func fileContentHash(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return contentHash(data), nil
 }

@@ -28,6 +28,8 @@ type Store interface {
 	// Resolve marks a thread resolved. Resolving an already-resolved thread
 	// is a no-op that returns the thread unchanged.
 	Resolve(specID, threadID, by string) (Thread, error)
+	// Reopen undoes a resolution.
+	Reopen(specID, threadID string) (Thread, error)
 }
 
 // document is the on-disk shape of a sidecar file.
@@ -187,6 +189,25 @@ func (s *SidecarStore) Resolve(specID, threadID, by string) (Thread, error) {
 	doc.Threads[idx].Status = StatusResolved
 	doc.Threads[idx].ResolvedBy = strings.TrimSpace(by)
 	doc.Threads[idx].ResolvedAt = &at
+	if err := s.save(specID, doc); err != nil {
+		return Thread{}, err
+	}
+	return doc.Threads[idx], nil
+}
+
+// Reopen clears resolution metadata and returns a thread to open status.
+func (s *SidecarStore) Reopen(specID, threadID string) (Thread, error) {
+	doc, err := s.load(specID)
+	if err != nil {
+		return Thread{}, err
+	}
+	idx := indexOf(doc.Threads, threadID)
+	if idx < 0 {
+		return Thread{}, fmt.Errorf("thread %s not found in %s", threadID, normalizeID(specID))
+	}
+	doc.Threads[idx].Status = StatusOpen
+	doc.Threads[idx].ResolvedBy = ""
+	doc.Threads[idx].ResolvedAt = nil
 	if err := s.save(specID, doc); err != nil {
 		return Thread{}, err
 	}

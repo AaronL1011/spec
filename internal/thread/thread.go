@@ -83,10 +83,14 @@ func (t Thread) IsOpen() bool { return t.Status != StatusResolved }
 // reply's time when replies exist, else the creation time. Read-state
 // tracking compares against this so a new reply re-marks a thread unread.
 func (t Thread) LastActivity() time.Time {
-	if n := len(t.Replies); n > 0 {
-		return t.Replies[n-1].At
+	latest := t.Created
+	if n := len(t.Replies); n > 0 && t.Replies[n-1].At.After(latest) {
+		latest = t.Replies[n-1].At
 	}
-	return t.Created
+	if t.ResolvedAt != nil && t.ResolvedAt.After(latest) {
+		latest = *t.ResolvedAt
+	}
+	return latest
 }
 
 // Participants returns the deduplicated set of handles involved in a thread:

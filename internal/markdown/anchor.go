@@ -5,112 +5,165 @@ import (
 	"unicode"
 )
 
-// AnchorMatch locates a quote within section content.
+// AnchorMatch locates a quote within section content. Ambiguous means the
+// quote exists more than once and its prefix did not identify one occurrence.
 type AnchorMatch struct {
-	Found bool
-	Line  int // 0-based line within the section body where the quote starts
-	Col   int // 0-based byte offset within that line
+	Found     bool
+	Ambiguous bool
+	Line      int
+	Col       int
 }
 
-// AnchorToken is one normalised word of a text, tagged with its position in
-// the original source so a token match can be mapped back to a line. The
-// reader's rendered-side anchor mapping tokenises Glamour output through the
-// same function, which is what makes source and rendered matching agree.
+// AnchorToken is one normalised word tagged with its original position.
 type AnchorToken struct {
 	Text string
 	Line int
 	Col  int
 }
 
-// ResolveAnchor finds quote (disambiguated by prefix) within sectionBody.
-// Matching is whitespace-normalised and markdown-tolerant (emphasis and
-// punctuation at token edges are ignored) so reflowed or lightly reworded
-// markdown still resolves. When the quote is absent, Found is false and the
-// caller anchors to the section — a miss is a graceful degrade, never an
-// error.
+// ResolveAnchor finds quote within sectionBody. An ambiguous match is a
+// graceful miss: callers degrade to the section rather than silently choosing
+// the first occurrence.
 func ResolveAnchor(sectionBody, quote, prefix string) AnchorMatch {
 	body := TokenizeAnchor(sectionBody)
-	idx, ok := ResolveAnchorTokens(body, quote, prefix)
+	idx, ok, ambiguous := ResolveAnchorTokens(body, quote, prefix)
 	if !ok {
-		return AnchorMatch{}
+		return AnchorMatch{Ambiguous: ambiguous}
 	}
 	return AnchorMatch{Found: true, Line: body[idx].Line, Col: body[idx].Col}
 }
 
-// ResolveAnchorTokens finds quote (disambiguated by prefix) within a
-// pre-tokenised stream, returning the index of the first matched token.
-// It reports ok=false when the quote has no alphanumeric content or does not
-// occur in the stream.
-func ResolveAnchorTokens(body []AnchorToken, quote, prefix string) (int, bool) {
-	want := tokenTexts(TokenizeAnchor(quote))
-	if len(want) == 0 || len(body) < len(want) {
-		return 0, false
+// ResolveAnchorTokens finds one uniquely identified quote occurrence.
+//
+// Matching runs over a concatenated character stream of the normalised
+// tokens rather than token-by-token: renderers move word boundaries (inline
+// code gains padding spaces, long words reflow), so `n`/`p` may tokenise as
+// one word in markdown source and two in rendered output. Character-stream
+// matching is immune to boundary drift while staying whitespace-, markup-,
+// and case-insensitive.
+func ResolveAnchorTokens(body []AnchorToken, quote, prefix string) (idx int, ok, ambiguous bool) {
+	stream := newAnchorStream(body)
+	want := concatTokens(TokenizeAnchor(quote))
+	if want == "" || len(stream.text) < len(want) {
+		return 0, false, false
 	}
-	matches := findTokenRuns(body, want)
-	if len(matches) == 0 {
-		return 0, false
+	matches := stream.occurrences(want)
+	switch len(matches) {
+	case 0:
+		return 0, false, false
+	case 1:
+		return stream.tokenAt(matches[0]), true, false
 	}
-	idx := matches[0]
-	if len(matches) > 1 {
-		idx = disambiguateByPrefix(body, matches, prefix)
+	matched := stream.prefixMatches(matches, prefix)
+	if len(matched) == 1 {
+		return stream.tokenAt(matched[0]), true, false
 	}
-	return idx, true
+	return 0, false, true
 }
 
-// findTokenRuns returns every index in body where want occurs contiguously.
-func findTokenRuns(body []AnchorToken, want []string) []int {
-	var matches []int
-	for i := 0; i+len(want) <= len(body); i++ {
-		ok := true
-		for j, w := range want {
-			if body[i+j].Text != w {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			matches = append(matches, i)
+// looseMinChars is the shortest quote head ResolveAnchorTokensLoose will try
+// before giving up — short enough to survive aggressive truncation, long
+// enough to keep accidental matches unlikely.
+const looseMinChars = 16
+
+// ResolveAnchorTokensLoose matches like ResolveAnchorTokens but tolerates
+// renderer-side truncation: Glamour clips long code lines and ellipsises wide
+// table cells, so a block's full text may be absent from rendered output even
+// though its head is on screen. It binary-searches the longest head of the
+// quote that still occurs (occurrence is monotone in head length) and accepts
+// it when the head is either the whole quote or long enough to be
+// distinctive. Ambiguity still degrades — the head must identify exactly one
+// position.
+func ResolveAnchorTokensLoose(body []AnchorToken, quote, prefix string) (idx int, ok, ambiguous bool) {
+	stream := newAnchorStream(body)
+	want := concatTokens(TokenizeAnchor(quote))
+	if want == "" || len(stream.occurrences(want[:1])) == 0 {
+		return 0, false, false
+	}
+	lo, hi := 1, len(want)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if len(stream.occurrences(want[:mid])) > 0 {
+			lo = mid
+		} else {
+			hi = mid - 1
 		}
 	}
-	return matches
+	if lo < min(looseMinChars, len(want)) {
+		return 0, false, false // head too short to be distinctive
+	}
+	matches := stream.occurrences(want[:lo])
+	if len(matches) == 1 {
+		return stream.tokenAt(matches[0]), true, false
+	}
+	if matched := stream.prefixMatches(matches, prefix); len(matched) == 1 {
+		return stream.tokenAt(matched[0]), true, false
+	}
+	return 0, false, true
 }
 
-// disambiguateByPrefix picks the match whose preceding tokens end with the
-// prefix token stream, falling back to the first match when none (or no
-// prefix) qualifies.
-func disambiguateByPrefix(body []AnchorToken, matches []int, prefix string) int {
-	pre := tokenTexts(TokenizeAnchor(prefix))
-	if len(pre) == 0 {
-		return matches[0]
-	}
-	for _, m := range matches {
-		if m < len(pre) {
-			continue
-		}
-		ok := true
-		for j, p := range pre {
-			if body[m-len(pre)+j].Text != p {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			return m
+// anchorStream is the concatenated normalised text of a token slice, with a
+// per-character map back to the originating token.
+type anchorStream struct {
+	text   string
+	tokIdx []int
+}
+
+func newAnchorStream(body []AnchorToken) anchorStream {
+	var b strings.Builder
+	var tokIdx []int
+	for i, tok := range body {
+		b.WriteString(tok.Text)
+		for range len(tok.Text) {
+			tokIdx = append(tokIdx, i)
 		}
 	}
-	return matches[0]
+	return anchorStream{text: b.String(), tokIdx: tokIdx}
+}
+
+func (s anchorStream) occurrences(want string) []int {
+	var out []int
+	from := 0
+	for {
+		at := strings.Index(s.text[from:], want)
+		if at < 0 {
+			return out
+		}
+		out = append(out, from+at)
+		from += at + 1
+	}
+}
+
+func (s anchorStream) tokenAt(charPos int) int {
+	if charPos < 0 || charPos >= len(s.tokIdx) {
+		return 0
+	}
+	return s.tokIdx[charPos]
+}
+
+func (s anchorStream) prefixMatches(matches []int, prefix string) []int {
+	pre := concatTokens(TokenizeAnchor(prefix))
+	if pre == "" {
+		return nil
+	}
+	var out []int
+	for _, match := range matches {
+		if match >= len(pre) && s.text[match-len(pre):match] == pre {
+			out = append(out, match)
+		}
+	}
+	return out
 }
 
 // TokenizeAnchor tokenises text into normalised words with source positions.
-// Normalisation trims non-alphanumeric runes from token edges (so `**bold**`,
-// “ `code` “ and "word," all match their plain forms) and drops tokens with
-// no alphanumeric content (list bullets, rules, table borders).
+// Normalisation folds case and drops every non-alphanumeric rune — interior
+// ones included — so markdown inline markup (`n`/`p`, **bold**, smart quotes)
+// tokenises identically on the source and rendered sides of a Glamour render.
 func TokenizeAnchor(text string) []AnchorToken {
 	var out []AnchorToken
 	for lineIdx, line := range strings.Split(text, "\n") {
 		col := 0
 		for col < len(line) {
-			// Skip whitespace.
 			for col < len(line) && (line[col] == ' ' || line[col] == '\t') {
 				col++
 			}
@@ -129,19 +182,20 @@ func TokenizeAnchor(text string) []AnchorToken {
 	return out
 }
 
-// normalizeAnchorToken trims non-alphanumeric runes from both ends of a raw
-// token and returns "" when nothing alphanumeric remains.
 func normalizeAnchorToken(raw string) string {
-	return strings.TrimFunc(raw, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
+	var b strings.Builder
+	for _, r := range raw {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	return b.String()
 }
 
-// tokenTexts projects tokens to their normalised text.
-func tokenTexts(toks []AnchorToken) []string {
-	out := make([]string, len(toks))
-	for i, t := range toks {
-		out[i] = t.Text
+func concatTokens(toks []AnchorToken) string {
+	var b strings.Builder
+	for _, token := range toks {
+		b.WriteString(token.Text)
 	}
-	return out
+	return b.String()
 }

@@ -2,137 +2,175 @@ package tui
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/thread"
 )
 
-// anchorPrefixTokens is how many tokens of preceding context are captured as
-// a QuotePrefix when the picker creates a quoted thread.
 const anchorPrefixTokens = 5
 
-// ansiPattern matches CSI escape sequences (colours, cursor movement) and
-// OSC sequences (hyperlinks) so rendered output can be reduced to plain text
-// before token matching.
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
 
-// stripANSI removes terminal escape sequences from s.
 func stripANSI(s string) string { return ansiPattern.ReplaceAllString(s, "") }
 
-// anchorMap maps threads to rendered-line positions within one section's
-// rendered output, and rendered lines back to source blocks. It is pure —
-// built from strings, no model state — and is rebuilt whenever the rendered
-// content or the thread set changes (never inside view()).
-//
-// The load-bearing assumption is that the renderer reflows text but preserves
-// token content and order, so a whitespace-normalised token stream matches on
-// both sides of the render. Do not replace this with source mutation: marker
-// bytes injected into markdown corrupt block syntax and poison the render
-// cache (see docs/discussion-03-reader-cockpit.md §2.3).
-type anchorMap struct {
-	lines   map[string]int // thread ID → 0-based rendered line
-	counts  map[int]int    // rendered line → anchored thread count
-	srcBody string
-	renToks []markdown.AnchorToken // tokens of the ANSI-stripped rendered content
+type anchorLineState struct {
+	Count       int
+	Selected    bool
+	Unread      bool
+	AllResolved bool
 }
 
-// buildAnchorMap resolves each thread's quote against the raw section body
-// (existence + disambiguation), then locates it in the rendered output by
-// token matching. Threads without a quote, or whose quote no longer resolves,
-// simply have no entry — they degrade to the section-level treatment.
+type anchorMap struct {
+	lines     map[string]int
+	states    map[int]anchorLineState
+	ambiguous map[string]bool
+	pickLines []int
+	srcBody   string
+	renToks   []markdown.AnchorToken
+}
+
 func buildAnchorMap(sectionBody, rendered string, threads []thread.Thread) anchorMap {
+	return buildAnchorMapState(sectionBody, rendered, threads, "", func(thread.Thread) bool { return false })
+}
+
+func buildAnchorMapState(sectionBody, rendered string, threads []thread.Thread, selectedID string, unread func(thread.Thread) bool) anchorMap {
 	am := anchorMap{
-		lines:   make(map[string]int),
-		counts:  make(map[int]int),
-		srcBody: sectionBody,
+		lines: make(map[string]int), states: make(map[int]anchorLineState),
+		ambiguous: make(map[string]bool), srcBody: sectionBody,
 		renToks: markdown.TokenizeAnchor(stripANSI(rendered)),
 	}
 	for _, t := range threads {
 		if t.Quote == "" {
 			continue
 		}
-		// Source side first: the quote must still exist in the section.
-		if src := markdown.ResolveAnchor(sectionBody, t.Quote, t.QuotePrefix); !src.Found {
+		// Source-side existence stays strict: a drifted quote must degrade.
+		source := markdown.ResolveAnchor(sectionBody, t.Quote, t.QuotePrefix)
+		if !source.Found {
+			am.ambiguous[t.ID] = source.Ambiguous
 			continue
 		}
-		idx, ok := markdown.ResolveAnchorTokens(am.renToks, t.Quote, t.QuotePrefix)
+		// Rendered-side location is loose: Glamour clips long code lines and
+		// wide table cells, so a live quote's tail may never render.
+		idx, ok, ambiguous := markdown.ResolveAnchorTokensLoose(am.renToks, t.Quote, t.QuotePrefix)
 		if !ok {
+			am.ambiguous[t.ID] = ambiguous
 			continue
 		}
 		line := am.renToks[idx].Line
 		am.lines[t.ID] = line
-		am.counts[line]++
+		state := am.states[line]
+		state.Count++
+		state.Selected = state.Selected || t.ID == selectedID
+		state.Unread = state.Unread || unread(t)
+		state.AllResolved = (state.Count == 1 || state.AllResolved) && !t.IsOpen()
+		am.states[line] = state
 	}
+	am.pickLines = am.buildPickLines()
 	return am
 }
 
-// renderedLineFor returns the rendered line a thread anchors to, ok=false on
-// a degrade-to-section miss.
 func (am anchorMap) renderedLineFor(threadID string) (int, bool) {
 	line, ok := am.lines[threadID]
 	return line, ok
 }
 
-// countAt returns how many threads anchor to a rendered line (0 when none).
-func (am anchorMap) countAt(renderedLine int) int { return am.counts[renderedLine] }
-
-// sourceBlockAt maps a rendered line back to its source block — the reverse
-// direction, used by the anchor picker. The returned quote is the raw text of
-// the source block containing the match; prefix is a short run of preceding
-// tokens for disambiguation. ok=false when the rendered line carries no
-// matchable text (chrome, rules, blank lines).
-func (am anchorMap) sourceBlockAt(renderedLine int) (quote, prefix string, ok bool) {
-	var want []string
-	for _, tok := range am.renToks {
-		if tok.Line == renderedLine {
-			want = append(want, tok.Text)
-		}
-	}
-	if len(want) == 0 {
-		return "", "", false
-	}
-
-	srcToks := markdown.TokenizeAnchor(am.srcBody)
-	idx, ok := markdown.ResolveAnchorTokens(srcToks, strings.Join(want, " "), "")
-	if !ok {
-		return "", "", false
-	}
-	srcLine := srcToks[idx].Line
-
-	srcLines := strings.Split(am.srcBody, "\n")
-	start, end := blockBounds(srcLines, srcLine)
-	quote = strings.TrimSpace(strings.Join(srcLines[start:end], "\n"))
-	if quote == "" {
-		return "", "", false
-	}
-
-	// Prefix: the last few tokens before the block, normalised.
-	var pre []string
-	for _, tok := range srcToks {
-		if tok.Line < start {
-			pre = append(pre, tok.Text)
-		}
-	}
-	if len(pre) > anchorPrefixTokens {
-		pre = pre[len(pre)-anchorPrefixTokens:]
-	}
-	return quote, strings.Join(pre, " "), true
+func (am anchorMap) stateAt(line int) (anchorLineState, bool) {
+	state, ok := am.states[line]
+	return state, ok
 }
 
-// blockBounds expands from a line to its enclosing block: the contiguous run
-// of non-blank lines around it. Returns [start, end) line indexes.
-func blockBounds(lines []string, at int) (int, int) {
-	if at < 0 || at >= len(lines) {
-		return 0, 0
+func (am anchorMap) countAt(line int) int { return am.states[line].Count }
+
+func (am anchorMap) isAmbiguous(threadID string) bool { return am.ambiguous[threadID] }
+
+// buildPickLines maps every source block to a rendered line. Matching is
+// loose (head-of-block) because Glamour truncates long code lines and wide
+// table cells — a block must stay pickable even when its tail never renders.
+// The result is sorted so stepPickLine moves monotonically down the screen
+// regardless of source-block order versus rendered order.
+func (am anchorMap) buildPickLines() []int {
+	seen := make(map[int]bool)
+	var out []int
+	for _, block := range markdown.BlockRanges(am.srcBody) {
+		quote := blockText(am.srcBody, block)
+		idx, ok, _ := markdown.ResolveAnchorTokensLoose(am.renToks, quote, prefixForBlock(am.srcBody, block.StartLine))
+		if !ok {
+			continue
+		}
+		line := am.renToks[idx].Line
+		if !seen[line] {
+			seen[line] = true
+			out = append(out, line)
+		}
 	}
-	start := at
-	for start > 0 && strings.TrimSpace(lines[start-1]) != "" {
-		start--
+	sort.Ints(out)
+	return out
+}
+
+func (am anchorMap) nearestPickLine(line int) (int, bool) {
+	if len(am.pickLines) == 0 {
+		return 0, false
 	}
-	end := at + 1
-	for end < len(lines) && strings.TrimSpace(lines[end]) != "" {
-		end++
+	best, distance := am.pickLines[0], absInt(am.pickLines[0]-line)
+	for _, candidate := range am.pickLines[1:] {
+		if d := absInt(candidate - line); d < distance {
+			best, distance = candidate, d
+		}
 	}
-	return start, end
+	return best, true
+}
+
+func (am anchorMap) stepPickLine(current, delta int) int {
+	if len(am.pickLines) == 0 {
+		return current
+	}
+	idx := 0
+	for i, line := range am.pickLines {
+		if line >= current {
+			idx = i
+			break
+		}
+		idx = i
+	}
+	idx = clampInt(idx+delta, 0, len(am.pickLines)-1)
+	return am.pickLines[idx]
+}
+
+func (am anchorMap) sourceBlockAt(renderedLine int) (quote, prefix string, ok bool) {
+	for _, block := range markdown.BlockRanges(am.srcBody) {
+		candidate := blockText(am.srcBody, block)
+		pre := prefixForBlock(am.srcBody, block.StartLine)
+		idx, found, _ := markdown.ResolveAnchorTokensLoose(am.renToks, candidate, pre)
+		if found && am.renToks[idx].Line == renderedLine {
+			return candidate, pre, true
+		}
+	}
+	return "", "", false
+}
+
+func blockText(body string, block markdown.BlockRange) string {
+	lines := strings.Split(body, "\n")
+	return strings.TrimSpace(strings.Join(lines[block.StartLine:block.EndLine], "\n"))
+}
+
+func prefixForBlock(body string, startLine int) string {
+	var tokens []string
+	for _, token := range markdown.TokenizeAnchor(body) {
+		if token.Line < startLine {
+			tokens = append(tokens, token.Text)
+		}
+	}
+	if len(tokens) > anchorPrefixTokens {
+		tokens = tokens[len(tokens)-anchorPrefixTokens:]
+	}
+	return strings.Join(tokens, " ")
+}
+
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/thread"
 )
 
@@ -150,6 +151,54 @@ func TestAnchorMap_SourceBlockAtRoundTrip(t *testing.T) {
 	am2 := buildAnchorMap(body, rendered, []thread.Thread{quotedThread("T-9", quote)})
 	if _, ok := am2.renderedLineFor("T-9"); !ok {
 		t.Error("picker-captured quote failed to resolve on the next render")
+	}
+}
+
+func TestAnchorMap_InlineCodeTokenBoundaryDrift(t *testing.T) {
+	// Glamour pads inline code with spaces, so `n`/`p` tokenises as one word
+	// in source and two in rendered output. Character-stream matching must
+	// still anchor the block.
+	body := "Intro line.\n\n`n`/`p` in `updateReader` currently do double duty for sections.\n\nClosing prose."
+	rendered := renderForAnchorTest(t, body)
+	am := buildAnchorMap(body, rendered, []thread.Thread{
+		quotedThread("T-1", "`n`/`p` in `updateReader` currently do double duty for sections."),
+	})
+	if _, ok := am.renderedLineFor("T-1"); !ok {
+		t.Fatal("inline-code quote should survive renderer token-boundary drift")
+	}
+}
+
+func TestAnchorMap_TruncatedTableCellStillPickable(t *testing.T) {
+	// A wide table cell is ellipsised by the renderer; the block must still
+	// map to a rendered line via its head.
+	long := "Span anchoring: Quote and QuotePrefix model fields, markdown ResolveAnchor, tui anchorMap post-render token matching, view-time gutter overlay and picker"
+	body := "| PR | Scope |\n|----|-------|\n| 1 | " + long + " |\n| 2 | Small scope |\n"
+	rendered := renderForAnchorTest(t, body)
+	am := buildAnchorMap(body, rendered, nil)
+	found := false
+	for _, line := range am.pickLines {
+		if _, _, ok := am.sourceBlockAt(line); ok {
+			found = true
+			break
+		}
+	}
+	if !found || len(am.pickLines) < 3 {
+		t.Fatalf("truncated table rows should stay pickable: pickLines=%v", am.pickLines)
+	}
+}
+
+func TestAnchorMap_PickLinesSortedAndComplete(t *testing.T) {
+	body := "First paragraph.\n\n- item one\n- item two\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nLast paragraph."
+	rendered := renderForAnchorTest(t, body)
+	am := buildAnchorMap(body, rendered, nil)
+	blocks := len(markdown.BlockRanges(body))
+	if len(am.pickLines) != blocks {
+		t.Errorf("pickLines = %d, want one per block (%d): %v", len(am.pickLines), blocks, am.pickLines)
+	}
+	for i := 1; i < len(am.pickLines); i++ {
+		if am.pickLines[i] <= am.pickLines[i-1] {
+			t.Fatalf("pickLines not strictly ascending: %v", am.pickLines)
+		}
 	}
 }
 

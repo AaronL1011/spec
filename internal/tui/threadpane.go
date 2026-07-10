@@ -174,9 +174,12 @@ func (m specDetailModel) handleThreadInputKey(msg tea.KeyPressMsg) (specDetailMo
 	switch msg.String() {
 	case "esc":
 		m.input = threadInput{}
+		m.syncViewportHeight()
 		return m, nil, true
 	case "ctrl+s":
-		return m.submitInput()
+		nm, cmd := m.submitInput()
+		nm.syncViewportHeight()
+		return nm, cmd, true
 	default:
 		// Delegate to the textarea: arrows, home/end, backspace, word jumps,
 		// rune entry, and Enter (newline) are all handled natively. Absorbing
@@ -190,6 +193,9 @@ func (m specDetailModel) handleThreadInputKey(msg tea.KeyPressMsg) (specDetailMo
 // handleThreadActionKey processes thread action keys (a/r/x/t/tab/enter) in
 // reader mode. Returns handled=false when the key is not a thread action.
 func (m specDetailModel) handleThreadActionKey(msg tea.KeyPressMsg) (specDetailModel, tea.Cmd, bool) {
+	if msg.Text == "u" && m.undoThreadID != "" && time.Now().Before(m.undoUntil) {
+		return m, m.undoThreadCmd(), true
+	}
 	if msg.Text == "" && msg.Code != tea.KeyTab && msg.Code != tea.KeyEnter {
 		return m, nil, false
 	}
@@ -198,6 +204,7 @@ func (m specDetailModel) handleThreadActionKey(msg tea.KeyPressMsg) (specDetailM
 		if m.paneActiveForCurrentSection() {
 			m.paneFocused = !m.paneFocused
 			m.threadScroll = 0
+			m.syncViewportHeight()
 			if m.paneFocused {
 				if t, ok := m.selectedThread(); ok {
 					m.selectedThreadID = t.ID
@@ -213,6 +220,7 @@ func (m specDetailModel) handleThreadActionKey(msg tea.KeyPressMsg) (specDetailM
 		if m.paneFocused && m.currentSectionSlug() == unanchoredSlug {
 			if t, ok := m.selectedThread(); ok {
 				if target, found := m.reanchorTarget(t); found {
+					m.undoThreadID, m.undoSection, m.undoUntil = t.ID, t.Section, time.Now().Add(2*time.Second)
 					return m, m.reanchorThreadCmd(t.ID, target), true
 				}
 			}
@@ -222,27 +230,35 @@ func (m specDetailModel) handleThreadActionKey(msg tea.KeyPressMsg) (specDetailM
 	}
 
 	switch msg.Text {
+	case "T":
+		m.cyclePaneMode()
+		return m, nil, true
 	case "t":
 		m.paneVisible = !m.paneVisible
 		if !m.paneVisible {
 			m.paneFocused = false
 			m.threadScroll = 0
 		}
+		m.syncViewportHeight()
 		return m, nil, true
 	case "a":
 		// Ask re-shows the pane so an action is never silently lost. A plain
 		// 'a' stays section-level; the quoted variant is the A picker.
-		return m.openAskInput("", ""), nil, true
+		nm := m.openAskInput("", "")
+		nm.syncViewportHeight()
+		return nm, nil, true
 	case "r":
 		if t, ok := m.selectedThread(); ok {
 			m.paneVisible = true
 			m.input = threadInput{kind: "reply", threadID: t.ID, area: newThreadArea(m.theme)}
 			m.sizeInputArea()
+			m.syncViewportHeight()
 			return m, nil, true
 		}
 		return m, nil, true
 	case "x":
 		if t, ok := m.selectedThread(); ok && t.IsOpen() {
+			m.undoThreadID, m.undoSection, m.undoUntil = t.ID, "", time.Now().Add(2*time.Second)
 			return m, m.resolveThreadCmd(t.ID), true
 		}
 		return m, nil, true
@@ -268,20 +284,20 @@ func (m specDetailModel) selectedThread() (thread.Thread, bool) {
 }
 
 // submitInput commits the active ask/reply prompt.
-func (m specDetailModel) submitInput() (specDetailModel, tea.Cmd, bool) {
+func (m specDetailModel) submitInput() (specDetailModel, tea.Cmd) {
 	in := m.input
 	body := in.body()
 	m.input = threadInput{}
 	if body == "" {
-		return m, nil, true // empty submit is ignored, not an error
+		return m, nil // empty submit is ignored, not an error
 	}
 	switch in.kind {
 	case "ask":
-		return m, m.createThreadCmd(in.section, body, in.quote, in.quotePrefix), true
+		return m, m.createThreadCmd(in.section, body, in.quote, in.quotePrefix)
 	case "reply":
-		return m, m.replyThreadCmd(in.threadID, body), true
+		return m, m.replyThreadCmd(in.threadID, body)
 	}
-	return m, nil, true
+	return m, nil
 }
 
 // ── Mutation commands ───────────────────────────────────────────────────────
@@ -309,11 +325,12 @@ func (m specDetailModel) author() string {
 func (m specDetailModel) createThreadCmd(section, question, quote, quotePrefix string) tea.Cmd {
 	store, specID, author := m.store(), m.specID, m.author()
 	return func() tea.Msg {
-		if _, err := store.CreateQuoted(specID, section, author, question, nil, quote, quotePrefix); err != nil {
+		created, err := store.CreateQuoted(specID, section, author, question, nil, quote, quotePrefix)
+		if err != nil {
 			return threadsChangedMsg{Err: err}
 		}
 		threads, err := store.List(specID)
-		return threadsChangedMsg{Threads: threads, Err: err, Toast: "Question added"}
+		return threadsChangedMsg{Threads: threads, Err: err, Toast: "Question added", SelectID: created.ID, FollowAnchor: true}
 	}
 }
 
@@ -339,6 +356,24 @@ func (m specDetailModel) resolveThreadCmd(threadID string) tea.Cmd {
 	}
 }
 
+func (m specDetailModel) undoThreadCmd() tea.Cmd {
+	store, specID, threadID, section := m.store(), m.specID, m.undoThreadID, m.undoSection
+	return func() tea.Msg {
+		var err error
+		if section == "" {
+			_, err = store.Reopen(specID, threadID)
+		} else {
+			_, err = store.Reanchor(specID, threadID, section)
+		}
+		if err != nil {
+			return threadsChangedMsg{Err: err}
+		}
+		threads, err := store.List(specID)
+		return threadsChangedMsg{Threads: threads, Err: err, Toast: "Thread change undone",
+			SelectID: threadID, FollowAnchor: section != ""}
+	}
+}
+
 func (m specDetailModel) reanchorThreadCmd(threadID, section string) tea.Cmd {
 	store, specID := m.store(), m.specID
 	return func() tea.Msg {
@@ -346,7 +381,8 @@ func (m specDetailModel) reanchorThreadCmd(threadID, section string) tea.Cmd {
 			return threadsChangedMsg{Err: err}
 		}
 		threads, err := store.List(specID)
-		return threadsChangedMsg{Threads: threads, Err: err, Toast: "Re-anchored to §" + section}
+		return threadsChangedMsg{Threads: threads, Err: err, Toast: "Re-anchored to §" + section,
+			SelectID: threadID, FollowAnchor: true}
 	}
 }
 
@@ -377,12 +413,25 @@ func (m specDetailModel) renderThreadPane(w, maxHeight int) []string {
 	footer := m.paneFooter(maxHeight)
 
 	var body []string
-	if len(threads) == 0 && !m.input.active() {
+	switch {
+	case m.reviewPassComplete:
+		open := 0
+		for _, t := range m.orderedThreads() {
+			if t.IsOpen() {
+				open++
+			}
+		}
+		body = []string{
+			m.styles.Success.Bold(true).Render("   Review pass complete"),
+			m.styles.Muted.Render(fmt.Sprintf("   %d visited · %d open · %d unread", len(m.reviewVisited), open, m.unreadCount())),
+			m.styles.Muted.Render("   n continue · f change filter · esc dismiss"),
+		}
+	case len(threads) == 0 && !m.input.active():
 		// Empty filter state renders, never hides — the user must see why
 		// the threads they know exist are not listed.
 		body = []string{m.styles.Muted.Render(fmt.Sprintf(
 			"   no threads match · filter: %s · f to change", m.threadFilter))}
-	} else {
+	default:
 		body = flattenLines(m.threadBodyLines(threads, w))
 	}
 
@@ -527,6 +576,14 @@ func (m specDetailModel) threadBodyLines(threads []thread.Thread, w int) []strin
 			// reply body are word-wrapped so nothing is truncated.
 			meta := m.styles.Muted.Render(fmt.Sprintf("%s · %s", t.Author, relTime(t.Created)))
 			lines = append(lines, fmt.Sprintf("%s%s %s%s", caret, marker, meta, newTag))
+			if t.Quote != "" {
+				snippet := truncate(strings.Join(strings.Fields(t.Quote), " "), max(w-9, 16))
+				anchorState := ""
+				if m.anchors.isAmbiguous(t.ID) {
+					anchorState = " · ambiguous — showing section"
+				}
+				lines = append(lines, m.styles.Muted.Render("   "+IconGutter+" “"+snippet+"”"+anchorState))
+			}
 			for _, ql := range wrapPlain(t.Question, max(w-3, 8)) {
 				lines = append(lines, "   "+ql)
 			}
@@ -558,7 +615,7 @@ func (m specDetailModel) maxThreadScroll() int {
 	if len(threads) == 0 {
 		return 0
 	}
-	maxHeight := max(m.height/2, 6)
+	maxHeight := m.readerPaneBudget()
 	budget := maxHeight - 2 - len(m.paneFooter(maxHeight))
 	if budget < 1 {
 		budget = 1
@@ -676,18 +733,19 @@ func (m specDetailModel) renderInputBlock() []string {
 // When the selected unanchored thread has a unique re-anchor target, the
 // repair affordance leads the line.
 func (m specDetailModel) threadHintLine() string {
+	width := m.paneContentWidth()
 	if m.paneFocused {
-		hint := " [r]eply [x]resolve [u]nread · n/p thread · f filter · tab text · [t] hide"
+		parts := []string{"[r]eply [x]resolve", "[u]nread", "n/p thread", "f filter", "tab text", "[t] hide", "? more"}
 		if m.currentSectionSlug() == unanchoredSlug {
 			if t, ok := m.selectedThread(); ok {
 				if target, found := m.reanchorTarget(t); found {
-					return " enter re-anchor →§" + target + " ·" + hint
+					parts = append([]string{"enter re-anchor →§" + target}, parts...)
 				}
 			}
 		}
-		return hint
+		return compactHint(width, parts...)
 	}
-	return " [a]sk [A]sk quoted · n/p thread · f filter · tab focus threads · [t] hide"
+	return compactHint(width, "[a]sk [A] quoted", "n/p thread", "f filter", "tab threads", "[t] hide", "? more")
 }
 
 // relTime formats a timestamp as a short relative string (e.g. "2h", "3d").
