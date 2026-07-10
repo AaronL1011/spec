@@ -509,7 +509,7 @@ daily actions also have a dashboard keybinding.
 |---|---|
 | `spec pull [id]` | Fetch spec into the current repo's `.spec/` |
 | `spec push [id]` | Commit & push local spec edits to the specs repo |
-| `spec sync [id]` | Bidirectional, section-scoped sync with the docs provider |
+| `spec sync [id]` | Publish the spec to the docs provider (outbound by default; inbound is opt-in via `--direction`) |
 | `spec link [id] --section <s> --url <url>` | Attach a resource link |
 | `spec edit [id]` | Open in `$EDITOR` (or print the docs URL) |
 | `spec decide [id]` | Manage the decision log (`--question`, `--resolve`, `--list`) |

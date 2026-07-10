@@ -551,3 +551,71 @@ func TestIsSeparatorRow(t *testing.T) {
 		}
 	}
 }
+
+// TestMarkdownToStorage_NoMarkerForTitleHeading guards the wipe fix: the H1
+// title must render as a heading but never carry a spec-section marker, since
+// its slug maps to the local "section" that spans the entire document.
+func TestMarkdownToStorage_NoMarkerForTitleHeading(t *testing.T) {
+	md := `# SPEC-042 - Rate Limiting
+
+## Problem Statement
+
+Some content.
+`
+	storage := markdownToStorage(md, "SPEC-042", nil)
+
+	if strings.Contains(storage, "spec-section: spec_042_rate_limiting") {
+		t.Error("H1 title heading must not emit a spec-section marker")
+	}
+	if !strings.Contains(storage, "<h1>SPEC-042 - Rate Limiting</h1>") {
+		t.Error("H1 title heading should still render as <h1>")
+	}
+	if !strings.Contains(storage, "<!-- spec-section: problem_statement -->") {
+		t.Error("level-2 sections must keep their markers")
+	}
+}
+
+// TestParseStorageByHeadings_SkipsPageTitle guards the marker-less fallback:
+// the page title (h1) must not be keyed as a section, or inbound would map an
+// empty/partial fragment onto the local whole-document title section.
+func TestParseStorageByHeadings_SkipsPageTitle(t *testing.T) {
+	storage := `<h1>SPEC-042 - Rate Limiting</h1>
+<h2>Problem Statement</h2>
+<p>Some content.</p>`
+
+	sections := parseStorageToSections(storage)
+
+	if _, ok := sections["spec_042_rate_limiting"]; ok {
+		t.Error("page title (h1) must not be keyed as a section")
+	}
+	if got := sections["problem_statement"]; got != "Some content." {
+		t.Errorf("problem_statement = %q, want %q", got, "Some content.")
+	}
+}
+
+// TestRoundTrip_TitleSlugNeverKeyed pushes a full spec through the outbound
+// converter and back through the inbound parser: the title slug must be absent
+// so the sync engine can never be handed an empty fragment for it.
+func TestRoundTrip_TitleSlugNeverKeyed(t *testing.T) {
+	md := `---
+id: SPEC-042
+title: Rate Limiting
+status: plan_review
+---
+
+# SPEC-042 - Rate Limiting
+
+## Problem Statement
+
+Clients can exhaust capacity.
+`
+	storage := markdownToStorage(md, "SPEC-042", nil)
+	sections := parseStorageToSections(storage)
+
+	if _, ok := sections["spec_042_rate_limiting"]; ok {
+		t.Error("round trip keyed the title slug — inbound wipe hazard")
+	}
+	if got := sections["problem_statement"]; got != "Clients can exhaust capacity." {
+		t.Errorf("problem_statement = %q", got)
+	}
+}

@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	gitpkg "github.com/aaronl1011/spec/internal/git"
@@ -13,9 +15,13 @@ import (
 
 var syncCmd = &cobra.Command{
 	Use:   "sync [id]",
-	Short: "Bidirectional section-scoped sync with external tools",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runSync,
+	Short: "Publish the spec to the docs provider (outbound by default)",
+	Long: "Section-scoped sync with the configured docs provider.\n\n" +
+		"The spec is the source of truth: by default sync publishes outbound only.\n" +
+		"Inbound sync (--direction in|both) applies docs-provider content over local\n" +
+		"spec sections — it is lossy and must be requested explicitly.",
+	Args: cobra.MaximumNArgs(1),
+	RunE: runSync,
 }
 
 var syncLogCmd = &cobra.Command{
@@ -26,7 +32,7 @@ var syncLogCmd = &cobra.Command{
 }
 
 func init() {
-	syncCmd.Flags().String("direction", "both", "sync direction: in | out | both")
+	syncCmd.Flags().String("direction", "out", "sync direction: out | in | both (inbound overwrites local sections and asks for confirmation)")
 	syncCmd.Flags().Bool("dry-run", false, "preview changes without applying")
 	syncCmd.Flags().Bool("force", false, "force inbound changes on conflict")
 	syncCmd.Flags().Bool("skip", false, "skip conflicting sections")
@@ -94,6 +100,10 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("docs integration not configured; sync requires a docs provider, configure 'integrations.docs' in spec.config.yaml")
 	}
 
+	if !dryRun && inboundRequested(direction) && !confirmInbound(cmd, specID) {
+		return fmt.Errorf("sync cancelled — rerun without --direction (or with --direction out) to publish outbound only")
+	}
+
 	role, err := requireRole(rc)
 	if err != nil {
 		return err
@@ -154,6 +164,35 @@ func runSync(cmd *cobra.Command, args []string) error {
 		printSyncReport(prepared.Report)
 	}
 	return nil
+}
+
+// inboundRequested reports whether the direction includes an inbound leg that
+// would rewrite local spec sections from the docs provider.
+func inboundRequested(direction string) bool {
+	switch strings.ToLower(strings.TrimSpace(direction)) {
+	case syncengine.DirectionIn, "inbound", syncengine.DirectionBoth:
+		return true
+	default:
+		return false
+	}
+}
+
+// confirmInbound warns that inbound sync applies docs-provider content over
+// local spec sections and asks for explicit confirmation (default: no). On
+// non-interactive surfaces (no TTY, --quiet/--json) the explicit --direction
+// flag is taken as consent — inbound never runs by default.
+func confirmInbound(cmd *cobra.Command, specID string) bool {
+	if !awarenessAllowed(cmd) {
+		return true
+	}
+	fmt.Printf("Inbound sync overwrites local sections of %s with docs-provider content (lossy). Continue? [y/N] ", specID)
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	return answer == "y" || answer == "yes"
 }
 
 // runSyncPM replays the PM retry queue, pushing any deferred epic links and

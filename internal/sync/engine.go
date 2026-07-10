@@ -214,9 +214,25 @@ func (e *Engine) prepareInbound(ctx context.Context, prepared *PreparedRun) erro
 
 	nextContent := content
 	for _, section := range sections {
+		// The level-1 title heading is never a sync target: in ExtractSections
+		// terms its "content" spans the entire document body, so applying any
+		// remote value to it would replace the whole spec (SPEC wipe bug — see
+		// docs/confluence-sync-quality-issues.md §1).
+		if section.Level <= 1 {
+			continue
+		}
 		remoteContent, ok := remoteSections[section.Slug]
 		if !ok {
 			report.Skipped = append(report.Skipped, SectionSkip{Section: section.Slug, Reason: "remote section missing"})
+			continue
+		}
+		// Outward-only safety invariant: the spec is the source of truth, so an
+		// empty remote section must never delete non-empty local content. Lossy
+		// storage parsing (or a page mangled by the Confluence editor) yields
+		// "" far too easily. This holds even under --force; deleting content is
+		// done by editing the spec, not by syncing.
+		if strings.TrimSpace(remoteContent) == "" && strings.TrimSpace(section.Content) != "" {
+			report.Skipped = append(report.Skipped, SectionSkip{Section: section.Slug, Reason: "remote section empty — refusing to delete local content"})
 			continue
 		}
 
@@ -298,10 +314,12 @@ func (e *Engine) prepareOutbound(opts Options, prepared *PreparedRun) error {
 	content := string(data)
 	sections := markdown.ExtractSections(content)
 	for _, section := range sections {
+		// The level-1 title is not a section (its extracted content spans the
+		// whole document); recording state for it primes the inbound wipe.
+		if section.Level <= 1 {
+			continue
+		}
 		report.OutboundSections = append(report.OutboundSections, section.Slug)
-	}
-
-	for _, section := range sections {
 		hash := Hash(section.Content)
 		prepared.pendingState = append(prepared.pendingState, pendingStateUpdate{
 			section:    section.Slug,
@@ -406,7 +424,12 @@ func ownerMismatch(section markdown.Section, ownerRole string) bool {
 
 func normalizeDirection(direction string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(direction)) {
-	case "", DirectionBoth:
+	case "":
+		// The docs mirror is outward-only by default: the spec is the source
+		// of truth, and inbound application is lossy. Callers must opt in to
+		// inbound explicitly.
+		return DirectionOut, nil
+	case DirectionBoth:
 		return DirectionBoth, nil
 	case DirectionIn, "inbound":
 		return DirectionIn, nil

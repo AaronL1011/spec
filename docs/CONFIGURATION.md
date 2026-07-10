@@ -291,9 +291,10 @@ contributor role on the target space is sufficient.
 1. **Automatically on `spec advance`** when `sync.outbound_on_advance: true`
    (the default in generated configs). Each stage transition republishes the
    spec — this is the primary, zero-effort path.
-2. **Manually** with `spec sync <id> --direction out`. Adding `--dry-run`
-   previews the outbound plan locally **without** contacting Confluence.
-   `spec sync <id>` with no direction defaults to `both`.
+2. **Manually** with `spec sync <id>`. Adding `--dry-run` previews the
+   outbound plan locally **without** contacting Confluence. Sync is
+   **outbound-only by default** — the spec is the source of truth, and the
+   mirror never overwrites it unless inbound is requested explicitly.
 
 Mirror failures are **non-fatal**: if Confluence is unreachable during
 `spec advance`, the advance still succeeds and the failure is reported as a sync
@@ -304,11 +305,14 @@ non-engineer roles (`pm`, `designer`, `qa`), `spec edit <id>` prints the
 Confluence page URL (resolved via the same label) instead of opening `$EDITOR`,
 pointing each contributor to where they read and comment.
 
-> **Inbound (Confluence → repo) is best-effort.** Pulling Confluence edits back
-> into the specs repo (`spec sync <id> --direction in`) is section-scoped by
-> `<!-- owner: role -->` markers but depends on HTML comments the Confluence
-> editor can strip. It is retained for compatibility and not the focus of the
-> mirror — keep using the specs repo as the source of truth.
+> **Inbound (Confluence → repo) is best-effort and opt-in.** Pulling Confluence
+> edits back into the specs repo requires an explicit `spec sync <id>
+> --direction in` (or `both`) plus an interactive confirmation — it never runs
+> by default. It is section-scoped by `<!-- owner: role -->` markers but
+> depends on HTML comments the Confluence editor can strip, and the conversion
+> is lossy. Safety rails: the H1 title section is never an inbound target, and
+> an empty remote section never deletes non-empty local content (even with
+> `--force`). Keep using the specs repo as the source of truth.
 
 **Setup runbook:**
 
