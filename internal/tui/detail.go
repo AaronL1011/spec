@@ -35,9 +35,14 @@ func (a *App) activateSelection() tea.Cmd {
 }
 
 func (a *App) openDetail(specID string) tea.Cmd {
+	return a.openDetailWithIntent(specID, false)
+}
+
+func (a *App) openDetailWithIntent(specID string, reviewIntent bool) tea.Cmd {
 	a.showDetail = true
 	a.detailFrom = a.activeView
 	a.detail = newSpecDetail(a.rc, specID, a.styles, a.keys, a.theme)
+	a.detail.reviewIntent = reviewIntent
 	a.detail.db = a.db
 	a.detail.setSize(a.width, a.contentHeight())
 	a.statusBar.SetView(a.activeView.Label() + " › " + specID)
@@ -61,6 +66,9 @@ func (a *App) openDetailAtSection(specID, sectionSlug string) tea.Cmd {
 
 func (a *App) closeDetail() tea.Cmd {
 	a.markDetailRefreshDone()
+	if a.db != nil && a.detail.readerMode {
+		_ = a.db.ReaderPositionSet(a.detail.specID, a.detail.currentSectionSlug(), a.detail.readerViewport.YOffset())
+	}
 	a.detail.cancelRender()
 	a.stopWatch()
 	a.showDetail = false
@@ -129,9 +137,10 @@ func (a App) updateDetail(msg tea.KeyPressMsg) (App, tea.Cmd) {
 		return a, cmd
 	}
 
-	// Help.
+	// Help follows the active detail sub-mode so bindings never contradict
+	// the surface currently receiving keys.
 	if key.Matches(msg, a.keys.Help) {
-		a.help.setContext("Detail: " + a.detail.specID)
+		a.help.setContext(a.detail.helpContext())
 		a.help.toggle()
 		return a, nil
 	}

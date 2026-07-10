@@ -69,6 +69,34 @@ func TestApplyRefresh_NoOpOnIdenticalHash(t *testing.T) {
 	}
 }
 
+func TestApplyRefresh_SidecarOnlyChangeUpdatesThreads(t *testing.T) {
+	m := loadedReader([]thread.Thread{openThread("T-1", "old")})
+	msg := refreshMsg("hash-v0", m.sections, []thread.Thread{
+		openThread("T-1", "old"), openThread("T-2", "new reply thread"),
+	})
+	msg.ThreadsHash = "sidecar-v2"
+	out, cmd := m.handleDataMsg(msg)
+	if cmd != nil {
+		t.Error("sidecar-only refresh should not rerender markdown")
+	}
+	if len(out.threads) != 2 || out.threadsHash != "sidecar-v2" {
+		t.Errorf("sidecar state not applied: threads=%d hash=%q", len(out.threads), out.threadsHash)
+	}
+}
+
+func TestApplyRefresh_SidecarErrorKeepsLastGoodThreads(t *testing.T) {
+	m := loadedReader([]thread.Thread{openThread("T-1", "known")})
+	msg := refreshMsg("hash-v0", m.sections, nil)
+	msg.ThreadsErr = errBadSidecar{}
+	out, _ := m.handleDataMsg(msg)
+	if len(out.threads) != 1 || out.threads[0].ID != "T-1" {
+		t.Fatalf("last-good threads lost: %+v", out.threads)
+	}
+	if out.notice == "" {
+		t.Error("sidecar error should surface a calm notice")
+	}
+}
+
 func TestApplyRefresh_PreservesThreadSelectionByID(t *testing.T) {
 	threads := []thread.Thread{
 		openThread("T-1", "Why Redis?"),
@@ -76,7 +104,7 @@ func TestApplyRefresh_PreservesThreadSelectionByID(t *testing.T) {
 		openThread("T-3", "Backoff?"),
 	}
 	m := loadedReader(threads)
-	m.threadIdx = 2 // T-3 selected
+	m.selectedThreadID = "T-3"
 
 	// Refresh reorders threads; T-3 must stay selected by ID.
 	reordered := []thread.Thread{
@@ -97,17 +125,15 @@ func TestApplyRefresh_ThreadSelectionFallbackWhenRemoved(t *testing.T) {
 		openThread("T-2", "Burst allowance?"),
 	}
 	m := loadedReader(threads)
-	m.threadIdx = 1 // T-2 selected
+	m.selectedThreadID = "T-2"
 
 	// Refresh removes T-2 (e.g. resolved out of the open set). Selection must
-	// fall back to a valid index without panicking.
+	// fall back to the section's first thread without panicking.
 	remaining := []thread.Thread{openThread("T-1", "Why Redis?")}
 	out, _ := m.handleDataMsg(refreshMsg("hash-v1", m.sections, remaining))
-	if out.threadIdx < 0 || out.threadIdx >= 1 {
-		t.Errorf("threadIdx = %d, want clamped to valid range [0,1)", out.threadIdx)
-	}
-	if _, ok := out.selectedThread(); !ok {
-		t.Error("expected a valid fallback selection after removal")
+	sel, ok := out.selectedThread()
+	if !ok || sel.ID != "T-1" {
+		t.Errorf("selected thread = %+v ok=%v, want fallback to T-1 after removal", sel, ok)
 	}
 }
 
@@ -154,12 +180,16 @@ type errFileGone struct{}
 
 func (errFileGone) Error() string { return "spec SPEC-007 not found" }
 
-func TestRestoreThreadSelection_EmptySection(t *testing.T) {
+type errBadSidecar struct{}
+
+func (errBadSidecar) Error() string { return "invalid yaml" }
+
+func TestSelectedThread_EmptySection(t *testing.T) {
 	m := loadedReader(nil)
 	m.sectionIdx = 0 // problem_statement has no threads
-	m.restoreThreadSelection("T-9")
-	if m.threadIdx != 0 {
-		t.Errorf("threadIdx = %d, want 0 for an empty section", m.threadIdx)
+	m.selectedThreadID = "T-9"
+	if _, ok := m.selectedThread(); ok {
+		t.Error("selectedThread should report ok=false for an empty section")
 	}
 }
 

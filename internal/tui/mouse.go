@@ -40,8 +40,7 @@ func (a App) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// Layer 2: the wheel scrolls the focused surface regardless of where the
-	// pointer sits, matching how terminals and editors treat the wheel.
+	// Layer 2: wheel routing follows the surface under the pointer.
 	if isWheel {
 		return a.handleWheel(m)
 	}
@@ -80,7 +79,11 @@ func (a App) handleWheel(m tea.Mouse) (tea.Model, tea.Cmd) {
 		if up {
 			delta = -wheelStep
 		}
-		a.detail.wheelScroll(delta)
+		row, ok := a.layout().contentRow(m.Y)
+		if !ok {
+			return a, nil
+		}
+		a.detail.wheelScrollAt(row, delta)
 		a.syncBusyState()
 		return a, nil
 	}
@@ -104,17 +107,14 @@ func (a App) handleContentClick(m tea.Mouse) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// Inside an open spec detail, the only clickable target is the reader's
-	// section navigator; clicking a section jumps to it (same path as the
-	// number-key jumps). Prose and thread clicks remain keyboard/wheel-driven.
 	if a.showDetail {
-		if idx, ok := a.detail.sectionAtClick(m.X, row); ok {
-			var cmd tea.Cmd
-			a.detail, cmd = a.detail.withSection(idx)
+		var cmd tea.Cmd
+		var handled bool
+		a.detail, cmd, handled = a.detail.clickReader(m.X, row)
+		if handled {
 			a.syncBusyState()
-			return a, cmd
 		}
-		return a, nil
+		return a, cmd
 	}
 
 	c := a.activeClickable()

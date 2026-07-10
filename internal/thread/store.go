@@ -28,6 +28,8 @@ type Store interface {
 	// Resolve marks a thread resolved. Resolving an already-resolved thread
 	// is a no-op that returns the thread unchanged.
 	Resolve(specID, threadID, by string) (Thread, error)
+	// Reopen undoes a resolution.
+	Reopen(specID, threadID string) (Thread, error)
 }
 
 // document is the on-disk shape of a sidecar file.
@@ -70,6 +72,13 @@ func (s *SidecarStore) List(specID string) ([]Thread, error) {
 // Create appends a new open thread. mentions are explicit handles from the
 // caller (e.g. a --to flag), unioned with @handles parsed from question.
 func (s *SidecarStore) Create(specID, section, author, question string, mentions []string) (Thread, error) {
+	return s.CreateQuoted(specID, section, author, question, mentions, "", "")
+}
+
+// CreateQuoted appends a new open thread carrying an optional quote anchor:
+// a verbatim text span within the section (plus a disambiguating prefix).
+// An empty quote produces a plain section-level thread, identical to Create.
+func (s *SidecarStore) CreateQuoted(specID, section, author, question string, mentions []string, quote, quotePrefix string) (Thread, error) {
 	section = strings.TrimSpace(section)
 	if section == "" {
 		return Thread{}, fmt.Errorf("section is required — a thread must anchor to a section")
@@ -84,20 +93,53 @@ func (s *SidecarStore) Create(specID, section, author, question string, mentions
 		return Thread{}, err
 	}
 
+	quote = strings.TrimSpace(quote)
+	if quote == "" {
+		quotePrefix = "" // a prefix is meaningless without a quote
+	}
 	t := Thread{
-		ID:       s.uniqueID(doc.Threads),
-		Section:  section,
-		Status:   StatusOpen,
-		Author:   strings.TrimSpace(author),
-		Created:  s.now(),
-		Question: q,
-		Mentions: unionMentions(ParseMentions(q), mentions),
+		ID:          s.uniqueID(doc.Threads),
+		Section:     section,
+		Status:      StatusOpen,
+		Author:      strings.TrimSpace(author),
+		Created:     s.now(),
+		Question:    q,
+		Mentions:    unionMentions(ParseMentions(q), mentions),
+		Quote:       quote,
+		QuotePrefix: strings.TrimSpace(quotePrefix),
 	}
 	doc.Threads = append(doc.Threads, t)
 	if err := s.save(specID, doc); err != nil {
 		return Thread{}, err
 	}
 	return t, nil
+}
+
+// Reanchor moves a thread to a new section slug. It is the repair path for
+// threads whose section heading was reworded out from under them (the
+// "unanchored" bucket in the reader) — an ordinary sidecar mutation that
+// merges by thread ID like any other.
+func (s *SidecarStore) Reanchor(specID, threadID, newSection string) (Thread, error) {
+	newSection = strings.TrimSpace(newSection)
+	if newSection == "" {
+		return Thread{}, fmt.Errorf("section is required — a thread must anchor to a section")
+	}
+	doc, err := s.load(specID)
+	if err != nil {
+		return Thread{}, err
+	}
+	idx := indexOf(doc.Threads, threadID)
+	if idx < 0 {
+		return Thread{}, fmt.Errorf("thread %s not found in %s", threadID, normalizeID(specID))
+	}
+	if doc.Threads[idx].Section == newSection {
+		return doc.Threads[idx], nil // already anchored there — idempotent
+	}
+	doc.Threads[idx].Section = newSection
+	if err := s.save(specID, doc); err != nil {
+		return Thread{}, err
+	}
+	return doc.Threads[idx], nil
 }
 
 // Reply appends a reply to an existing thread. mentions are unioned with
@@ -147,6 +189,25 @@ func (s *SidecarStore) Resolve(specID, threadID, by string) (Thread, error) {
 	doc.Threads[idx].Status = StatusResolved
 	doc.Threads[idx].ResolvedBy = strings.TrimSpace(by)
 	doc.Threads[idx].ResolvedAt = &at
+	if err := s.save(specID, doc); err != nil {
+		return Thread{}, err
+	}
+	return doc.Threads[idx], nil
+}
+
+// Reopen clears resolution metadata and returns a thread to open status.
+func (s *SidecarStore) Reopen(specID, threadID string) (Thread, error) {
+	doc, err := s.load(specID)
+	if err != nil {
+		return Thread{}, err
+	}
+	idx := indexOf(doc.Threads, threadID)
+	if idx < 0 {
+		return Thread{}, fmt.Errorf("thread %s not found in %s", threadID, normalizeID(specID))
+	}
+	doc.Threads[idx].Status = StatusOpen
+	doc.Threads[idx].ResolvedBy = ""
+	doc.Threads[idx].ResolvedAt = nil
 	if err := s.save(specID, doc); err != nil {
 		return Thread{}, err
 	}

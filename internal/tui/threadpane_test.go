@@ -56,8 +56,8 @@ func TestThreadPane_RendersWhenSectionHasThreads(t *testing.T) {
 	if len(pane) == 0 {
 		t.Fatal("expected thread pane to render for a section with threads")
 	}
-	joined := strings.Join(pane, "\n")
-	if !strings.Contains(joined, "Threads (1 open)") || !strings.Contains(joined, "Why Redis?") {
+	joined := stripANSI(strings.Join(pane, "\n"))
+	if !strings.Contains(joined, "Threads") || !strings.Contains(joined, "filter: open") || !strings.Contains(joined, "Why Redis?") {
 		t.Errorf("pane missing header/question:\n%s", joined)
 	}
 }
@@ -146,20 +146,30 @@ func TestThreadPane_TabTogglesFocus(t *testing.T) {
 	}
 }
 
-func TestThreadPane_ArrowMovesSelectionWhenFocused(t *testing.T) {
+func TestThreadPane_StepThreadMovesSelection(t *testing.T) {
 	m := readerWithThreads([]thread.Thread{
 		openThread("T-1", "q1"),
 		openThread("T-2", "q2"),
 	})
-	m.paneFocused = true
-	m = m.selectThread(1)
-	if m.threadIdx != 1 {
-		t.Errorf("threadIdx = %d, want 1", m.threadIdx)
+	m, _ = m.stepThread(1)
+	sel, ok := m.selectedThread()
+	if !ok || sel.ID != "T-1" {
+		t.Fatalf("first step selected %+v ok=%v, want T-1", sel, ok)
 	}
-	// Clamped at the end.
-	m = m.selectThread(5)
-	if m.threadIdx != 1 {
-		t.Errorf("threadIdx = %d, want clamped to 1", m.threadIdx)
+	if !m.paneFocused {
+		t.Error("stepping should focus the pane")
+	}
+	m, _ = m.stepThread(1)
+	if sel, _ := m.selectedThread(); sel.ID != "T-2" {
+		t.Errorf("second step selected %s, want T-2", sel.ID)
+	}
+	// Wrap past the end back to the first thread.
+	m, cmd := m.stepThread(1)
+	if sel, _ := m.selectedThread(); sel.ID != "T-1" {
+		t.Errorf("wrap step selected %s, want T-1", sel.ID)
+	}
+	if cmd == nil {
+		t.Error("wrapping should emit a flash command")
 	}
 }
 

@@ -1,51 +1,56 @@
-# spec Agent Build Integration Port
+# Agent build integration port
 
-> Reference for integrating an agent build system with `spec build`. If your
-> harness speaks MCP and can dispatch work into a directory, it can drive a spec
-> build using this port without depending on spec-cli internals or bundled skills.
+> Advanced reference for agent-harness authors. Most users start and resume
+> builds with `b` in the TUI. Use `spec build --check` to diagnose setup.
 
-`spec-cli` owns the dependency graph, durable node ledger, git/worktree mechanics,
-and GitHub calls. The build system reads the graph, dispatches workers, and
-checkpoints progress through the port. spec-cli supplies deterministic state and
-mechanics; the agent or harness supplies implementation judgement.
+This document defines the versioned MCP port behind `spec build`. A harness
+that can speak MCP and dispatch work into a directory can drive a build without
+depending on spec internals or bundled skills.
 
-## 1. Launch & capability negotiation
+`spec` owns the dependency graph, durable node ledger, Git/worktree mechanics,
+and GitHub calls. The harness supplies implementation judgment and worker
+dispatch.
 
-`spec build <id>` (or `spec do <id>` to resume) launches the configured agent
-once for the whole DAG. What spec-cli emits depends on the capabilities the
-agent adapter advertises:
+For user setup, see [Configuration](CONFIGURATION.md#coding-agent) and the
+[TUI guide](TUI.md#actions-on-a-selected-spec).
 
-| Capability | Effect |
-|------------|--------|
-| `MCP` | spec-cli writes an ephemeral MCP config pointing at `spec mcp-server --spec <id>` and frames the run as a conductor traversal of this port. |
-| `Skills` | spec-cli passes the *conductor-level* skills (start-dir scoped, from `conductor_skill` config or `.spec/agent/skills/` discovery). Per-node worker skills are **not** passed here — they travel via `spec_provision_node`. |
-| `Headless` | enables `spec fix --auto` / CI autonomous runs. |
-| `SystemPrompt` | spec-cli supplies a thin base instruction; the orchestration playbook is a skill. |
+## 1. Launch and capability negotiation
 
-If `MCP` is false, spec-cli falls back to a **solo** model: it writes a
-consolidated context file (full spec, conventions, prior diffs, all skill
-bodies folded in) and the single agent implements the spec itself. The conductor
-contract below applies to the `MCP` path.
+`spec build <id>` (or TUI `b`) launches the effective agent once for the whole
+DAG. `spec do <id>` resumes durable state.
 
-Run `spec build <id> --check` to preflight without launching the agent: it
-validates the DAG, resolves each node's workspace and routed skills, flags skill
-name collisions, and prints the agent capabilities and completion definition.
+The agent adapter advertises these capabilities:
 
-## 2. Data plane — resources
+- **MCP** — `spec` writes an ephemeral MCP config pointing at
+  `spec mcp-server --spec <id>` and frames the run as conductor traversal.
+- **Skills** — `spec` passes conductor-level skills. Per-node worker skills
+  travel through `spec_provision_node`, not the conductor launch.
+- **Headless** — enables autonomous `spec fix --auto` and CI runs.
+- **SystemPrompt** — allows `spec` to provide a thin base instruction; the
+  orchestration playbook remains a skill.
 
-Read these MCP resources (read-only):
+Without MCP, `spec` uses a solo fallback: it writes one consolidated context
+file containing the spec, conventions, prior diffs, and skill bodies. The
+single agent implements the work directly. The conductor contract below
+applies to MCP-capable agents.
 
-| URI | Content |
-|-----|---------|
-| `spec://current/dag` | The build graph. **Versioned JSON**, schema `build-port/v1` (see `docs/schemas/dag.v1.json`). Read once to plan the walk. |
-| `spec://current/full` | The full approved spec. |
-| `spec://current/acceptance-criteria` | Definition of done. |
-| `spec://current/conventions` | Project conventions (when present). |
-| `spec://current/prior-diffs` | Cumulative diffs of completed nodes; pass relevant slices to downstream workers. |
-| `spec://current/decisions` | Decision log. |
-| `spec://current/capabilities` | **Versioned JSON** (`docs/schemas/capabilities.v1.json`). Advertises the active router, strategy, finishing tools, and completion model so external harnesses can adapt without probing. |
+Preflight without launching:
 
-### The DAG document (`build-port/v1`)
+```bash
+spec build <id> --check
+```
+
+This validates the DAG, workspaces, routed skills, skill-name collisions,
+capabilities, and completion definition.
+
+## 2. Data plane: resources
+
+Read-only MCP resources:
+
+### `spec://current/dag`
+
+The versioned `build-port/v1` graph. Read it once to plan traversal. Schema:
+`docs/schemas/dag.v1.json`.
 
 ```json
 {
@@ -53,157 +58,213 @@ Read these MCP resources (read-only):
   "specId": "SPEC-042",
   "maxParallel": 4,
   "nodes": [
-    { "id": "n1", "number": 1, "repo": "svc", "layer": "rails-api",
-      "dependsOn": [], "status": "pending", "branch": "", "skillPaths": ["/abs/skill"] }
+    {
+      "id": "n1",
+      "number": 1,
+      "repo": "svc",
+      "layer": "rails-api",
+      "dependsOn": [],
+      "status": "pending",
+      "branch": "",
+      "skillPaths": ["/abs/skill"]
+    }
   ],
   "waves": [["n1"], ["n2", "n3"], ["n4"]]
 }
 ```
 
-- Always check `schemaVersion` (major `build-port/v1`). Fields are added only
-  additively within a major version.
-- `waves` is ordered; each wave is an array of node **ids** — resolve them
-  against `nodes[]`. Every node in a wave has its dependencies satisfied by
-  earlier waves, so a wave is safe to fan out up to `maxParallel`.
-- A non-empty `error` field means the §7.3 PR stack is not a valid DAG; the
-  build is not launchable.
+Always check `schemaVersion`. Fields are additive within `build-port/v1`.
 
-### Skill routing is pluggable (and optional)
+`waves` is ordered and contains node IDs. Resolve each ID against `nodes`.
+Every node in a wave has dependencies satisfied by earlier waves, so the wave
+is safe to fan out up to `maxParallel`.
 
-`skillPaths` on a node is **opaque to the kernel** — it is produced by a
-selectable *skill router* (`build.router` / per-user `agent.router`), so routing
-is policy, not a baked-in requirement:
+A non-empty graph `error` means the build plan is not a valid DAG and must not
+launch.
 
-- **`registry` (default).** Per-node routing from a `registry.yaml` under the
-  repo's `.agents/skills/` (or legacy `.spec/agent/skills/`). Canonical
-  `registry/v1` shape: `kind: layer|modifier`, `applies_to: ["<repo>", "layer:<tag>"]`
-  (flat, prefixed), `path:` repo-root-relative, plus a top-level `modifiers:` list.
-  The legacy nested `applies_to`/`modifier: true` forms are still accepted.
-  Modifiers compose for a repo's nodes whether or not a layer skill matches, so
-  a registry that declares only modifiers still routes them. A `registry.yaml`
-  may also carry a `conventions:` block (e.g. `pr_title`) that spec-cli applies
-  mechanically, independent of the active router.
-- **`none` / discovery.** Routes nothing; `skillPaths` is empty and the harness
-  discovers skills itself (e.g. pi/Claude scanning `.agents/skills/`).
+### Other resources
 
-A harness should treat `skillPaths` as given and hand them to the worker; it
-should not assume a routing model. `spec build --check` prints the active router.
+- `spec://current/full` — full approved spec.
+- `spec://current/acceptance-criteria` — definition of done.
+- `spec://current/conventions` — project conventions, when present.
+- `spec://current/prior-diffs` — cumulative completed-node diffs.
+- `spec://current/decisions` — decision log.
+- `spec://current/capabilities` — active router, strategy, finishing tools,
+  and completion semantics. Schema:
+  `docs/schemas/capabilities.v1.json`.
 
-Nodes may also carry `acceptanceCriteria` (resolved §6 text the node satisfies,
-from an optional `(ac: N)` annotation in §7.3) and `qualityGates` (verification
-commands from the registry). Both are advisory metadata for the worker.
+## 3. Skill routing
 
-### Build strategy is pluggable too
+`skillPaths` is opaque to the build kernel. It comes from the selected router:
+`build.router` in team config or `agent.router` in personal config.
 
-The VCS/review workflow is a selectable *strategy* (`build.strategy` /
-`agent.strategy`), advertised at `spec://current/capabilities`:
+### `registry` (default)
 
-- **`stacked-draft-pr` (default).** Each node becomes a branch stacked on its
-  parent, finished as a draft PR; the finishing tools below are available and a
-  build is done when every stack leaf has a draft PR.
-- **`none` / local.** Work stays on local branches; **no finishing tools are
-  exposed** (calling one returns an error) and a build is done once all nodes
-  complete.
+Routes each node using `.agents/skills/registry.yaml` (legacy
+`.spec/agent/skills/` is also recognized).
 
-Read `finishingTools` from the capabilities resource rather than assuming the
-stacked workflow.
+Canonical `registry/v1` entries use:
 
-## 3. Control plane — tools
+- `kind: layer|modifier`;
+- flat `applies_to` values such as `service` or `layer:rails-api`;
+- a repository-relative `path`;
+- optional top-level `modifiers` and `conventions`.
 
-All tools are **idempotent** and keyed by `node_id`. spec-cli owns the git base
-ref, so you never compute or pass one.
+Modifiers compose for matching repositories even if no layer skill matches.
+Repository conventions such as `pr_title` remain mechanical and independent of
+the active router.
 
-| Tool | Contract |
-|------|----------|
-| `spec_provision_node(node_id)` | Computes the base ref, creates the branch + worktree, sets status → in-progress, returns `{ nodeId, workDir, branch, baseRef, skillPaths }`. Provision a node before dispatching its worker. **Provision in wave order** — a same-repo child branches off its parent, so the parent must be provisioned first. |
-| `spec_node_context(node_id)` | Returns a node's deterministic build slice: `{ description, dependsOn, skillPaths, acceptanceCriteria, qualityGates }`. Hand this to the worker instead of having it re-read the whole spec. |
-| `spec_node_complete(node_id)` | Marks the node done and captures its diff into cumulative context. |
-| `spec_node_failed(node_id, reason)` | Records a failure for resume/reporting. Do not start downstream dependents of a failed node. |
-| `spec_push(node_id)` | Pushes the node's branch from its worktree. |
-| `spec_open_pr(node_id, type?, summary?, title?, body?)` | Opens a **draft** PR (head = node branch, base = recorded base ref). Pass `type`+`summary` and spec-cli applies the node repo's `pr_title` convention, filling `{type}`/`{epic}`/`{desc}` (`{epic}` from the spec's `epic_key`); pass `title` to override entirely. Records `{number,url}` and annotates §7.3. *Finishing tool — gated by strategy.* |
-| `spec_link_prs()` / `spec_link_prs(node_id, base)` | Re-chains the stack, or retargets one node's base as parents merge. *Finishing tool — gated by strategy.* |
+### No skill router
 
-Finishing tools (`spec_push`, `spec_open_pr`, `spec_link_prs`) are only present
-and callable when the active strategy exposes them — check
-`spec://current/capabilities.finishingTools`.
-| `spec_decide(question)` / `spec_decide_resolve(number, decision, rationale)` | Record/resolve decisions forced during the build. |
+Set the router to `none`. `skillPaths` is empty and the harness may discover
+skills
+itself.
 
-## 4. The conductor loop
+Treat the paths supplied by the DAG as authoritative. Hand them to the worker;
+do not infer which routing policy produced them.
 
+Nodes may also include:
+
+- `acceptanceCriteria` — the resolved criterion slice for the node;
+- `qualityGates` — verification commands from the registry.
+
+Both are advisory worker context.
+
+## 4. Build strategy
+
+The selected strategy (`build.strategy` or personal `agent.strategy`) defines
+VCS/review mechanics and completion.
+
+### `stacked-draft-pr` (default)
+
+Each node gets a branch stacked on its parent and finishes as a draft PR.
+Finishing tools are exposed. A build completes when every node is complete and
+every repository-bearing stack leaf has a recorded draft PR.
+
+### Local-only strategy
+
+Set the strategy to `none`. Work remains on local branches. Finishing tools are
+absent. The build completes
+when all nodes complete.
+
+Read `finishingTools` and `completion` from
+`spec://current/capabilities`; never assume the default strategy.
+
+## 5. Control plane: tools
+
+Tools are idempotent and keyed by `node_id`. `spec` owns base-ref calculation.
+
+### `spec_provision_node(node_id)`
+
+Computes the base ref, creates the branch and worktree, sets the node to
+in-progress, and returns:
+
+```json
+{
+  "nodeId": "n1",
+  "workDir": "/abs/worktree",
+  "branch": "spec-042/n1",
+  "baseRef": "main",
+  "skillPaths": []
+}
 ```
+
+Provision in wave order. A same-repository child branches from its parent, so
+the parent must be provisioned first.
+
+### `spec_node_context(node_id)`
+
+Returns the deterministic worker slice: description, dependencies, routed
+skills, acceptance criteria, and quality gates. Give this to the worker instead
+of asking it to reread the full spec.
+
+### Node checkpoint tools
+
+- `spec_node_complete(node_id)` — mark complete and capture the diff into
+  cumulative context.
+- `spec_node_failed(node_id, reason)` — persist failure. Do not dispatch
+  downstream dependents.
+
+### Finishing tools
+
+Available only when listed by the active strategy:
+
+- `spec_push(node_id)` — push the node branch from its worktree.
+- `spec_open_pr(node_id, type?, summary?, title?, body?)` — open a draft PR
+  from the node branch to its recorded base.
+- `spec_link_prs()` — re-chain the whole stack.
+- `spec_link_prs(node_id, base)` — retarget one node after parent merges.
+
+For `spec_open_pr`, pass `type` and `summary` to apply the repository's
+`pr_title` convention. Supported placeholders include `{type}`, `{epic}`, and
+`{desc}`. Pass `title` to override the convention. The tool records the PR and
+annotates the build plan.
+
+### Decision tools
+
+- `spec_decide(question)` — record a decision forced by implementation.
+- `spec_decide_resolve(number, decision, rationale)` — resolve one.
+
+## 6. Conductor loop
+
+```text
 1. Read spec://current/full and spec://current/dag.
-2. Preflight: stop and report if the DAG is empty/errored, a node's workspace
-   is unresolved, the Decision Log has blocking entries, or a node has no
-   resolvable capability and its work is not self-evident.
-3. For each WAVE in dag.waves, in order:
-     For each NODE in the wave (provision serially, then dispatch in parallel
-     up to maxParallel):
-        a. spec_provision_node(node.id) -> { workDir, branch, baseRef, skillPaths }
-     Then, for the provisioned nodes:
-        b. Dispatch ONE worker, cwd = workDir, given the node prompt + skillPaths.
-        c. success -> spec_node_complete(node.id);  failure -> spec_node_failed(node.id, reason)
-     Wait for the whole wave before the next (downstream nodes depend on
-     upstream diffs, now captured as cumulative context).
-4. When all nodes are complete, push and open stacked DRAFT PRs:
-   spec_push + spec_open_pr per node (roots first), then spec_link_prs.
-5. Report. Stop at draft — humans mark ready and merge.
+2. Stop if the graph is empty or errored, a workspace is unresolved,
+   a blocking decision remains, or work lacks a resolvable capability.
+3. For each wave, in order:
+   a. Provision each node serially.
+   b. Dispatch one worker per worktree, in parallel up to maxParallel.
+   c. Checkpoint success or failure with the node tools.
+   d. Wait for the entire wave before starting dependents.
+4. If the strategy exposes finishing tools, push and open draft PRs,
+   roots first, then call spec_link_prs.
+5. Report and stop at draft; humans mark ready and merge.
 ```
 
-### Worker dispatch contract
+## 7. Worker dispatch contract
 
-- **One writer per worktree.** spec-cli isolates every node in its own worktree;
-  never run two workers in the same `workDir`, and never double-isolate (the
-  worktree is already isolated).
-- **Lean worker context.** A worker needs its `workDir`, the node's spec slice,
-  and its `skillPaths` (which it loads by reading the files). It does **not**
-  need the MCP server or the conductor's skills. Prefer a fresh/lightweight
-  worker over one that inherits the conductor's full context.
-- **Workers report; the conductor checkpoints.** Workers never push, never open
-  PRs, never call the node tools, and never spawn workers.
+- **One writer per worktree.** `spec` already isolates each node. Never run two
+  workers in one `workDir` and never add a second isolation layer.
+- **Lean context.** A worker needs `workDir`, node context, and `skillPaths`.
+  It does not need the MCP server or conductor skills.
+- **Workers report; conductor checkpoints.** Workers do not push, open PRs,
+  call control-plane tools, or spawn more workers.
 
-## 5. Completion semantics
+Prefer a fresh lightweight worker over inheriting the conductor's complete
+context.
 
-Completion is **strategy-defined** — read it from
-`spec://current/capabilities.completion`. Under the default `stacked-draft-pr`
-strategy, a build is complete only when every node is `complete` **and** every
-repo-bearing stack *leaf* (a node nothing else depends on) has a recorded draft
-PR; nodes-complete-but-no-PRs is reported as unfinished with a pointer to run the
-finisher, and the `pr_stack_exists` advance gate enforces the same definition
-(`AllLeavesHaveDraftPR`). Under the `none` strategy, a build is complete once all
-nodes are complete.
+## 8. Completion, resume, and failure
 
-## 6. Resume & failure
+Completion is strategy-defined and advertised by capabilities.
 
-- State is durable. Re-invoking (`spec do <id>`) resumes from the ledger:
-  completed nodes are already marked, only ready unfinished nodes are
-  re-dispatched.
-- A failed node blocks its downstream dependents but not independent DAG
-  branches.
+Under `stacked-draft-pr`, all nodes and all repository-bearing leaves need draft
+PRs. The `pr_stack_exists` compatibility gate enforces the same
+`AllLeavesHaveDraftPR` definition.
 
-## 7. Versioning & conformance
+Under `none`, all nodes complete is sufficient.
 
-- The DAG resource carries `schemaVersion` (`build-port/v1`); within a major
-  version, changes are additive only.
-- The tool names, idempotency guarantees, and the completion definition above
-  are the stable contract. Adapters should target the major version and treat
-  unknown additive fields as optional.
+State is durable. Re-running `spec do <id>` leaves completed nodes alone and
+dispatches only ready unfinished nodes. A failed node blocks its descendants,
+not independent branches.
 
-## 8. Reference adapters
+## 9. Versioning and conformance
 
-- **`ai-squad-skills`** (`build-orchestrator` + `pr-finisher` skills) is the
-  reference conductor for pi and Claude Code.
-- A non-LLM conformance kit (`internal/build/conformance_test.go`) drives a
-  synthetic fixture spec through the port in two configurations: the default
-  stack and a `router=none`/`strategy=none` stack. It is the regression guard for
-  changes to the port.
+- The DAG declares `build-port/v1`.
+- Changes within a major version are additive.
+- Tool names, idempotency, and advertised completion semantics are stable.
+- Consumers must tolerate unknown optional fields.
 
-## 9. Pluggable adapters at a glance
+The non-LLM conformance kit in `internal/build/conformance_test.go` exercises a
+synthetic fixture under both the default stack and
+`router=none` / `strategy=none`.
 
-| Port | Config key | Default | Alternatives | Schema |
-|------|-----------|---------|--------------|--------|
-| Skill routing (Tier 1) | `build.router` | `registry` | `none` | `docs/schemas/registry.v1.json` |
-| Build strategy (Tier 2) | `build.strategy` | `stacked-draft-pr` | `none` | `docs/schemas/capabilities.v1.json` |
+## 10. Adapter summary
 
-The kernel (spec/DAG/ledger/git/MCP) is mandatory and does not contain agent
-policy. Routers and strategies are boundary adapters: use the defaults, provide
-your own, or disable them without changing the kernel.
+- Skill routing: `build.router`; default `registry`; alternative `none`.
+- Build strategy: `build.strategy`; default `stacked-draft-pr`; alternative
+  `none`.
+- Registry schema: `docs/schemas/registry.v1.json`.
+- Capability schema: `docs/schemas/capabilities.v1.json`.
+
+The spec/DAG/ledger/Git/MCP kernel is mandatory and contains no agent policy.
+Routers and strategies are replaceable boundary adapters.

@@ -453,10 +453,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// without a manual push; the UI never blocks on the network.
 			a.publisher.Notify(a.detail.specID)
 			if msg.Toast != "" {
-				a.statusBar.SetStatusSuccess(msg.Toast, 2*time.Second)
+				toast := msg.Toast
+				if a.detail.undoThreadID != "" && time.Now().Before(a.detail.undoUntil) {
+					toast += " · u undo"
+				}
+				a.statusBar.SetStatusSuccess(toast, 2*time.Second)
 			}
 		}
 		return a, cmd
+
+	case readerFlashMsg:
+		// Transient reader notice (e.g. the thread stepper wrapping) — shown
+		// on the status bar, never inline where it would shift the prose.
+		a.statusBar.SetStatusSuccess(msg.Text, 2*time.Second)
+		return a, nil
 
 	case settingsAppliedMsg:
 		return a, a.applySettingsField(msg.Field)
@@ -496,7 +506,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Navigation messages from views.
 	case navigateToSpecMsg:
-		return a, a.openDetail(msg.SpecID)
+		return a, a.openDetailWithIntent(msg.SpecID, msg.ReviewIntent)
 
 	case navigateToSpecSectionMsg:
 		return a, a.openDetailAtSection(msg.SpecID, msg.SectionSlug)

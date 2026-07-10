@@ -145,22 +145,5 @@ func firstDataRow(out string) string {
 	return ""
 }
 
-// stripANSI removes lipgloss colour codes so leading-space counts reflect the
-// real text indent.
-func stripANSI(s string) string {
-	var b strings.Builder
-	inEscape := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEscape = true
-		case inEscape && r == 'm':
-			inEscape = false
-		case inEscape:
-			// skip
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
+// stripANSI (production code, anchormap.go) is reused here so leading-space
+// counts reflect the real text indent.

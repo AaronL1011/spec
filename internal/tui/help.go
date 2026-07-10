@@ -107,11 +107,22 @@ func (m helpModel) renderContent() string {
 	b.WriteString(m.section("Navigation", m.keys.NavigationBindings()))
 	b.WriteString(m.section("Views", m.keys.ViewBindings()))
 
-	switch m.context {
-	case "Settings":
+	switch {
+	case m.context == "Settings":
 		b.WriteString(m.section("Settings", m.keys.SettingsBindings()))
-	case "Triage":
+	case m.context == "Triage":
 		b.WriteString(m.section("Triage Actions", m.keys.TriageBindings()))
+	case strings.Contains(m.context, "· pick"):
+		b.WriteString(m.section("Pick quoted block", pickBindings()))
+	case strings.Contains(m.context, "· compose"):
+		b.WriteString(m.section("Compose", composeBindings()))
+	case strings.Contains(m.context, "· threads"):
+		b.WriteString(m.section("Thread pane", threadPaneBindings()))
+		b.WriteString(m.section("Reader navigation", m.keys.ReaderBindings()))
+	case strings.Contains(m.context, "· reader"):
+		b.WriteString(m.section("Reader (review cockpit)", m.keys.ReaderBindings()))
+	case strings.HasPrefix(m.context, "Detail"):
+		b.WriteString(m.section("Spec Actions", m.keys.ActionBindings()))
 	default:
 		b.WriteString(m.section("Spec Actions", m.keys.ActionBindings()))
 		b.WriteString(m.section("Creation", m.keys.CreationBindings()))
@@ -169,6 +180,33 @@ func (m helpModel) view() string {
 	}
 
 	return strings.Join(window, "\n") + "\n" + hint
+}
+
+func pickBindings() []key.Binding {
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("j"), key.WithHelp("j/k", "next/previous block")),
+		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "quote selected block")),
+		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "ask on section instead")),
+		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	}
+}
+
+func composeBindings() []key.Binding {
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "newline")),
+		key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "send")),
+		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	}
+}
+
+func threadPaneBindings() []key.Binding {
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
+		key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "resolve")),
+		key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle unread")),
+		key.NewBinding(key.WithKeys("n"), key.WithHelp("n/p", "next/previous thread")),
+		key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "focus prose")),
+	}
 }
 
 func (m helpModel) section(title string, bindings []key.Binding) string {

@@ -1,36 +1,63 @@
-# spec — Team Contract
+# Team contract
 
-`spec` keeps work visible by combining specs, ownership, stage changes, and
-handoffs in one shared repo-backed workflow. It reduces coordination overhead, but
-it still depends on clear ownership and disciplined edits. Use the rules below to
-avoid conflicts and lost work.
+`spec` makes ownership, review, and stage changes visible, but it does not
+replace clear handoffs. These conventions keep the Git-backed workflow calm.
 
-1. **One spec, one driver; hand over explicitly.** Each spec has an author or owner
-   who moves it through the pipeline. Do not advance, edit, or restructure someone
-   else's spec without an explicit handover.
+## Start from the shared view
 
-2. **Own your section.** Edit only the sections marked for your role. Different
-   sections can merge cleanly; simultaneous edits to the same section can conflict.
+Open `spec` before picking up work. The Dashboard shows your queue; Pipeline
+shows the team. If you are resuming after time offline, refresh (`r`) and read
+the latest discussion before editing.
 
-3. **Finish or discard before you step away.** Do not leave half-edited specs
-   sitting overnight.
+## One driver, explicit handoffs
 
-4. **Stagger advances.** Advance specs as you finish them through the day, not all
-   at standup. Large synchronized batches create avoidable collisions.
+A spec should have a clear driver. Claim it with `g c` in the TUI or
+`spec assign`. Hand work over explicitly rather than changing author,
+assignment, or stage by convention alone.
 
-5. **Sync before resuming after time offline.** Run `spec status` before picking
-   work back up so you see the latest stage, owner, and queue state.
+## Own the section, not the whole document
 
-6. **Do not use `SPEC_FORCE` as a shortcut.** It discards work. Use it only when you
-   understand what will be overwritten and have coordinated with the other editor.
+Section owner markers define which role should author each part. Different
+roles can safely move different sections forward, but simultaneous edits to the
+same section still require coordination.
 
-7. **Treat conflict messages as coordination prompts.** When `spec` names a spec
-   and section, stop and coordinate with whoever else touched it. Re-running the
-   same command will not resolve the conflict.
+Use reader threads for questions and review feedback instead of rewriting
+another role's section. Anchor a question to the exact block with `A` when the
+context matters.
 
-8. **Do not hand-edit the managed clone.** `queued-offline` means local work is
-   waiting to be pushed. It drains on the next successful command.
+## Resolve review work deliberately
 
-> **Short version:** Drive your own specs, own your sections, hand over explicitly,
-> finish edits before stepping away, stagger advances, and do not force unless you
-> know what will be discarded.
+The reader defaults to open threads. Step through them with `n` / `p`, reply or
+resolve from the thread pane, and finish the review pass summary before
+advancing. Do not resolve a thread merely to satisfy a gate; record the outcome
+in the spec or decision log.
+
+## Let gates communicate readiness
+
+Use `a` to advance and let the configured gates explain what is missing. Do not
+bypass gates by manually changing frontmatter. Use `v` to send work back with a
+reason and `x` to block it when progress genuinely cannot continue.
+
+## Publish or intentionally keep local
+
+The team's `sync.auto_push` policy determines whether edits and comments publish
+automatically. When it is `off`, use TUI `p` or `spec push` before handing work
+over. `queued-offline` means local work is waiting for connectivity; do not edit
+the managed clone by hand.
+
+## Treat conflicts as coordination prompts
+
+If `spec` names a conflicting spec and section, stop and coordinate with the
+other editor. Re-running the command does not resolve the disagreement.
+
+Never use force as a routine shortcut. Forced inbound sync can overwrite local
+work and should be used only when the team has agreed which version wins.
+
+## Keep transitions flowing
+
+Advance work as it becomes ready rather than batching many stage changes at
+standup. Small, continuous transitions reduce merge contention and make the
+Dashboard trustworthy.
+
+> Short version: open `spec`, claim work, own your sections, review threads to
+> completion, hand over explicitly, and publish before stepping away.

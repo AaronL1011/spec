@@ -98,6 +98,10 @@ func (a App) render() string {
 		out += l + "\n"
 	}
 
+	// A deliberate blank row separates body content from the status bar so the
+	// eye gets a natural break point (see chromeLayout).
+	out += "\n"
+
 	// The canonical status element lives inside the status bar (SPEC-016), so
 	// the bar is the single, always-present status surface — no separate toast
 	// row is composited over it.
