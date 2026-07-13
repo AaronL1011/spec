@@ -47,6 +47,7 @@ type KeyMap struct {
 	Assign        key.Binding // g c — assign/claim (modal)
 	Focus         key.Binding // f — toggle focus
 	Open          key.Binding
+	Preview       key.Binding // w — render spec to HTML and open in browser
 	Yank          key.Binding
 	Decide        key.Binding
 	Push          key.Binding
@@ -202,6 +203,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("o"),
 			key.WithHelp("o", "open"),
 		),
+		Preview: key.NewBinding(
+			key.WithKeys("w"),
+			key.WithHelp("w", "browser preview"),
+		),
 		Yank: key.NewBinding(
 			key.WithKeys("y"),
 			key.WithHelp("y", "copy id"),
@@ -264,7 +269,7 @@ func (k KeyMap) ViewBindings() []key.Binding {
 func (k KeyMap) ActionBindings() []key.Binding {
 	return []key.Binding{
 		k.Advance, k.Revert, k.Edit, k.Build, k.Block, k.Unblock,
-		k.Assign, k.Focus, k.Open, k.Yank, k.Decide, k.Push, k.Sync,
+		k.Assign, k.Focus, k.Open, k.Preview, k.Yank, k.Decide, k.Push, k.Sync,
 		k.Archive, k.Restore, k.ToggleArchive,
 	}
 }

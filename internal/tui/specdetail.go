@@ -1079,7 +1079,7 @@ func (m specDetailModel) overviewLines() []string {
 		archiveHint = Hint("r", "restore")
 	}
 	hints := HintStrip(m.styles, archiveHint,
-		Hint("o", "read sections"), Hint("e", "edit"), Hint("esc", "back"))
+		Hint("o", "read sections"), Hint("e", "edit"), Hint("w", "browser preview"), Hint("esc", "back"))
 	b.WriteString(hints + "\n")
 
 	return splitLines(b.String())

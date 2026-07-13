@@ -427,17 +427,21 @@ func openInBrowser(url string) tea.Cmd {
 		if url == "" {
 			return actionResultMsg{Action: "open", Err: fmt.Errorf("no URL available")}
 		}
-		var cmd *exec.Cmd
-		switch runtime.GOOS {
-		case "darwin":
-			cmd = exec.Command("open", url)
-		case "windows":
-			cmd = exec.Command("cmd", "/c", "start", url)
-		default:
-			cmd = exec.Command("xdg-open", url)
-		}
-		err := cmd.Start()
+		err := browserCmd(url).Start()
 		return actionResultMsg{Action: "open", Detail: url, Err: err}
+	}
+}
+
+// browserCmd builds the platform-specific command that opens a URL in the
+// default browser.
+func browserCmd(url string) *exec.Cmd {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", url)
+	case "windows":
+		return exec.Command("cmd", "/c", "start", url)
+	default:
+		return exec.Command("xdg-open", url)
 	}
 }
 
