@@ -22,8 +22,10 @@ require (
 	modernc.org/sqlite v1.53.0
 )
 
+require github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
+
 require (
-	github.com/alecthomas/chroma/v2 v2.14.0 // indirect
+	github.com/alecthomas/chroma/v2 v2.14.0
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260703014108-f5a850f9c2b7 // indirect
 	github.com/charmbracelet/x/exp/ordered v0.1.0 // indirect

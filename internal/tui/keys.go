@@ -256,6 +256,8 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyPressMsg) (tea.Cmd, boo
 		return focusSpec(a.db, specID), true
 	case key.Matches(msg, a.keys.Yank) && specID != "":
 		return yankSpecID(specID), true
+	case key.Matches(msg, a.keys.Preview) && isSpecID(specID):
+		return previewSpec(a.rc, specID), true
 	case key.Matches(msg, a.keys.Edit) && isSpecID(specID):
 		editor := "vi"
 		if a.rc.User != nil && a.rc.User.Preferences.Editor != "" {
