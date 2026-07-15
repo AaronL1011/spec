@@ -64,6 +64,45 @@ func TestReview_CursorNavigation(t *testing.T) {
 	}
 }
 
+func TestReview_StaleFractionOptIn(t *testing.T) {
+	m := testReviewModel()
+	now := time.Now()
+	old := reviewItem{Number: 1, CreatedAt: now.Add(-48 * time.Hour)}
+
+	// No review window configured → colouring is opt-in, fraction stays 0.
+	if f := m.reviewStaleFraction(old, now); f != 0 {
+		t.Errorf("with no window configured, staleFraction = %v, want 0", f)
+	}
+
+	// Configure a 2d window → a PR opened 48h ago is fully stale (f == 1),
+	// reusing the dashboard's REVIEW window + easing.
+	m.rc.Team.Dashboard.Review.StaleAfter = "2d"
+	if f := m.reviewStaleFraction(old, now); f <= 0 {
+		t.Errorf("with a 2d window, 48h-old PR staleFraction = %v, want > 0", f)
+	}
+
+	// A PR opened right now is not stale against the same window.
+	fresh := reviewItem{Number: 2, CreatedAt: now}
+	if f := m.reviewStaleFraction(fresh, now); f != 0 {
+		t.Errorf("fresh PR staleFraction = %v, want 0", f)
+	}
+}
+
+func TestReview_StaleRowRenders(t *testing.T) {
+	m := testReviewModel()
+	m.rc.Team.Dashboard.Review.StaleAfter = "2d"
+	m.items = []reviewItem{
+		{Number: 7, Title: "Old PR", Repo: "api", Author: "octocat", CreatedAt: time.Now().Add(-72 * time.Hour)},
+	}
+
+	// A stale row exercises the ramp-colour path; it must still render its
+	// content without panicking.
+	got := m.view()
+	if !strings.Contains(got, "PR #7") || !strings.Contains(got, "octocat") {
+		t.Errorf("stale review row should still render its content, got: %q", got)
+	}
+}
+
 func TestCIIcon(t *testing.T) {
 	tests := []struct {
 		status string
