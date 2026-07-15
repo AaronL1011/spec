@@ -31,8 +31,8 @@ func TestReview_EmptyQueue(t *testing.T) {
 func TestReview_WithItems(t *testing.T) {
 	m := testReviewModel()
 	m.items = []reviewItem{
-		{Number: 42, Title: "Add auth middleware", Repo: "api-service", CIStatus: "passing", CreatedAt: time.Now().Add(-2 * time.Hour)},
-		{Number: 43, Title: "Fix payment flow", Repo: "payments", CIStatus: "failing", CreatedAt: time.Now().Add(-24 * time.Hour)},
+		{Number: 42, Title: "Add auth middleware", Repo: "api-service", Author: "octocat", CIStatus: "passing", CreatedAt: time.Now().Add(-2 * time.Hour)},
+		{Number: 43, Title: "Fix payment flow", Repo: "payments", Author: "hubot", CIStatus: "failing", CreatedAt: time.Now().Add(-24 * time.Hour)},
 	}
 
 	got := m.view()
@@ -41,6 +41,9 @@ func TestReview_WithItems(t *testing.T) {
 	}
 	if !strings.Contains(got, "2 reviews") {
 		t.Error("should show '2 reviews requested'")
+	}
+	if !strings.Contains(got, "octocat") {
+		t.Error("wide review row should render the PR author")
 	}
 }
 

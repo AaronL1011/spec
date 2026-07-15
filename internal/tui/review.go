@@ -172,17 +172,22 @@ func (m reviewModel) renderReviewRow(item reviewItem, selected bool, width int) 
 		}
 		line = fmt.Sprintf("%s%s %-10s %s", Indent(1), ci, prLabel, truncate(item.Title, titleMax))
 	} else {
-		titleMax := width - 42
+		// Reserve space for the fixed columns so the styled row never wraps:
+		// indent + icon + PR label + repo + author + time-ago. The author column
+		// sits immediately before the trailing time column, matching the spec
+		// list layout (ID · TITLE · STATUS · AUTHOR · UPDATED).
+		titleMax := width - 58
 		if titleMax < 10 {
 			titleMax = 10
 		}
 		ago := timeAgo(item.CreatedAt)
-		line = fmt.Sprintf("%s%s %-10s %-*s  %-15s %s",
+		line = fmt.Sprintf("%s%s %-10s %-*s  %-15s %-15s %s",
 			Indent(1),
 			ci,
 			prLabel,
 			titleMax, truncate(item.Title, titleMax),
 			truncate(item.Repo, 15),
+			truncate(item.Author, 15),
 			ago,
 		)
 	}
