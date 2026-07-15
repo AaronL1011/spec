@@ -42,13 +42,17 @@ follows the surface under the pointer.
 
 ### 1 — Dashboard
 
-Your personal queue, grouped into sections such as:
+Your personal queue, grouped into sections, shown in this priority order:
 
+- **BLOCKED** — visible according to the team's blocked-scope policy; leads
+  because a stuck spec is the most urgent signal;
 - **DO** — work you own, authored work, or claimable work according to stage
   configuration;
+- **DISCUSSION** — open threads awaiting your reply;
 - **REVIEW** — plans and pull requests waiting for you;
-- **INCOMING** — mentions, role handoffs, and triage;
-- **BLOCKED** — visible according to the team's blocked-scope policy.
+- **INCOMING** — mentions, role handoffs, and triage.
+
+Empty sections are hidden. Within a section, the oldest item leads.
 
 Rows can develop a time-urgency color as they approach the current stage's
 `stale_after` window. This is a prioritization cue, not an error.
