@@ -63,17 +63,20 @@ func TestSecurityConfig_SurfaceWindow(t *testing.T) {
 }
 
 func TestSecurityScopeOrDefault(t *testing.T) {
-	cases := map[string]string{
-		"":      "org",
-		"org":   "org",
-		"repo":  "repo",
-		"REPO":  "repo",
-		" repo ": "repo",
-		"weird": "org",
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", "org"},
+		{"org", "org"},
+		{"repo", "repo"},
+		{"REPO", "repo"},
+		{" repo ", "repo"},
+		{"weird", "org"},
 	}
-	for in, want := range cases {
-		if got := SecurityScopeOrDefault(in); got != want {
-			t.Errorf("SecurityScopeOrDefault(%q) = %q, want %q", in, got, want)
+	for _, c := range cases {
+		if got := SecurityScopeOrDefault(c.in); got != c.want {
+			t.Errorf("SecurityScopeOrDefault(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
