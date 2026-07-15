@@ -56,8 +56,6 @@ func runIntake(cmd *cobra.Command, args []string) error {
 	}
 
 	reportedBy := rc.UserName()
-	content := markdown.ScaffoldTriageFromConfig(rc.SpecsRepoRoot(), teamTemplateConfig(rc),
-		markdown.TriageFields{ID: triageID, Title: title, Priority: priority, Source: source, SourceRef: sourceRef, ReportedBy: reportedBy, Date: time.Now().Format("2006-01-02")})
 
 	// Write via WithSpecsRepo
 	err = gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, triageID), func(repoPath string) (string, error) {
@@ -65,6 +63,11 @@ func runIntake(cmd *cobra.Command, args []string) error {
 		if err := os.MkdirAll(triageDir, 0o755); err != nil {
 			return "", err
 		}
+
+		// Resolve and render the template inside the sync wrapper so the item
+		// scaffolds from the just-pulled (latest) team template state.
+		content := markdown.ScaffoldTriageFromConfig(repoPath, teamTemplateConfig(rc),
+			markdown.TriageFields{ID: triageID, Title: title, Priority: priority, Source: source, SourceRef: sourceRef, ReportedBy: reportedBy, Date: time.Now().Format("2006-01-02")})
 
 		triagePath := filepath.Join(triageDir, triageID+".md")
 		if err := os.WriteFile(triagePath, []byte(content), 0o644); err != nil {

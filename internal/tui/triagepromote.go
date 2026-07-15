@@ -42,14 +42,16 @@ func promoteTriageItem(rc *config.ResolvedConfig, item triageItem) tea.Cmd {
 		cycle := rc.CycleLabel()
 		source := item.ID
 
-		// Build the spec content and inject the triage body into §1.
-		specContent := buildPromotedSpec(rc, specID, item.Title, author, cycle, source, item.Body)
-
 		err = gitpkg.WithSpecsRepoOpts(ctx, &rc.Team.SpecsRepo, tuiSyncOpts("triage/promote", specID), func(repoPath string) (string, error) {
 			sd := filepath.Join(repoPath, gitpkg.SpecsSubDir)
 			if err := os.MkdirAll(sd, 0o755); err != nil {
 				return "", fmt.Errorf("creating specs dir: %w", err)
 			}
+
+			// Build the spec content and inject the triage body into the
+			// Problem Statement section. Resolved inside the sync wrapper so
+			// the spec scaffolds from the just-pulled (latest) team template.
+			specContent := buildPromotedSpec(repoPath, tuiTemplateConfig(rc), specID, item.Title, author, cycle, source, item.Body)
 
 			// Write the new spec file.
 			specPath := filepath.Join(sd, specID+".md")
@@ -73,23 +75,26 @@ func promoteTriageItem(rc *config.ResolvedConfig, item triageItem) tea.Cmd {
 	}
 }
 
-// buildPromotedSpec scaffolds a spec and injects the triage body into §1 Problem
-// Statement. If the body is blank the section is left empty (safe fallback).
-func buildPromotedSpec(rc *config.ResolvedConfig, id, title, author, cycle, source, triageBody string) string {
-	base := markdown.ScaffoldSpecFromConfig(rc.SpecsRepoRoot(), tuiTemplateConfig(rc),
+// buildPromotedSpec scaffolds a spec from the effective template at repoDir
+// and injects the triage body into the problem_statement section. The section
+// is located by slug, not by literal heading text, so a custom team template
+// with different numbering, spacing, or owner markers still receives the
+// body. If the body is blank — or the template genuinely lacks the section —
+// the scaffold is returned unmodified (safe fallback, never corrupts).
+func buildPromotedSpec(repoDir string, tc markdown.TemplateConfig, id, title, author, cycle, source, triageBody string) string {
+	base := markdown.ScaffoldSpecFromConfig(repoDir, tc,
 		markdown.SpecFields{ID: id, Title: title, Author: author, Cycle: cycle, Source: source, Date: time.Now().Format("2006-01-02")})
 	body := sanitiseBodyForSpec(strings.TrimSpace(triageBody))
 	if body == "" {
 		return base
 	}
-	// Insert the triage body beneath the "## 1. Problem Statement" heading.
-	const marker = "## 1. Problem Statement           <!-- owner: pm -->"
-	if !strings.Contains(base, marker) {
-		// Fallback: heading has unexpected format — return unmodified.
+	out, err := markdown.ReplaceSectionContent(base, "problem_statement", "\n"+body+"\n")
+	if err != nil {
+		// Template lacks a problem_statement section (only possible when the
+		// resolved template drifted mid-operation) — keep the scaffold intact.
 		return base
 	}
-	replacement := marker + "\n\n" + body
-	return strings.Replace(base, marker, replacement, 1)
+	return out
 }
 
 // sanitiseBodyForSpec strips or escapes content that would collide with the

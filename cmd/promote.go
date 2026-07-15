@@ -70,13 +70,15 @@ func runPromote(cmd *cobra.Command, args []string) error {
 	cycle := rc.CycleLabel()
 	source := triageID
 
-	content := markdown.ScaffoldSpecFromConfig(rc.SpecsRepoRoot(), teamTemplateConfig(rc),
-		markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: source, Date: time.Now().Format("2006-01-02")})
-
 	var newSpecID string
 
 	err = gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
 		sd := specsDir(repoPath)
+
+		// Resolve and render the template inside the sync wrapper so the spec
+		// scaffolds from the just-pulled (latest) team template state.
+		content := markdown.ScaffoldSpecFromConfig(repoPath, teamTemplateConfig(rc),
+			markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: source, Date: time.Now().Format("2006-01-02")})
 
 		// Write the new spec
 		specPath := filepath.Join(sd, specID+".md")

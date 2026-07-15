@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -185,23 +186,57 @@ func RenderTriage(tpl string, fields TriageFields) (string, error) {
 	return renderTemplate("triage", tpl, triageFieldsMap(fields))
 }
 
-// ResolveTemplate returns the effective template content for a kind: the team
-// file at repoDir/configuredPath if present and parseable, else the embedded
-// default. The returned source is "team" or "default".
-func ResolveTemplate(kind TemplateKind, repoDir, configuredPath string) (content, source string) {
+// ReadTeamTemplate reads the raw team template file for a kind from
+// repoDir/configuredPath (defaulting to the conventional path). It returns
+// the file content, the resolved path, and whether the file exists. No
+// validation is performed — callers that need the effective (safe) template
+// should use ResolveTemplate instead.
+func ReadTeamTemplate(kind TemplateKind, repoDir, configuredPath string) (content, path string, ok bool) {
+	if repoDir == "" {
+		return "", "", false
+	}
 	if configuredPath == "" {
 		configuredPath = kind.defaultPath()
 	}
-	path := filepath.Join(repoDir, configuredPath)
+	path = filepath.Join(repoDir, configuredPath)
 	data, err := os.ReadFile(path)
 	if err != nil {
+		return "", path, false
+	}
+	return string(data), path, true
+}
+
+// ResolveTemplate returns the effective template content for a kind: the team
+// file at repoDir/configuredPath if present and free of fatal validation
+// issues (parse/render errors, unresolved placeholders, missing gate-critical
+// sections), else the embedded default. The returned source is "team" or
+// "default".
+//
+// Falling back — rather than erroring — keeps scaffolding forgiving of a
+// fluid team template: a template broken mid-edit degrades to the built-in
+// default with a warning instead of blocking spec creation.
+func ResolveTemplate(kind TemplateKind, repoDir, configuredPath string) (content, source string) {
+	raw, path, ok := ReadTeamTemplate(kind, repoDir, configuredPath)
+	if !ok {
 		return kind.defaultContent(), "default"
 	}
-	if _, perr := parseTemplateWith(kind.name(), string(data), sampleAllFields()); perr != nil {
-		fmt.Fprintf(os.Stderr, "warning: %s template at %s failed to parse (%v); falling back to built-in default\n", kind.name(), path, perr)
+	if msg := firstFatalIssue(kind, raw); msg != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s template at %s is invalid (%s); falling back to built-in default — run 'spec template validate %s' for details\n",
+			kind.name(), path, msg, kind.name())
 		return kind.defaultContent(), "default"
 	}
-	return string(data), "team"
+	return raw, "team"
+}
+
+// firstFatalIssue returns the message of the first fatal validation issue in
+// content, or "" when the template is safe to scaffold from.
+func firstFatalIssue(kind TemplateKind, content string) string {
+	for _, iss := range ValidateTemplate(kind, content) {
+		if iss.Fatal {
+			return iss.Message
+		}
+	}
+	return ""
 }
 
 // ScaffoldSpec generates a new SPEC.md from the embedded default template. It
@@ -230,7 +265,8 @@ func ScaffoldSpecFromConfig(repoDir string, tc TemplateConfig, fields SpecFields
 		}
 		out, err = RenderSpec(defaultSpecTpl, fields, tc.FrontmatterDefaults)
 		if err != nil {
-			out, _ = RenderSpec(defaultSpecTpl, fields, nil)
+			// Unreachable: the embedded default always renders (regression-tested).
+			return defaultSpecTpl
 		}
 	}
 	return out
@@ -260,7 +296,8 @@ func ScaffoldTriageFromConfig(repoDir string, tc TemplateConfig, fields TriageFi
 		}
 		out, err = RenderTriage(defaultTriageTpl, fields)
 		if err != nil {
-			out, _ = RenderTriage(defaultTriageTpl, fields)
+			// Unreachable: the embedded default always renders (regression-tested).
+			return defaultTriageTpl
 		}
 	}
 	return out
@@ -295,7 +332,7 @@ func injectFrontmatterDefaults(rendered string, defaults []KV) string {
 		if d.Key == "" || existing[d.Key] {
 			continue
 		}
-		insert = append(insert, d.Key+": "+d.Value)
+		insert = append(insert, d.Key+": "+yamlScalar(d.Value))
 		existing[d.Key] = true
 	}
 	if len(insert) == 0 {
@@ -306,6 +343,41 @@ func injectFrontmatterDefaults(rendered string, defaults []KV) string {
 	merged = append(merged, insert...)
 	merged = append(merged, lines[closeIdx:]...)
 	return strings.Join(merged, "\n")
+}
+
+// yamlScalar returns v rendered as a YAML scalar, double-quoting it when the
+// plain form would be ambiguous or invalid (empty value, leading indicator
+// character, ": " or " #" sequences, trailing colon, surrounding whitespace,
+// control characters). Go's strconv.Quote escaping is a valid YAML
+// double-quoted scalar.
+func yamlScalar(v string) string {
+	if v == "" {
+		return `""`
+	}
+	if needsYAMLQuoting(v) {
+		return strconv.Quote(v)
+	}
+	return v
+}
+
+// yamlIndicators are characters that start another YAML construct when they
+// lead a plain scalar.
+const yamlIndicators = "-?:,[]{}#&*!|>'\"%@`"
+
+func needsYAMLQuoting(v string) bool {
+	switch {
+	case v != strings.TrimSpace(v):
+		return true
+	case strings.ContainsAny(v, "\n\t"):
+		return true
+	case strings.ContainsRune(yamlIndicators, rune(v[0])):
+		return true
+	case strings.Contains(v, ": ") || strings.HasSuffix(v, ":"):
+		return true
+	case strings.Contains(v, " #"):
+		return true
+	}
+	return false
 }
 
 // TemplateIssue is a single validation finding. Fatal issues fail validation;

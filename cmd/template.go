@@ -42,7 +42,9 @@ var templateValidateCmd = &cobra.Command{
 	Short: "Validate the effective spec or triage template",
 	Long: `Parse, render, and structurally check the effective template.
 
-kind is "spec" (default) or "triage". Validation fails closed on:
+kind is "spec" (default) or "triage". The committed team file is validated
+when present (even if scaffolding would fall back), otherwise the embedded
+built-in default. Validation fails closed on:
   - parse or render errors
   - unresolved <% ... %> placeholders
   - missing gate-critical sections (spec only): problem_statement,
@@ -170,7 +172,19 @@ func runTemplateValidate(cmd *cobra.Command, args []string) error {
 
 	repoDir, configuredPath := effectiveTemplatePaths(rc, kind)
 
-	content, source := markdown.ResolveTemplate(kind, repoDir, configuredPath)
+	// Validate the raw team file when it exists — ResolveTemplate would
+	// silently substitute the built-in default for a broken team file, which
+	// is exactly what this command must surface.
+	content, path, ok := markdown.ReadTeamTemplate(kind, repoDir, configuredPath)
+	source := "default (built-in)"
+	switch {
+	case ok:
+		source = "team (" + path + ")"
+	case kind == markdown.TriageTemplate:
+		content = markdown.DefaultTriageTemplate()
+	default:
+		content = markdown.DefaultSpecTemplate()
+	}
 	issues := markdown.ValidateTemplate(kind, content)
 
 	label := "spec"
@@ -194,6 +208,7 @@ func runTemplateValidate(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 	if fatal {
+		fmt.Println("New specs will scaffold from the built-in default until this is fixed.")
 		return fmt.Errorf("template validation failed — resolve the ✗ issues above")
 	}
 	fmt.Printf("⚠ %s template has warnings but no fatal issues.\n", label)

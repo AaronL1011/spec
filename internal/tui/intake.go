@@ -101,14 +101,16 @@ func createTriageItem(rc *config.ResolvedConfig, title, priority, source string)
 		}
 		reportedBy := rc.UserName()
 
-		content := markdown.ScaffoldTriageFromConfig(rc.SpecsRepoRoot(), tuiTemplateConfig(rc),
-			markdown.TriageFields{ID: triageID, Title: title, Priority: priority, Source: source, SourceRef: "", ReportedBy: reportedBy, Date: time.Now().Format("2006-01-02")})
-
 		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("intake", triageID), func(repoPath string) (string, error) {
 			triageDir := filepath.Join(repoPath, gitpkg.SpecsSubDir, "triage")
 			if err := os.MkdirAll(triageDir, 0o755); err != nil {
 				return "", err
 			}
+
+			// Resolve and render the template inside the sync wrapper so the
+			// item scaffolds from the just-pulled (latest) team template state.
+			content := markdown.ScaffoldTriageFromConfig(repoPath, tuiTemplateConfig(rc),
+				markdown.TriageFields{ID: triageID, Title: title, Priority: priority, Source: source, SourceRef: "", ReportedBy: reportedBy, Date: time.Now().Format("2006-01-02")})
 			triagePath := filepath.Join(triageDir, triageID+".md")
 			if err := os.WriteFile(triagePath, []byte(content), 0o644); err != nil {
 				return "", err

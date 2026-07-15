@@ -26,6 +26,7 @@ revert_count: 0
 source: ` + source + `
 created: ` + date + `
 updated: ` + date + `
+---
 
 # ` + id + ` - ` + title + `
 
@@ -112,6 +113,7 @@ source: support
 source_ref: #8821
 reported_by: Aaron
 created: ` + date + `
+---
 
 # TRIAGE-001 - Bug report
 
@@ -226,9 +228,26 @@ func TestResolveTemplate_FallsBackToDefaultWhenMissing(t *testing.T) {
 	}
 }
 
+// validTeamSpecTemplate is a minimal spec template that passes fatal
+// validation (parses, no unresolved placeholders, gate-critical sections
+// present).
+const validTeamSpecTemplate = `---
+id: <% id %>
+title: <% title %>
+---
+
+# <% id %> - <% title %>
+
+## 1. Problem Statement           <!-- owner: pm -->
+
+## 3. User Stories                <!-- owner: pm -->
+
+## 6. Acceptance Criteria         <!-- owner: qa -->
+`
+
 func TestResolveTemplate_UsesTeamFileWhenPresent(t *testing.T) {
 	dir := t.TempDir()
-	custom := "---\nid: <% id %>\n---\n# <% id %>\n"
+	custom := validTeamSpecTemplate
 	if err := os.MkdirAll(filepath.Join(dir, "templates"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +295,7 @@ func TestScaffoldSpecFromConfig_UsesTeamTemplate(t *testing.T) {
 	if !strings.Contains(out, "service_area: payments") {
 		t.Errorf("frontmatter default not seeded:\n%s", out)
 	}
-	if !strings.HasPrefix(out, "id: SPEC-009") {
+	if !strings.HasPrefix(out, "---\nid: SPEC-009") {
 		t.Errorf("team template not rendered:\n%s", out)
 	}
 }
@@ -371,6 +390,77 @@ id: <% id %>
 	for _, iss := range issues {
 		if iss.Fatal {
 			t.Errorf("triage template reported fatal issue unexpectedly: %s", iss.Message)
+		}
+	}
+}
+
+func TestResolveTemplate_EmptyRepoDirReturnsDefault(t *testing.T) {
+	content, source := ResolveTemplate(SpecTemplate, "", "")
+	if source != "default" || content != defaultSpecTpl {
+		t.Errorf("empty repoDir must resolve to embedded default; source = %q", source)
+	}
+}
+
+func TestResolveTemplate_FallsBackOnMissingGateSection(t *testing.T) {
+	// Parses fine, but is missing the gate-critical acceptance_criteria
+	// section — scaffolding from it would create specs that can never pass
+	// pipeline gates, so resolution must fall back to the default.
+	bad := "---\nid: <% id %>\n---\n\n# <% id %>\n\n## 1. Problem Statement           <!-- owner: pm -->\n\n## 3. User Stories                <!-- owner: pm -->\n"
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "templates", "spec.md"), []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content, source := ResolveTemplate(SpecTemplate, dir, "")
+	if source != "default" {
+		t.Errorf("gate-incomplete team template should fall back; source = %q", source)
+	}
+	if content != defaultSpecTpl {
+		t.Error("should fall back to embedded default content")
+	}
+}
+
+func TestReadTeamTemplate_RawContentEvenWhenInvalid(t *testing.T) {
+	// 'spec template validate' must see the real (broken) file, not the
+	// fallback — ReadTeamTemplate returns raw content without validation.
+	bad := "---\nid: <% id %>\nbogus: <% nope %>\n---\n"
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "templates", "spec.md"), []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content, path, ok := ReadTeamTemplate(SpecTemplate, dir, "")
+	if !ok || content != bad {
+		t.Errorf("raw team template not returned: ok=%v content=%q", ok, content)
+	}
+	if path != filepath.Join(dir, "templates", "spec.md") {
+		t.Errorf("unexpected path %q", path)
+	}
+}
+
+func TestRenderSpec_FrontmatterDefaultValuesAreYAMLSafe(t *testing.T) {
+	tpl := "---\nid: <% id %>\n---\n\n# <% id %>\n"
+	out, err := RenderSpec(tpl, SpecFields{ID: "SPEC-001"}, []KV{
+		{Key: "note", Value: "watch out: colons"},
+		{Key: "tag", Value: "#urgent"},
+		{Key: "empty", Value: ""},
+		{Key: "plain", Value: "payments"},
+	})
+	if err != nil {
+		t.Fatalf("RenderSpec: %v", err)
+	}
+	for _, want := range []string{
+		"note: \"watch out: colons\"",
+		"tag: \"#urgent\"",
+		"empty: \"\"",
+		"plain: payments",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in frontmatter:\n%s", want, out)
 		}
 	}
 }

@@ -1,15 +1,17 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/markdown"
 )
 
 func TestBuildPromotedSpec_InjectBody(t *testing.T) {
 	body := "Login loop after SSO refresh — users bounced back immediately."
-	content := buildPromotedSpec(&config.ResolvedConfig{}, "SPEC-015", "Login loop", "alice", "Cycle 0", "TRIAGE-003", body)
+	content := buildPromotedSpec("", markdown.TemplateConfig{}, "SPEC-015", "Login loop", "alice", "Cycle 0", "TRIAGE-003", body)
 
 	if !strings.Contains(content, "## 1. Problem Statement") {
 		t.Fatal("spec must contain §1 heading")
@@ -20,7 +22,7 @@ func TestBuildPromotedSpec_InjectBody(t *testing.T) {
 }
 
 func TestBuildPromotedSpec_EmptyBody(t *testing.T) {
-	content := buildPromotedSpec(&config.ResolvedConfig{}, "SPEC-015", "Login loop", "alice", "Cycle 0", "TRIAGE-003", "")
+	content := buildPromotedSpec("", markdown.TemplateConfig{}, "SPEC-015", "Login loop", "alice", "Cycle 0", "TRIAGE-003", "")
 	// With empty body, §1 heading still exists but no extra injection.
 	if !strings.Contains(content, "## 1. Problem Statement") {
 		t.Fatal("spec must contain §1 heading even with empty body")
@@ -29,7 +31,7 @@ func TestBuildPromotedSpec_EmptyBody(t *testing.T) {
 
 func TestBuildPromotedSpec_SanitisesHeadings(t *testing.T) {
 	body := "Overview\n## Bad heading\nMore text"
-	content := buildPromotedSpec(&config.ResolvedConfig{}, "SPEC-015", "Title", "alice", "Cycle 0", "TRIAGE-001", body)
+	content := buildPromotedSpec("", markdown.TemplateConfig{}, "SPEC-015", "Title", "alice", "Cycle 0", "TRIAGE-001", body)
 	// The ## heading in the body must be demoted.
 	if strings.Contains(content, "\n## Bad heading\n") {
 		t.Error("level-2 heading in triage body must be demoted in the spec")
@@ -62,3 +64,36 @@ func TestSanitiseBodyForSpec_Empty(t *testing.T) {
 
 // extractFrontmatterBlock tests are now in internal/markdown/markdown_test.go
 // since the function moved to the markdown package.
+
+func TestBuildPromotedSpec_CustomTemplateHeadingStillReceivesBody(t *testing.T) {
+	// A team template with an unnumbered, marker-less Problem Statement
+	// heading must still receive the triage body — injection is slug-based,
+	// not literal-string based, so a fluid template keeps working.
+	dir := t.TempDir()
+	custom := `---
+id: <% id %>
+title: <% title %>
+---
+
+# <% id %> - <% title %>
+
+## Problem Statement
+
+## User Stories                <!-- owner: pm -->
+
+## Acceptance Criteria         <!-- owner: qa -->
+`
+	if err := os.MkdirAll(filepath.Join(dir, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "templates", "spec.md"), []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	body := "Users bounced back to login after SSO refresh."
+	content := buildPromotedSpec(dir, markdown.TemplateConfig{}, "SPEC-020", "Login loop", "alice", "Cycle 0", "TRIAGE-004", body)
+
+	if !strings.Contains(content, "## Problem Statement\n\n"+body) {
+		t.Errorf("triage body not injected under custom Problem Statement heading:\n%s", content)
+	}
+}

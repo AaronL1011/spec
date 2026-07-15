@@ -62,13 +62,15 @@ func runNew(cmd *cobra.Command, args []string) error {
 	author := gitpkg.UserName(ctx())
 	cycle := rc.CycleLabel()
 
-	content := markdown.ScaffoldSpecFromConfig(rc.SpecsRepoRoot(), teamTemplateConfig(rc),
-		markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: "direct", Date: time.Now().Format("2006-01-02")})
-
 	// Write to specs repo via WithSpecsRepo
 	err = gitpkg.WithSpecsRepoOpts(ctx(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
 		sd := specsDir(repoPath)
 		_ = os.MkdirAll(sd, 0o755)
+
+		// Resolve and render the template inside the sync wrapper so the spec
+		// scaffolds from the just-pulled (latest) team template state.
+		content := markdown.ScaffoldSpecFromConfig(repoPath, teamTemplateConfig(rc),
+			markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: "direct", Date: time.Now().Format("2006-01-02")})
 
 		specPath := filepath.Join(sd, specID+".md")
 		if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {

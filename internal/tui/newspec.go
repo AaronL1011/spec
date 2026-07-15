@@ -29,12 +29,15 @@ func createSpec(rc *config.ResolvedConfig, title string) tea.Cmd {
 
 		author := gitpkg.UserName(context.Background())
 		cycle := rc.CycleLabel()
-		content := markdown.ScaffoldSpecFromConfig(rc.SpecsRepoRoot(), tuiTemplateConfig(rc),
-			markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: "tui", Date: time.Now().Format("2006-01-02")})
 
 		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("new", specID), func(repoPath string) (string, error) {
 			sd := filepath.Join(repoPath, gitpkg.SpecsSubDir)
 			_ = os.MkdirAll(sd, 0o755)
+
+			// Resolve and render the template inside the sync wrapper so the
+			// spec scaffolds from the just-pulled (latest) team template state.
+			content := markdown.ScaffoldSpecFromConfig(repoPath, tuiTemplateConfig(rc),
+				markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: "tui", Date: time.Now().Format("2006-01-02")})
 
 			specPath := filepath.Join(sd, specID+".md")
 			if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {
