@@ -8,13 +8,14 @@ import (
 type Registry struct {
 	cfg *config.TeamConfig
 
-	comms  CommsAdapter
-	pm     PMAdapter
-	docs   DocsAdapter
-	repo   RepoAdapter
-	agent  AgentAdapter
-	deploy DeployAdapter
-	ai     AIAdapter
+	comms    CommsAdapter
+	pm       PMAdapter
+	docs     DocsAdapter
+	repo     RepoAdapter
+	agent    AgentAdapter
+	deploy   DeployAdapter
+	ai       AIAdapter
+	security SecurityAdapter
 }
 
 // NewRegistry creates a new adapter registry from team configuration.
@@ -45,6 +46,9 @@ func (r *Registry) WithDeploy(a DeployAdapter) *Registry { r.deploy = a; return 
 // WithAI sets the AI adapter.
 func (r *Registry) WithAI(a AIAdapter) *Registry { r.ai = a; return r }
 
+// WithSecurity sets the security (vulnerability-scanner) adapter.
+func (r *Registry) WithSecurity(a SecurityAdapter) *Registry { r.security = a; return r }
+
 // Comms returns the comms adapter.
 func (r *Registry) Comms() CommsAdapter { return r.comms }
 
@@ -65,6 +69,9 @@ func (r *Registry) Deploy() DeployAdapter { return r.deploy }
 
 // AI returns the AI adapter.
 func (r *Registry) AI() AIAdapter { return r.ai }
+
+// Security returns the security (vulnerability-scanner) adapter.
+func (r *Registry) Security() SecurityAdapter { return r.security }
 
 // Config returns the team configuration.
 func (r *Registry) Config() *config.TeamConfig { return r.cfg }

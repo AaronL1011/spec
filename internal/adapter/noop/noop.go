@@ -94,3 +94,8 @@ type AI struct{}
 func (AI) Complete(ctx context.Context, prompt string, system string) (string, error) {
 	return "", nil
 }
+
+// Security is a no-op SecurityAdapter.
+type Security struct{}
+
+func (Security) Alerts(ctx context.Context) ([]adapter.SecurityAlert, error) { return nil, nil }

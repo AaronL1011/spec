@@ -77,6 +77,13 @@ func All(cfg *config.TeamConfig) (*adapter.Registry, []string) {
 	}
 	reg.WithAI(ai)
 
+	// Security
+	security, warn := resolveSecurity(cfg)
+	if warn != "" {
+		warnings = append(warnings, warn)
+	}
+	reg.WithSecurity(security)
+
 	return reg, warnings
 }
 
@@ -218,6 +225,48 @@ func resolveRepo(cfg *config.TeamConfig) (adapter.RepoAdapter, string) {
 		return noop.Repo{}, fmt.Sprintf("%s repo adapter not yet implemented — repo disabled", provider)
 	default:
 		return noop.Repo{}, fmt.Sprintf("unknown repo provider %q — repo disabled", provider)
+	}
+}
+
+// resolveSecurity builds the vulnerability-scanner adapter. Dependabot,
+// Renovate and custom all read GitHub Dependabot/advisory alerts (Renovate
+// consumes the same advisory data; custom defaults to the GitHub alert source);
+// Snyk is a recognised provider but not yet implemented. Owner and token fall
+// back to the repo integration and then the specs repo, so a team that already
+// configured GitHub need not repeat them.
+func resolveSecurity(cfg *config.TeamConfig) (adapter.SecurityAdapter, string) {
+	provider := cfg.Integrations.Security.Provider
+	switch provider {
+	case "", "none":
+		return noop.Security{}, ""
+	case "dependabot", "renovate", "custom":
+		token := cfg.Integrations.Security.Get("token")
+		owner := cfg.Integrations.Security.Get("owner")
+		if owner == "" {
+			owner = cfg.Integrations.Repo.Get("owner")
+		}
+		if owner == "" {
+			owner = cfg.SpecsRepo.Owner
+		}
+		if token == "" {
+			token = cfg.Integrations.Repo.Get("token")
+		}
+		if token == "" {
+			token = cfg.SpecsRepo.Token
+		}
+		if token == "" {
+			return noop.Security{}, "security: token not configured — security adapter disabled"
+		}
+		if owner == "" {
+			return noop.Security{}, "security: owner not configured — security adapter disabled"
+		}
+		scope := config.SecurityScopeOrDefault(cfg.Integrations.Security.Get("scope"))
+		repo := cfg.Integrations.Security.Get("repo")
+		return gh.NewSecurityClient(token, owner, repo, scope), ""
+	case "snyk":
+		return noop.Security{}, "snyk security adapter not yet implemented — security disabled"
+	default:
+		return noop.Security{}, fmt.Sprintf("unknown security provider %q — security disabled", provider)
 	}
 }
 

@@ -271,7 +271,8 @@ func buildRegistry(rc *config.ResolvedConfig) *adapter.Registry {
 			WithRepo(noop.Repo{}).
 			WithAgent(noop.Agent{}).
 			WithDeploy(noop.Deploy{}).
-			WithAI(noop.AI{})
+			WithAI(noop.AI{}).
+			WithSecurity(noop.Security{})
 	}
 
 	// Per-user coding-agent override: a harness is a personal tool, so the
