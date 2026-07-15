@@ -23,7 +23,7 @@ type dashboardDataMsg struct {
 	Err  error
 }
 
-// dashboardModel is the home view — DO, REVIEW, INCOMING, BLOCKED.
+// dashboardModel is the home view — BLOCKED, DO, DISCUSSION, REVIEW, INCOMING.
 type dashboardModel struct {
 	rc   *config.ResolvedConfig
 	reg  *adapter.Registry
@@ -267,12 +267,15 @@ func (m dashboardModel) buildRows() []dashboardRow {
 	}
 
 	// Build rows per section, sort oldest-first within each, then
-	// assemble in priority order: BLOCKED → DO → REVIEW → INCOMING.
-	// Blocked first because blocked items are the most urgent signal
-	// (something is stuck and may be blocking others). DO next because
-	// those are your active responsibilities. REVIEW and INCOMING are
-	// awareness items. Within every section the oldest item leads, so the
-	// thing that has waited longest is always at the top.
+	// assemble in priority order: BLOCKED → DO → DISCUSSION → REVIEW →
+	// INCOMING. Blocked first because blocked items are the most urgent
+	// signal (something is stuck and may be blocking others). DO next
+	// because those are your active responsibilities. DISCUSSION comes
+	// before REVIEW because an open question is blocking someone else's
+	// progress on that thread, a step ahead of routine review awareness.
+	// INCOMING is pure awareness and sits last. Within every section the
+	// oldest item leads, so the thing that has waited longest is always at
+	// the top.
 
 	blocked := make([]dashboardRow, 0, len(m.data.Blocked))
 	for _, item := range m.data.Blocked {
@@ -311,22 +314,6 @@ func (m dashboardModel) buildRows() []dashboardRow {
 	}
 	sortRowsByOldest(do)
 
-	review := make([]dashboardRow, 0, len(m.data.Review))
-	for _, item := range m.data.Review {
-		review = append(review, dashboardRow{
-			section:       "REVIEW",
-			icon:          IconReview,
-			specID:        item.SpecID,
-			title:         item.Title,
-			detail:        item.Detail,
-			urgency:       item.Urgency,
-			url:           item.URL,
-			sortTime:      item.SortTime,
-			staleFraction: item.StaleFraction,
-		})
-	}
-	sortRowsByOldest(review)
-
 	discussion := make([]dashboardRow, 0, len(m.data.Discussion))
 	for _, item := range m.data.Discussion {
 		// The static Render prints Stage (§section) and Detail (the quoted
@@ -348,6 +335,22 @@ func (m dashboardModel) buildRows() []dashboardRow {
 		})
 	}
 	sortRowsByOldest(discussion)
+
+	review := make([]dashboardRow, 0, len(m.data.Review))
+	for _, item := range m.data.Review {
+		review = append(review, dashboardRow{
+			section:       "REVIEW",
+			icon:          IconReview,
+			specID:        item.SpecID,
+			title:         item.Title,
+			detail:        item.Detail,
+			urgency:       item.Urgency,
+			url:           item.URL,
+			sortTime:      item.SortTime,
+			staleFraction: item.StaleFraction,
+		})
+	}
+	sortRowsByOldest(review)
 
 	incoming := make([]dashboardRow, 0, len(m.data.Incoming))
 	for _, item := range m.data.Incoming {
@@ -371,8 +374,8 @@ func (m dashboardModel) buildRows() []dashboardRow {
 	var rows []dashboardRow
 	rows = append(rows, blocked...)
 	rows = append(rows, do...)
-	rows = append(rows, review...)
 	rows = append(rows, discussion...)
+	rows = append(rows, review...)
 	rows = append(rows, incoming...)
 	return rows
 }

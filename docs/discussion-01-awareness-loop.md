@@ -293,6 +293,12 @@ Render only when `len(data.Discussion) > 0`, following the existing per-section
 guard. Add the section to the TUI dashboard (`internal/tui/dashboard.go`) using
 the same `DashboardData` field so the static and interactive renders agree.
 
+> **Update:** the TUI dashboard's priority order was later revised to
+> BLOCKED → DO → DISCUSSION → REVIEW → INCOMING — DISCUSSION moved ahead of
+> REVIEW, since an open thread blocks someone else's progress a step ahead of
+> routine review awareness. The static `Render` order documented above is
+> unchanged; only the interactive TUI diverges.
+
 ### 4.3 Passive awareness
 
 `internal/dashboard/awareness.go`: `PendingCount` currently counts DO-scoped

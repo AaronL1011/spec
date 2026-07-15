@@ -120,7 +120,12 @@ func TestDashboard_SelectedSpecID(t *testing.T) {
 	}
 }
 
-func TestDashboard_PriorityOrdering_BlockedFirst(t *testing.T) {
+// TestDashboard_PriorityOrdering pins the TUI dashboard's full section order:
+// BLOCKED → DO → DISCUSSION → REVIEW → INCOMING. Blocked leads because a
+// stuck spec is the most urgent signal; DO is the viewer's active work;
+// DISCUSSION comes next because an open thread is blocking someone else's
+// progress; REVIEW and INCOMING are lower-urgency awareness items.
+func TestDashboard_PriorityOrdering(t *testing.T) {
 	m := testDashboard()
 	m.loading = false
 	m.width = 100
@@ -132,6 +137,10 @@ func TestDashboard_PriorityOrdering_BlockedFirst(t *testing.T) {
 		Review: []dashboard.DashboardItem{
 			{SpecID: "PR #42", Title: "Review this"},
 		},
+		Discussion: []dashboard.DashboardItem{
+			{SpecID: "SPEC-039", Title: "Rate limiting", Stage: "§technical_implementation",
+				Detail: `@carlos: "can we use token bucket instead?"`},
+		},
 		Incoming: []dashboard.DashboardItem{
 			{SpecID: "SPEC-010", Title: "New intake", Stage: "triage"},
 		},
@@ -141,52 +150,18 @@ func TestDashboard_PriorityOrdering_BlockedFirst(t *testing.T) {
 	}
 	m.items = m.buildRows()
 
-	if len(m.items) != 4 {
-		t.Fatalf("expected 4 rows, got %d", len(m.items))
+	if len(m.items) != 5 {
+		t.Fatalf("expected 5 rows, got %d", len(m.items))
 	}
 
-	// Blocked should appear first, then DO, then REVIEW, then INCOMING.
-	wantOrder := []string{"BLOCKED", "DO", "REVIEW", "INCOMING"}
-	for i, want := range wantOrder {
-		if m.items[i].section != want {
-			t.Errorf("item[%d].section = %q, want %q", i, m.items[i].section, want)
-		}
-	}
-}
-
-// TestDashboard_DiscussionRendersBetweenReviewAndIncoming pins the section
-// order discussion-01-awareness-loop.md §4.2 specifies for the static
-// dashboard: DISCUSSION sits between REVIEW and INCOMING.
-func TestDashboard_DiscussionRendersBetweenReviewAndIncoming(t *testing.T) {
-	m := testDashboard()
-	m.loading = false
-	m.width = 100
-	m.height = 30
-	m.data = &dashboard.DashboardData{
-		Review: []dashboard.DashboardItem{
-			{SpecID: "PR #42", Title: "Review this"},
-		},
-		Discussion: []dashboard.DashboardItem{
-			{SpecID: "SPEC-039", Title: "Rate limiting", Stage: "§technical_implementation",
-				Detail: `@carlos: "can we use token bucket instead?"`},
-		},
-		Incoming: []dashboard.DashboardItem{
-			{SpecID: "SPEC-010", Title: "New intake", Stage: "triage"},
-		},
-	}
-	m.items = m.buildRows()
-
-	if len(m.items) != 3 {
-		t.Fatalf("expected 3 rows, got %d", len(m.items))
-	}
-	wantOrder := []string{"REVIEW", "DISCUSSION", "INCOMING"}
+	wantOrder := []string{"BLOCKED", "DO", "DISCUSSION", "REVIEW", "INCOMING"}
 	for i, want := range wantOrder {
 		if m.items[i].section != want {
 			t.Errorf("item[%d].section = %q, want %q", i, m.items[i].section, want)
 		}
 	}
 
-	discussionRow := m.items[1]
+	discussionRow := m.items[2]
 	if discussionRow.icon != IconDiscussion {
 		t.Errorf("discussion row icon = %q, want IconDiscussion", discussionRow.icon)
 	}
