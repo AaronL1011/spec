@@ -47,6 +47,7 @@ type DashboardData struct {
 	Discussion []DashboardItem `json:"discussion"`
 	Incoming   []DashboardItem `json:"incoming"`
 	Blocked    []DashboardItem `json:"blocked"`
+	Security   []DashboardItem `json:"security"`
 	FYI        []DashboardItem `json:"fyi"`
 }
 
@@ -66,6 +67,15 @@ func Render(data *DashboardData, userName, role, cycle string) {
 	fmt.Println()
 
 	anyOutput := false
+
+	if len(data.Security) > 0 {
+		fmt.Println()
+		fmt.Println("─── SECURITY ────────────────────────────────────────────────────")
+		for _, item := range data.Security {
+			fmt.Printf("🛡  %-10s  %-30s  %s\n", item.SpecID, truncStr(item.Title, 30), item.Detail)
+		}
+		anyOutput = true
+	}
 
 	if len(data.Do) > 0 {
 		fmt.Println()
@@ -224,12 +234,25 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 		}
 	}
 
+	// SECURITY section: from the security adapter. Only alerts within the
+	// dashboard-surface window of their SLA deadline surface here; everything
+	// else lives solely in the Security tab. Rows carry the deadline gradient
+	// and sort soonest-breach-first.
+	if reg != nil && reg.Security() != nil {
+		if alerts, err := reg.Security().Alerts(ctx); err == nil {
+			data.Security = append(data.Security,
+				securityDashboardItems(alerts, securityConfig(rc), curve, now)...)
+		}
+	}
+
 	// Order every section oldest-first so the item that has waited longest leads.
+	// For SECURITY, SortTime is the deadline, so oldest-first = soonest-breach-first.
 	sortItemsByOldest(data.Blocked)
 	sortItemsByOldest(data.Do)
 	sortItemsByOldest(data.Review)
 	sortItemsByOldest(data.Discussion)
 	sortItemsByOldest(data.Incoming)
+	sortItemsByOldest(data.Security)
 
 	return data, nil
 }
@@ -297,6 +320,80 @@ func dashboardConfig(rc *config.ResolvedConfig) config.DashboardConfig {
 // gradient, defaulting to ease-in when team config is absent.
 func dashboardCurve(rc *config.ResolvedConfig) urgency.Curve {
 	return dashboardConfig(rc).EasingCurve()
+}
+
+// securityConfig returns the team's vulnerability-SLA policy, or the zero value
+// (built-in defaults) when team config is absent.
+func securityConfig(rc *config.ResolvedConfig) config.SecurityConfig {
+	if rc.Team == nil {
+		return config.SecurityConfig{}
+	}
+	return rc.Team.Security
+}
+
+// securityDashboardItems maps security alerts to dashboard rows, keeping only
+// those within the dashboard-surface window of their SLA deadline. Each row
+// carries the eased deadline gradient (elapsed/SLA) and sorts by deadline.
+// Alerts with an unknown severity (no SLA window) or no detection time are
+// skipped, matching the strictly opt-in colouring elsewhere.
+func securityDashboardItems(alerts []adapter.SecurityAlert, secCfg config.SecurityConfig, curve urgency.Curve, now time.Time) []DashboardItem {
+	surface := secCfg.SurfaceWindow()
+	var out []DashboardItem
+	for _, a := range alerts {
+		sla, ok := secCfg.SLAFor(string(a.Severity))
+		if !ok || a.CreatedAt.IsZero() {
+			continue
+		}
+		deadline := a.CreatedAt.Add(sla)
+		remaining := deadline.Sub(now)
+		if remaining >= surface {
+			continue // not urgent yet — stays in the Security tab only
+		}
+		out = append(out, DashboardItem{
+			SpecID:        securitySpecID(a),
+			Title:         a.Title,
+			Detail:        securityDetail(a, remaining),
+			URL:           a.URL,
+			StaleFraction: urgency.Value(now.Sub(a.CreatedAt), sla, curve),
+			SortTime:      deadline,
+		})
+	}
+	return out
+}
+
+// securitySpecID is the compact identifier shown for a security row: the CVE or
+// GHSA id when present, else the alert number.
+func securitySpecID(a adapter.SecurityAlert) string {
+	if a.Identifier != "" {
+		return a.Identifier
+	}
+	return fmt.Sprintf("#%d", a.Number)
+}
+
+// securityDetail is the trailing detail: package · repo · time-to-deadline.
+func securityDetail(a adapter.SecurityAlert, remaining time.Duration) string {
+	detail := a.Package
+	if a.Repo != "" {
+		detail += "  ·  " + a.Repo
+	}
+	if remaining > 0 {
+		detail += "  ·  " + shortDuration(remaining) + " left"
+	} else {
+		detail += "  ·  overdue"
+	}
+	return detail
+}
+
+// shortDuration formats a positive duration compactly (e.g. "3d", "5h", "20m").
+func shortDuration(d time.Duration) string {
+	switch {
+	case d >= 24*time.Hour:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
 }
 
 // ReviewUrgency computes the eased time-urgency intensity (0..1) for a REVIEW

@@ -367,8 +367,29 @@ func (m dashboardModel) buildRows() []dashboardRow {
 	}
 	sortRowsByOldest(incoming)
 
+	// SECURITY: vulnerability alerts within a day of breaching their SLA. Only
+	// the imminent ones surface here (the rest live in the Security tab); they
+	// lead the dashboard because a breach is the sharpest time signal. SortTime
+	// is the deadline, so oldest-first orders them soonest-breach-first.
+	security := make([]dashboardRow, 0, len(m.data.Security))
+	for _, item := range m.data.Security {
+		security = append(security, dashboardRow{
+			section:       "SECURITY",
+			icon:          IconUrgent,
+			specID:        item.SpecID,
+			title:         item.Title,
+			detail:        item.Detail,
+			urgency:       item.Urgency,
+			url:           item.URL,
+			sortTime:      item.SortTime,
+			staleFraction: item.StaleFraction,
+		})
+	}
+	sortRowsByOldest(security)
+
 	// Assemble in priority order. Sections with no items are skipped.
 	var rows []dashboardRow
+	rows = append(rows, security...)
 	rows = append(rows, blocked...)
 	rows = append(rows, do...)
 	rows = append(rows, review...)
