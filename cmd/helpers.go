@@ -25,6 +25,22 @@ func specsDir(repoPath string) string {
 	return filepath.Join(repoPath, gitpkg.SpecsSubDir)
 }
 
+// teamTemplateConfig builds the markdown-local template config from the
+// resolved team config: the configured (or default) template paths plus
+// ordered frontmatter defaults (SPEC-025). config.KV is converted to
+// markdown.KV at this boundary so markdown stays free of internal/config.
+func teamTemplateConfig(rc *config.ResolvedConfig) markdown.TemplateConfig {
+	var tc markdown.TemplateConfig
+	if rc != nil && rc.Team != nil {
+		tc.SpecPath = rc.Team.Templates.EffectiveSpecPath()
+		tc.TriagePath = rc.Team.Templates.EffectiveTriagePath()
+		for _, kv := range rc.Team.Templates.FrontmatterDefaults {
+			tc.FrontmatterDefaults = append(tc.FrontmatterDefaults, markdown.KV{Key: kv.Key, Value: kv.Value})
+		}
+	}
+	return tc
+}
+
 // claimSpecID claims an authoritative SPEC-NNN via the remote counter ref
 // (SPEC-018). The bootstrap seed is the current max over spec + archive
 // filenames, used only when the repo has no counter ref yet. This is the only

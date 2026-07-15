@@ -283,6 +283,60 @@ archive:
 
 The path is relative to `specs/`.
 
+### `templates`
+
+Customise the spec and triage skeletons scaffolded by `spec new`,
+`spec promote`, and `spec intake`. The entire block is optional — with no
+config and no committed files, the built-in templates are used.
+
+```yaml
+templates:
+  spec: templates/spec.md       # path inside the specs repo (default shown)
+  triage: templates/triage.md   # path inside the specs repo (default shown)
+  frontmatter_defaults:         # optional keys seeded into every new spec
+    service_area: payments
+    compliance: sox
+```
+
+A template file committed at the configured path overrides the built-in
+default. Placeholders use `<% name %>` syntax:
+
+| Placeholder | Spec | Triage | Value |
+|---|---|---|---|
+| `<% id %>` | ✓ | ✓ | `SPEC-NNN` / `TRIAGE-NNN` |
+| `<% title %>` | ✓ | ✓ | The item title |
+| `<% date %>` | ✓ | ✓ | Creation date (`YYYY-MM-DD`) |
+| `<% author %>` | ✓ | | From git config |
+| `<% cycle %>` | ✓ | | From `team.cycle_label` |
+| `<% source %>` | ✓ | ✓ | Triage ID, `direct`, or `tui` |
+| `<% priority %>` | | ✓ | Intake priority |
+| `<% source_ref %>` | | ✓ | Ticket #, alert ID, permalink |
+| `<% reported_by %>` | | ✓ | From `spec whoami` |
+
+`frontmatter_defaults` entries are inserted into the frontmatter of every new
+spec in declaration order. Computed fields (`id`, `title`, `created`, …)
+always win — a default whose key already exists in the rendered frontmatter
+is skipped.
+
+**Manage templates with `spec template`:**
+
+| Command | Effect |
+|---|---|
+| `spec template init` | Commit the built-in defaults to the specs repo as a starting point (`--force` to overwrite) |
+| `spec template validate [spec\|triage]` | Parse, render, and structurally check the committed template |
+| `spec template show [spec\|triage]` | Print the effective template new specs will scaffold from |
+
+**Templates are fluid — changes are forgiving.** Every scaffold resolves the
+template from the freshly synced specs repo, so new specs always use the
+latest committed template. A template that is broken mid-edit (parse error,
+unresolved placeholder, or a missing gate-critical section —
+`problem_statement`, `user_stories`, `acceptance_criteria`) never blocks spec
+creation: scaffolding falls back to the built-in default with a warning, and
+`spec template validate` reports exactly what to fix. Existing specs are
+never touched by template changes — a spec keeps the skeleton it was born
+with, and section-based features (gates, sync, `spec answer`) operate on the
+spec's own headings, not the current template.
+
 ---
 
 ## Integrations
