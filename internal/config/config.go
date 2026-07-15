@@ -34,6 +34,11 @@ type TeamConfig struct {
 
 	Dashboard DashboardConfig `yaml:"dashboard"`
 
+	// Security is the vulnerability-SLA policy (per-severity deadline windows
+	// and the dashboard-surface threshold). Sibling of Dashboard; the provider
+	// connection lives in Integrations.Security.
+	Security SecurityConfig `yaml:"security,omitempty"`
+
 	Pipeline PipelineConfig `yaml:"pipeline"`
 
 	// FastTrack configures engineer self-service for small bug fixes.
@@ -131,6 +136,11 @@ type IntegrationsConfig struct {
 	Design ProviderConfig `yaml:"design"`
 	Deploy DeployConfig   `yaml:"deploy"`
 	Intake IntakeConfig   `yaml:"intake"`
+
+	// Security is the vulnerability-scanner integration (Dependabot, Renovate,
+	// Snyk, or a custom tool). This holds connection details (provider, scope,
+	// token); the SLA policy lives in the top-level SecurityConfig.
+	Security ProviderConfig `yaml:"security,omitempty"`
 }
 
 // ProviderConfig is a generic integration config with a provider name and extra fields.
@@ -629,7 +639,8 @@ func (r *ResolvedConfig) ProviderHandle(provider string) string {
 }
 
 // IdentityForCategory resolves the handle to use for an integration category
-// ("repo", "comms", "pm", "docs", "agent", "ai", "design", "deploy"): it maps
+// ("repo", "comms", "pm", "docs", "agent", "ai", "design", "deploy",
+// "security"): it maps
 // the category to the team's configured provider, then resolves that
 // provider's handle. Falls back to the canonical handle when the category has
 // no provider or no mapping exists.
@@ -668,6 +679,8 @@ func (r *ResolvedConfig) providerForCategory(category string) string {
 		return in.Design.Provider
 	case "deploy":
 		return in.Deploy.Provider
+	case "security":
+		return in.Security.Provider
 	default:
 		return ""
 	}
@@ -741,6 +754,8 @@ func (r *ResolvedConfig) HasIntegration(category string) bool {
 		return r.Team.Integrations.Design.Provider != "" && r.Team.Integrations.Design.Provider != "none"
 	case "deploy":
 		return r.Team.Integrations.Deploy.Provider != "" && r.Team.Integrations.Deploy.Provider != "none"
+	case "security":
+		return r.Team.Integrations.Security.Provider != "" && r.Team.Integrations.Security.Provider != "none"
 	default:
 		return false
 	}

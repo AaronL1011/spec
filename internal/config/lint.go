@@ -133,6 +133,82 @@ func lintTeamConfigNode(path string, doc *yaml.Node) []Diagnostic {
 		diags = append(diags, lintDashboardNode(path, dashNode)...)
 	}
 
+	if secNode := mapValue(root, "security"); secNode != nil {
+		diags = append(diags, lintSecurityNode(path, secNode)...)
+	}
+
+	if inNode := mapValue(root, "integrations"); inNode != nil {
+		if secInt := mapValue(inNode, "security"); secInt != nil {
+			diags = append(diags, lintSecurityIntegrationNode(path, secInt)...)
+		}
+	}
+
+	return diags
+}
+
+// lintSecurityNode validates the top-level security policy block: each SLA
+// window and the dashboard-surface threshold must be durations.
+func lintSecurityNode(path string, secNode *yaml.Node) []Diagnostic {
+	var diags []Diagnostic
+
+	if slaNode := mapValue(secNode, "sla"); slaNode != nil {
+		for _, tier := range []string{"critical", "high", "medium", "low"} {
+			tNode := mapValue(slaNode, tier)
+			if tNode == nil || tNode.Value == "" {
+				continue
+			}
+			if err := validateStaleAfter(tNode.Value); err != nil {
+				diags = append(diags, Diagnostic{
+					File: path, Line: lineOf(tNode), Column: tNode.Column,
+					Severity: SeverityError, Field: "security.sla." + tier,
+					Message:    fmt.Sprintf("invalid SLA %q: %v", tNode.Value, err),
+					Suggestion: "use a duration like 1d, 1w, 2w, or 30d",
+				})
+			}
+		}
+	}
+
+	if swNode := mapValue(secNode, "dashboard_surface_within"); swNode != nil && swNode.Value != "" {
+		if err := validateStaleAfter(swNode.Value); err != nil {
+			diags = append(diags, Diagnostic{
+				File: path, Line: lineOf(swNode), Column: swNode.Column,
+				Severity: SeverityError, Field: "security.dashboard_surface_within",
+				Message:    fmt.Sprintf("invalid duration %q: %v", swNode.Value, err),
+				Suggestion: "use a duration like 12h or 1d",
+			})
+		}
+	}
+
+	return diags
+}
+
+// lintSecurityIntegrationNode validates integrations.security: the provider
+// must be a recognised scanner and the scope must be "repo" or "org".
+func lintSecurityIntegrationNode(path string, secInt *yaml.Node) []Diagnostic {
+	var diags []Diagnostic
+
+	if provNode := mapValue(secInt, "provider"); provNode != nil && provNode.Value != "" && provNode.Value != "none" {
+		if !isKnownSecurityProvider(provNode.Value) {
+			diags = append(diags, Diagnostic{
+				File: path, Line: lineOf(provNode), Column: provNode.Column,
+				Severity: SeverityError, Field: "integrations.security.provider",
+				Message:    fmt.Sprintf("unknown security provider %q", provNode.Value),
+				Suggestion: suggest(provNode.Value, SecurityProviderNames()),
+			})
+		}
+	}
+
+	if scopeNode := mapValue(secInt, "scope"); scopeNode != nil && scopeNode.Value != "" {
+		if !isKnownSecurityScope(scopeNode.Value) {
+			diags = append(diags, Diagnostic{
+				File: path, Line: lineOf(scopeNode), Column: scopeNode.Column,
+				Severity: SeverityError, Field: "integrations.security.scope",
+				Message:    fmt.Sprintf("unknown scope %q", scopeNode.Value),
+				Suggestion: suggest(scopeNode.Value, SecurityScopeNames()),
+			})
+		}
+	}
+
 	return diags
 }
 
