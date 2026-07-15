@@ -259,9 +259,16 @@ func (m reviewModel) fetchData() tea.Cmd {
 		if err != nil {
 			return reviewDataMsg{Err: err}
 		}
-		items := make([]reviewItem, len(prs))
-		for i, pr := range prs {
-			items[i] = reviewItem{
+		// Security fix PRs (Dependabot/Renovate/Snyk/custom) live only in the
+		// Security tab, so exclude them here by the provider's bot author and
+		// branch prefix. No security provider configured ⇒ nothing filtered.
+		authors, prefixes := securityPRSignatures(rc)
+		items := make([]reviewItem, 0, len(prs))
+		for _, pr := range prs {
+			if isSecurityPR(pr, authors, prefixes) {
+				continue
+			}
+			items = append(items, reviewItem{
 				Number:    pr.Number,
 				Title:     pr.Title,
 				Repo:      pr.Repo,
@@ -269,7 +276,7 @@ func (m reviewModel) fetchData() tea.Cmd {
 				URL:       pr.URL,
 				CIStatus:  pr.CIStatus,
 				CreatedAt: pr.CreatedAt,
-			}
+			})
 		}
 		return reviewDataMsg{Reviews: items}
 	}

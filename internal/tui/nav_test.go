@@ -25,6 +25,7 @@ func TestView_Labels(t *testing.T) {
 		{ViewSpecs, "Specs"},
 		{ViewTriage, "Triage"},
 		{ViewReviews, "Reviews"},
+		{ViewSecurity, "Security"},
 		{ViewSettings, "Settings"},
 	}
 	for _, tt := range tests {

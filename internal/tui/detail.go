@@ -24,6 +24,10 @@ func (a *App) activateSelection() tea.Cmd {
 		if url := a.reviews.selectedURL(); url != "" {
 			return openInBrowser(url)
 		}
+	case ViewSecurity:
+		if url := a.security.selectedURL(); url != "" {
+			return openInBrowser(url)
+		}
 	case ViewTriage:
 		// Enter on the triage list opens the inline detail pane.
 		return a.openTriageDetailForSelected()
@@ -191,6 +195,8 @@ func (a App) updateDetail(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	case key.Matches(msg, a.keys.Tab5):
 		return a, a.switchView(ViewReviews)
 	case key.Matches(msg, a.keys.Tab6):
+		return a, a.switchView(ViewSecurity)
+	case key.Matches(msg, a.keys.Tab7):
 		return a, a.switchView(ViewSettings)
 	}
 

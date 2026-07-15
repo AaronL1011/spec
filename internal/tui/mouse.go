@@ -16,6 +16,7 @@ var (
 	_ mouseClickable = (*specListModel)(nil)
 	_ mouseClickable = (*triageModel)(nil)
 	_ mouseClickable = (*reviewModel)(nil)
+	_ mouseClickable = (*securityModel)(nil)
 )
 
 // handleMouse is the single entry point for mouse input. It mirrors the
@@ -142,6 +143,8 @@ func (a *App) activeClickable() mouseClickable {
 		return &a.triage
 	case ViewReviews:
 		return &a.reviews
+	case ViewSecurity:
+		return &a.security
 	default:
 		return nil
 	}

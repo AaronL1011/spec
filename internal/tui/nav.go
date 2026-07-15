@@ -9,11 +9,12 @@ const (
 	ViewSpecs
 	ViewTriage
 	ViewReviews
+	ViewSecurity
 	ViewSettings
 )
 
 // ViewCount is the total number of top-level views.
-const ViewCount = 6
+const ViewCount = 7
 
 // viewMeta stores display metadata for each view.
 type viewMeta struct {
@@ -27,7 +28,8 @@ var viewMetas = [ViewCount]viewMeta{
 	{Label: "Specs", Shortcut: "3"},
 	{Label: "Triage", Shortcut: "4"},
 	{Label: "Reviews", Shortcut: "5"},
-	{Label: "Settings", Shortcut: "6"},
+	{Label: "Security", Shortcut: "6"},
+	{Label: "Settings", Shortcut: "7"},
 }
 
 // Label returns the display name for a view.

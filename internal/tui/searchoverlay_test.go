@@ -15,7 +15,7 @@ import (
 // top-level view (AC-1).
 func TestSearchOverlayOpensFromEveryView(t *testing.T) {
 	views := []View{
-		ViewDashboard, ViewPipeline, ViewSpecs, ViewTriage, ViewReviews, ViewSettings,
+		ViewDashboard, ViewPipeline, ViewSpecs, ViewTriage, ViewReviews, ViewSecurity, ViewSettings,
 	}
 	for _, v := range views {
 		t.Run(v.Label(), func(t *testing.T) {

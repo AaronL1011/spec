@@ -61,7 +61,8 @@ func TestApp_TabSwitching(t *testing.T) {
 		{"3", ViewSpecs},
 		{"4", ViewTriage},
 		{"5", ViewReviews},
-		{"6", ViewSettings},
+		{"6", ViewSecurity},
+		{"7", ViewSettings},
 		{"1", ViewDashboard},
 	}
 

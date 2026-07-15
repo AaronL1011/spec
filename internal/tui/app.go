@@ -36,6 +36,7 @@ const (
 	refreshKeySpecs     = "specs"
 	refreshKeyTriage    = "triage"
 	refreshKeyReviews   = "reviews"
+	refreshKeySecurity  = "security"
 )
 
 // tickMsg fires on each refresh interval.
@@ -84,6 +85,7 @@ type App struct {
 	specs      specListModel
 	triage     triageModel
 	reviews    reviewModel
+	security   securityModel
 	settings   settingsModel
 	help       helpModel
 
@@ -256,6 +258,7 @@ func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string,
 		specs:           newSpecList(rc, styles, keys),
 		triage:          newTriage(rc, styles, keys),
 		reviews:         newReview(rc, reg, styles, keys),
+		security:        newSecurity(rc, reg, styles, keys),
 		settings:        newSettings(rc, styles, keys),
 		help:            newHelp(keys, styles),
 		modal:           components.NewModal(modalStyles(theme, styles)),
@@ -398,6 +401,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.reviews, cmd = a.reviews.update(msg)
 		a.notifyStaleRefresh(msg.Err, a.reviews.loaded)
 		a.markDataFresh(refreshKeyReviews, msg.Err)
+		return a, cmd
+
+	case securityDataMsg:
+		a.markRefreshDone(refreshKeySecurity)
+		var cmd tea.Cmd
+		a.security, cmd = a.security.update(msg)
+		a.notifyStaleRefresh(msg.Err, a.security.loaded)
+		a.markDataFresh(refreshKeySecurity, msg.Err)
 		return a, cmd
 
 	case updateAvailableMsg:

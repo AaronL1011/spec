@@ -54,6 +54,11 @@ func (a *App) initAndRefreshView(v View) tea.Cmd {
 			return a.scheduleRefresh(refreshKeyReviews, a.reviews.init())
 		}
 		return a.scheduleRefresh(refreshKeyReviews, a.reviews.refresh())
+	case ViewSecurity:
+		if a.security.loading {
+			return a.scheduleRefresh(refreshKeySecurity, a.security.init())
+		}
+		return a.scheduleRefresh(refreshKeySecurity, a.security.refresh())
 	default:
 		return nil
 	}
@@ -82,6 +87,8 @@ func (a *App) delegateToActive(msg tea.Msg) tea.Cmd {
 		a.triage, cmd = a.triage.update(msg)
 	case ViewReviews:
 		a.reviews, cmd = a.reviews.update(msg)
+	case ViewSecurity:
+		a.security, cmd = a.security.update(msg)
 	case ViewSettings:
 		a.settings, cmd = a.settings.update(msg)
 	}
@@ -102,6 +109,7 @@ func (a *App) propagateSize() {
 		a.triageDetail.setSize(a.width, ch)
 	}
 	a.reviews.setSize(a.width, ch)
+	a.security.setSize(a.width, ch)
 	a.settings.setSize(a.width, ch)
 	if a.showDetail {
 		a.detail.setSize(a.width, ch)

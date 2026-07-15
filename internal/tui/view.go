@@ -153,6 +153,10 @@ func (a App) activeScrollInfo() string {
 		if n := len(a.reviews.items); n > 0 {
 			return fmt.Sprintf("%d/%d", a.reviews.cursor+1, n)
 		}
+	case ViewSecurity:
+		if n := len(a.security.items); n > 0 {
+			return fmt.Sprintf("%d/%d", a.security.cursor+1, n)
+		}
 	}
 	return ""
 }
@@ -209,6 +213,8 @@ func (a App) activeViewContent() string {
 		return a.triage.view()
 	case ViewReviews:
 		return a.reviews.view()
+	case ViewSecurity:
+		return a.security.view()
 	case ViewSettings:
 		return a.settings.view()
 	default:

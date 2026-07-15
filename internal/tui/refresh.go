@@ -22,6 +22,8 @@ func refreshKeyForView(v View) string {
 		return refreshKeyTriage
 	case ViewReviews:
 		return refreshKeyReviews
+	case ViewSecurity:
+		return refreshKeySecurity
 	default:
 		return ""
 	}

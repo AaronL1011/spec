@@ -25,6 +25,7 @@ type KeyMap struct {
 	Tab4 key.Binding
 	Tab5 key.Binding
 	Tab6 key.Binding
+	Tab7 key.Binding
 
 	NextTab key.Binding
 	PrevTab key.Binding
@@ -130,7 +131,11 @@ func DefaultKeyMap() KeyMap {
 		),
 		Tab6: key.NewBinding(
 			key.WithKeys("6"),
-			key.WithHelp("6", "settings"),
+			key.WithHelp("6", "security"),
+		),
+		Tab7: key.NewBinding(
+			key.WithKeys("7"),
+			key.WithHelp("7", "settings"),
 		),
 
 		NextTab: key.NewBinding(
@@ -262,7 +267,7 @@ func (k KeyMap) NavigationBindings() []key.Binding {
 
 // ViewBindings returns the view-switching bindings for help display.
 func (k KeyMap) ViewBindings() []key.Binding {
-	return []key.Binding{k.Tab1, k.Tab2, k.Tab3, k.Tab4, k.Tab5, k.Tab6, k.NextTab, k.PrevTab}
+	return []key.Binding{k.Tab1, k.Tab2, k.Tab3, k.Tab4, k.Tab5, k.Tab6, k.Tab7, k.NextTab, k.PrevTab}
 }
 
 // ActionBindings returns the spec action bindings for help display.

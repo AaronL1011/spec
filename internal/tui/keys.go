@@ -161,6 +161,8 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.Tab5):
 		return a, a.switchView(ViewReviews)
 	case key.Matches(msg, a.keys.Tab6):
+		return a, a.switchView(ViewSecurity)
+	case key.Matches(msg, a.keys.Tab7):
 		return a, a.switchView(ViewSettings)
 	case key.Matches(msg, a.keys.NextTab):
 		return a, a.switchView(a.activeView.Next())
