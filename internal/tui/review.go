@@ -11,6 +11,7 @@ import (
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/dashboard"
 )
 
 // reviewDataMsg carries loaded PR review data.
@@ -117,9 +118,10 @@ func (m reviewModel) view() string {
 
 	start, end := scrollWindow(m.cursor, len(m.items), m.visibleRows())
 
+	now := time.Now()
 	for i := start; i < end; i++ {
 		item := m.items[i]
-		b.WriteString(m.renderReviewRow(item, i == m.cursor, contentWidth))
+		b.WriteString(m.renderReviewRow(item, i == m.cursor, contentWidth, now))
 		b.WriteString("\n")
 	}
 
@@ -158,7 +160,7 @@ func (m *reviewModel) wheelRows(delta int) {
 	m.cursor = clampCursor(m.cursor+delta, len(m.items))
 }
 
-func (m reviewModel) renderReviewRow(item reviewItem, selected bool, width int) string {
+func (m reviewModel) renderReviewRow(item reviewItem, selected bool, width int, now time.Time) string {
 	ci := ciIcon(item.CIStatus)
 	prLabel := fmt.Sprintf("PR #%d", item.Number)
 
@@ -172,25 +174,58 @@ func (m reviewModel) renderReviewRow(item reviewItem, selected bool, width int) 
 		}
 		line = fmt.Sprintf("%s%s %-10s %s", Indent(1), ci, prLabel, truncate(item.Title, titleMax))
 	} else {
-		titleMax := width - 42
+		// Reserve space for the fixed columns so the styled row never wraps:
+		// indent + icon + PR label + repo + author + time-ago. The author column
+		// sits immediately before the trailing time column, matching the spec
+		// list layout (ID · TITLE · STATUS · AUTHOR · UPDATED).
+		titleMax := width - 58
 		if titleMax < 10 {
 			titleMax = 10
 		}
 		ago := timeAgo(item.CreatedAt)
-		line = fmt.Sprintf("%s%s %-10s %-*s  %-15s %s",
+		line = fmt.Sprintf("%s%s %-10s %-*s  %-15s %-15s %s",
 			Indent(1),
 			ci,
 			prLabel,
 			titleMax, truncate(item.Title, titleMax),
 			truncate(item.Repo, 15),
+			truncate(item.Author, 15),
 			ago,
 		)
 	}
 
-	if selected {
-		return m.styles.RowSelected.Render(line)
+	// Apply the time-urgency gradient, reusing the dashboard's REVIEW window and
+	// easing so a PR reads at the same intensity here and on the dashboard. The
+	// ramp foreground composes over the selection background so urgency stays
+	// visible while a row is selected. Colouring is opt-in: staleFraction is 0
+	// when no review window is configured, leaving rows at their normal colour.
+	frac := m.reviewStaleFraction(item, now)
+	switch {
+	case selected:
+		style := m.styles.RowSelected
+		if frac > 0 {
+			style = style.Foreground(m.styles.Theme.RampColor(frac))
+		}
+		return style.Render(line)
+	case frac > 0:
+		return m.styles.RowNormal.Foreground(m.styles.Theme.RampColor(frac)).Render(line)
+	default:
+		return m.styles.RowNormal.Render(line)
 	}
-	return m.styles.RowNormal.Render(line)
+}
+
+// reviewStaleFraction returns the eased time-urgency intensity (0..1) for a
+// review row from the PR's age (now - CreatedAt) against the team's configured
+// REVIEW staleness window, reusing the same window + easing curve the
+// dashboard's REVIEW section uses. Returns 0 when team config is absent or no
+// window is configured, so review colouring stays strictly opt-in.
+func (m reviewModel) reviewStaleFraction(item reviewItem, now time.Time) float64 {
+	if m.rc == nil || m.rc.Team == nil {
+		return 0
+	}
+	window, _ := m.rc.Team.Dashboard.ReviewWindow()
+	curve := m.rc.Team.Dashboard.EasingCurve()
+	return dashboard.ReviewUrgency(window, curve, item.CreatedAt, now)
 }
 
 func ciIcon(status string) string {
