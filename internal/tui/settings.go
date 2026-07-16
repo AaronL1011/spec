@@ -658,6 +658,7 @@ var settingsIntegrations = []settingsIntegration{
 	{"AI", "ai"},
 	{"Design", "design"},
 	{"Deploy", "deploy"},
+	{"Security", "security"},
 }
 
 func (m settingsModel) displayValue(field settingsField) string {
@@ -774,6 +775,8 @@ func (m settingsModel) integrationProvider(category string) string {
 		if m.rc.Team.Integrations.Deploy.Provider != "" {
 			return m.rc.Team.Integrations.Deploy.Provider
 		}
+	case "security":
+		return m.rc.Team.Integrations.Security.Provider
 	}
 	return "—"
 }

@@ -328,48 +328,17 @@ func durationShort(d time.Duration) string {
 	}
 }
 
-// securityPRSignatures returns the bot author handles and branch prefixes that
-// identify the configured security provider's fix PRs, so the Reviews tab can
-// exclude them (security items live only in the Security tab). Returns nil when
-// no security provider is configured.
+// securityPRSignatures resolves the configured provider's fix-PR signatures
+// (bot authors + branch prefixes) from team config. The canonical logic lives
+// in the adapter package so the Reviews tab and dashboard share it.
 func securityPRSignatures(rc *config.ResolvedConfig) (authors, branchPrefixes []string) {
 	if rc == nil || rc.Team == nil {
 		return nil, nil
 	}
-	sec := rc.Team.Integrations.Security
-	switch sec.Provider {
-	case "dependabot":
-		return []string{"dependabot[bot]"}, []string{"dependabot/"}
-	case "renovate":
-		return []string{"renovate[bot]", "renovate"}, []string{"renovate/"}
-	case "snyk":
-		return []string{"snyk-bot"}, []string{"snyk-fix-", "snyk-upgrade-", "snyk-"}
-	case "custom":
-		var as, bs []string
-		if a := sec.Get("bot_author"); a != "" {
-			as = []string{a}
-		}
-		if b := sec.Get("branch_prefix"); b != "" {
-			bs = []string{b}
-		}
-		return as, bs
-	default:
-		return nil, nil
-	}
+	return adapter.SecurityPRSignatures(rc.Team.Integrations.Security)
 }
 
-// isSecurityPR reports whether a PR is one of the security provider's fix PRs,
-// by bot author or branch prefix.
+// isSecurityPR reports whether a PR is one of the security provider's fix PRs.
 func isSecurityPR(pr adapter.PullRequest, authors, branchPrefixes []string) bool {
-	for _, a := range authors {
-		if strings.EqualFold(pr.Author, a) {
-			return true
-		}
-	}
-	for _, p := range branchPrefixes {
-		if p != "" && strings.HasPrefix(pr.Branch, p) {
-			return true
-		}
-	}
-	return false
+	return adapter.IsSecurityPR(pr, authors, branchPrefixes)
 }

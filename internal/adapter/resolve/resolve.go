@@ -5,6 +5,7 @@ package resolve
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
@@ -261,13 +262,33 @@ func resolveSecurity(cfg *config.TeamConfig) (adapter.SecurityAdapter, string) {
 			return noop.Security{}, "security: owner not configured — security adapter disabled"
 		}
 		scope := config.SecurityScopeOrDefault(cfg.Integrations.Security.Get("scope"))
-		repo := cfg.Integrations.Security.Get("repo")
-		return gh.NewSecurityClient(token, owner, repo, scope), ""
+		repos := parseSecurityRepos(cfg.Integrations.Security)
+		return gh.NewSecurityClient(token, owner, repos, scope), ""
 	case "snyk":
 		return noop.Security{}, "snyk security adapter not yet implemented — security disabled"
 	default:
 		return noop.Security{}, fmt.Sprintf("unknown security provider %q — security disabled", provider)
 	}
+}
+
+// parseSecurityRepos reads the repo-scope target repositories: the "repos" key
+// (a comma/space-separated list, or a YAML list) with a fallback to a single
+// "repo". Returns nil for org scope or when neither is set.
+func parseSecurityRepos(p config.ProviderConfig) []string {
+	raw := p.Get("repos")
+	if raw == "" {
+		raw = p.Get("repo")
+	}
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '[' || r == ']'
+	})
+	var out []string
+	for _, f := range fields {
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func resolveAgent(cfg *config.TeamConfig) (adapter.AgentAdapter, string) {

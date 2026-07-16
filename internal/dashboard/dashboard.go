@@ -215,11 +215,17 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 	}
 
 	// REVIEW section: from repo adapter. Rows warm toward red as a PR's age
-	// (now - opened) approaches the opt-in review staleness window.
+	// (now - opened) approaches the opt-in review staleness window. Security
+	// fix PRs (Dependabot/Renovate/Snyk/custom) are excluded — they live only
+	// in the Security tab — matching the Reviews tab's filtering.
 	if reg != nil {
 		prs, err := reg.Repo().RequestedReviews(ctx, rc.IdentityForCategory("repo"))
 		if err == nil {
+			secAuthors, secPrefixes := adapter.SecurityPRSignatures(securityIntegration(rc))
 			for _, pr := range prs {
+				if adapter.IsSecurityPR(pr, secAuthors, secPrefixes) {
+					continue
+				}
 				frac := ReviewUrgency(reviewWindow, curve, pr.CreatedAt, now)
 				data.Review = append(data.Review, DashboardItem{
 					SpecID:        fmt.Sprintf("PR #%d", pr.Number),
@@ -331,6 +337,15 @@ func securityConfig(rc *config.ResolvedConfig) config.SecurityConfig {
 	return rc.Team.Security
 }
 
+// securityIntegration returns the team's security provider connection config,
+// or the zero value when team config is absent.
+func securityIntegration(rc *config.ResolvedConfig) config.ProviderConfig {
+	if rc.Team == nil {
+		return config.ProviderConfig{}
+	}
+	return rc.Team.Integrations.Security
+}
+
 // securityDashboardItems maps security alerts to dashboard rows, keeping only
 // those within the dashboard-surface window of their SLA deadline. Each row
 // carries the eased deadline gradient (elapsed/SLA) and sorts by deadline.
@@ -370,18 +385,18 @@ func securitySpecID(a adapter.SecurityAlert) string {
 	return fmt.Sprintf("#%d", a.Number)
 }
 
-// securityDetail is the trailing detail: package · repo · time-to-deadline.
+// securityDetail is the trailing detail: package, repo, and time-to-deadline,
+// space-separated to match the REVIEW section (no separator dots).
 func securityDetail(a adapter.SecurityAlert, remaining time.Duration) string {
 	detail := a.Package
 	if a.Repo != "" {
-		detail += "  ·  " + a.Repo
+		detail += "  " + a.Repo
 	}
+	label := "overdue"
 	if remaining > 0 {
-		detail += "  ·  " + shortDuration(remaining) + " left"
-	} else {
-		detail += "  ·  overdue"
+		label = shortDuration(remaining) + " left"
 	}
-	return detail
+	return detail + "  " + label
 }
 
 // shortDuration formats a positive duration compactly (e.g. "3d", "5h", "20m").

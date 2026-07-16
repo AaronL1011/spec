@@ -467,7 +467,9 @@ func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) st
 		line = fmt.Sprintf("%s%s %s %s", Indent(1), icon, idStr, title)
 	} else {
 		// Wide: columnar layout — icon | id (fixed) | title (flex) | detail (right).
-		idStr := fmt.Sprintf("%-11s", row.specID)
+		// Cap the id to the column so a long identifier (e.g. a GHSA advisory id
+		// on a SECURITY row) can't push the line past the width budget.
+		idStr := fmt.Sprintf("%-11s", truncate(row.specID, 11))
 		detailLen := len(row.detail)
 		titleMax := width - 16 - detailLen // 2 indent + 1 icon + space + 11 id + 2 gap
 		if titleMax < 10 {

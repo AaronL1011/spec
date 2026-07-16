@@ -109,7 +109,7 @@ hold `spec.config.yaml`. See [Configuration](docs/CONFIGURATION.md).
 ```text
 j / k or arrows   move
 enter             open the selected item
-1 … 6             Dashboard, Pipeline, Specs, Triage, Reviews, Settings
+1 … 7             Dashboard, Pipeline, Specs, Triage, Reviews, Security, Settings
 ?                 help for the current screen
 /                 search specs
 esc               go back; twice at top level exits
@@ -232,6 +232,36 @@ team behavior lives in `spec.config.yaml` and is committed.
 Focus is the CLI's working context. In the TUI press `f` on a spec; from the
 shell run `spec focus SPEC-042`. Commands such as `status`, `advance`, `plan`,
 `steps`, and `build` then infer that ID.
+
+### Security
+
+The **Security** tab (press `6`) lists open dependency-vulnerability alerts from
+your scanner. The scanner is provider-agnostic — set it once, like the editor
+preference:
+
+```yaml
+integrations:
+  security:
+    provider: dependabot   # dependabot | renovate | snyk | custom
+    scope: org             # org-wide alerts, or "repo" for a specific set
+    # repos: lib-a, lib-b  # repo scope: one or more repositories to watch
+    token: ${SPEC_GITHUB_TOKEN}
+
+security:
+  sla:                     # deadline = alert age + window, per severity
+    critical: 1d
+    high: 1w
+    medium: 2w
+    low: 30d
+  dashboard_surface_within: 24h
+```
+
+Each alert's severity sets an SLA deadline; rows warm from neutral through amber
+to red as that deadline nears, and pin hottest once overdue. Security items live
+only in the Security tab (their fix PRs are filtered out of Reviews) — except
+when an alert is within a day of breaching, when it also surfaces at the top of
+the dashboard. v1 reads GitHub Dependabot alerts; `spec config init` prompts for
+the provider.
 
 ---
 

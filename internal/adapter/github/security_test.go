@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aaronl1011/spec/internal/adapter"
@@ -51,7 +52,7 @@ func TestSecurityClient_Alerts_OrgScopePaginates(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewSecurityClient("test-token", "NEXL-LTS", "", "org")
+	c := NewSecurityClient("test-token", "NEXL-LTS", nil, "org")
 	c.baseURL = srv.URL
 
 	alerts, err := c.Alerts(context.Background())
@@ -98,7 +99,7 @@ func TestSecurityClient_Alerts_ForbiddenIsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewSecurityClient("bad-token", "NEXL-LTS", "", "org")
+	c := NewSecurityClient("bad-token", "NEXL-LTS", nil, "org")
 	c.baseURL = srv.URL
 
 	if _, err := c.Alerts(context.Background()); err == nil {
@@ -107,8 +108,44 @@ func TestSecurityClient_Alerts_ForbiddenIsError(t *testing.T) {
 }
 
 func TestSecurityClient_RepoScopeRequiresRepo(t *testing.T) {
-	c := NewSecurityClient("t", "NEXL-LTS", "", "repo")
+	c := NewSecurityClient("t", "NEXL-LTS", nil, "repo")
 	if _, err := c.Alerts(context.Background()); err == nil {
-		t.Fatal("expected an error for repo scope with no repository name")
+		t.Fatal("expected an error for repo scope with no repositories")
+	}
+}
+
+func TestSecurityClient_RepoScopeMultipleRepos(t *testing.T) {
+	// Each configured repo is queried at its own per-repo endpoint; results
+	// concatenate. Repo-scoped responses omit the repository object, so Repo is
+	// filled from the requested repo name.
+	alertFor := func(number int, pkg string) string {
+		return fmt.Sprintf(`[{"number":%d,"state":"open","html_url":"https://github.com/x","created_at":"2026-06-01T00:00:00Z","dependency":{"package":{"ecosystem":"npm","name":%q}},"security_advisory":{"summary":"adv %s","severity":"high"}}]`, number, pkg, pkg)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/repos/NEXL-LTS/code-libs/"):
+			_, _ = w.Write([]byte(alertFor(1, "lodash")))
+		case strings.Contains(r.URL.Path, "/repos/NEXL-LTS/nexl-ai-agent/"):
+			_, _ = w.Write([]byte(alertFor(2, "axios")))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotImplemented)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewSecurityClient("t", "NEXL-LTS", []string{"code-libs", "nexl-ai-agent"}, "repo")
+	c.baseURL = srv.URL
+
+	alerts, err := c.Alerts(context.Background())
+	if err != nil {
+		t.Fatalf("Alerts: %v", err)
+	}
+	if len(alerts) != 2 {
+		t.Fatalf("got %d alerts, want 2 (one per repo)", len(alerts))
+	}
+	repos := map[string]bool{alerts[0].Repo: true, alerts[1].Repo: true}
+	if !repos["code-libs"] || !repos["nexl-ai-agent"] {
+		t.Errorf("alerts should carry their source repos, got %v", repos)
 	}
 }

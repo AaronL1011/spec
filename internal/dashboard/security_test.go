@@ -44,6 +44,23 @@ func TestSecurityDashboardItems_SurfaceWindow(t *testing.T) {
 	}
 }
 
+func TestSecurityDashboardItems_KeepsPerManifest(t *testing.T) {
+	now := time.Now()
+	var cfg config.SecurityConfig
+	// The same advisory reported against three manifests surfaces as three
+	// rows — the dashboard mirrors the Security tab's per-manifest detail.
+	created := now.Add(-40 * 24 * time.Hour) // low 30d SLA → overdue
+	alerts := []adapter.SecurityAlert{
+		{Number: 1, Title: "esbuild dev server file read", Identifier: "GHSA-g7r4", Severity: adapter.SeverityLow, Package: "esbuild", Manifest: "a/package-lock.json", CreatedAt: created},
+		{Number: 2, Title: "esbuild dev server file read", Identifier: "GHSA-g7r4", Severity: adapter.SeverityLow, Package: "esbuild", Manifest: "b/package-lock.json", CreatedAt: created},
+		{Number: 3, Title: "esbuild dev server file read", Identifier: "GHSA-g7r4", Severity: adapter.SeverityLow, Package: "esbuild", Manifest: "c/package-lock.json", CreatedAt: created},
+	}
+	items := securityDashboardItems(alerts, cfg, urgency.EaseIn, now)
+	if len(items) != 3 {
+		t.Fatalf("got %d dashboard rows, want 3 (one per manifest, no dedupe)", len(items))
+	}
+}
+
 func TestSecurityDetail_OverdueVsCountdown(t *testing.T) {
 	a := adapter.SecurityAlert{Package: "lodash", Repo: "web"}
 

@@ -218,8 +218,9 @@ func runTeamConfigInit(cmd *cobra.Command) error {
 	repoProvider := strings.ToLower(promptLine(reader, "Specs repo provider (github | gitlab | bitbucket) [github]: ", "github"))
 	repoOwner := promptLine(reader, "Specs repo owner/org: ", "")
 	repoName := promptLine(reader, "Specs repo name [specs]: ", "specs")
+	secProvider := strings.ToLower(promptLine(reader, "Security scanner (dependabot | renovate | snyk | custom | none) [none]: ", "none"))
 
-	return writeTeamConfig(teamName, cycleLabel, repoProvider, repoOwner, repoName, presetName)
+	return writeTeamConfig(teamName, cycleLabel, repoProvider, repoOwner, repoName, secProvider, presetName)
 }
 
 // selectTeamPreset picks the pipeline preset from the --preset flag, an
@@ -278,7 +279,21 @@ func promptLine(reader *bufio.Reader, prompt, def string) string {
 }
 
 // writeTeamConfig renders and writes spec.config.yaml from the wizard answers.
-func writeTeamConfig(teamName, cycleLabel, repoProvider, repoOwner, repoName, presetName string) error {
+func writeTeamConfig(teamName, cycleLabel, repoProvider, repoOwner, repoName, secProvider, presetName string) error {
+	// The security scanner is provider-agnostic (like the editor setting). When
+	// one is chosen, add its connection details and a default SLA policy that
+	// drives the Security tab and dashboard deadline surfacing.
+	secProviderValue := secProvider
+	if secProviderValue == "" {
+		secProviderValue = "none"
+	}
+	securityExtra := ""
+	securityPolicy := ""
+	if secProviderValue != "none" {
+		securityExtra = "\n    scope: org\n    token: ${SPEC_GITHUB_TOKEN}"
+		securityPolicy = "\nsecurity:\n  sla:\n    critical: 1d\n    high: 1w\n    medium: 2w\n    low: 30d\n  dashboard_surface_within: 24h\n"
+	}
+
 	content := fmt.Sprintf(`version: "1"
 
 team:
@@ -311,6 +326,8 @@ integrations:
     provider: none
   deploy:
     provider: none
+  security:
+    provider: %s%s
 
 sync:
   outbound_on_advance: true
@@ -322,10 +339,10 @@ archive:
 dashboard:
   stale_threshold: 48h
   refresh_ttl: 300
-
+%s
 pipeline:
   preset: %s
-`, teamName, cycleLabel, repoProvider, repoOwner, repoName, repoProvider, repoOwner, presetName)
+`, teamName, cycleLabel, repoProvider, repoOwner, repoName, repoProvider, repoOwner, secProviderValue, securityExtra, securityPolicy, presetName)
 
 	path := "spec.config.yaml"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

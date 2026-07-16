@@ -21,16 +21,18 @@ const defaultGitHubAPIBase = "https://api.github.com"
 type SecurityClient struct {
 	httpClient *http.Client
 	baseURL    string
-	owner      string // org (org scope) or repository owner (repo scope)
-	repo       string // repository name; required for repo scope, empty for org
-	scope      string // "org" or "repo"
+	owner      string   // org (org scope) or repository owner (repo scope)
+	repos      []string // repositories for repo scope; empty for org scope
+	scope      string   // "org" or "repo"
 }
 
-// NewSecurityClient builds a Dependabot-alerts client. scope is "org" (default)
-// or "repo"; repo scope additionally requires the repository name. The token
-// needs Dependabot-alert read (the security_events scope on a classic PAT, or
-// fine-grained repository read).
-func NewSecurityClient(token, owner, repo, scope string) *SecurityClient {
+// NewSecurityClient builds a Dependabot-alerts client. scope is "org" (default,
+// one org-wide call) or "repo" (one call per repository in repos). Org scope
+// needs a token authorised for the organization (owner/security-manager); repo
+// scope works with a token that has Dependabot-alert read on those repos. The
+// token needs the security_events scope on a classic PAT, or fine-grained
+// Dependabot-alerts read.
+func NewSecurityClient(token, owner string, repos []string, scope string) *SecurityClient {
 	var httpClient *http.Client
 	if token != "" {
 		httpClient = &http.Client{
@@ -47,24 +49,37 @@ func NewSecurityClient(token, owner, repo, scope string) *SecurityClient {
 		httpClient: httpClient,
 		baseURL:    defaultGitHubAPIBase,
 		owner:      owner,
-		repo:       repo,
+		repos:      repos,
 		scope:      scope,
 	}
 }
 
-// Alerts returns open Dependabot alerts for the configured scope, following
-// GitHub's Link-header pagination.
+// Alerts returns open Dependabot alerts for the configured scope. Repo scope
+// queries each configured repository and concatenates the results; org scope
+// makes a single org-wide call.
 func (c *SecurityClient) Alerts(ctx context.Context) ([]adapter.SecurityAlert, error) {
-	var path string
 	if c.scope == "repo" {
-		if c.repo == "" {
-			return nil, fmt.Errorf("github security: repo scope requires a repository name")
+		if len(c.repos) == 0 {
+			return nil, fmt.Errorf("github security: repo scope requires at least one repository")
 		}
-		path = fmt.Sprintf("/repos/%s/%s/dependabot/alerts", c.owner, c.repo)
-	} else {
-		path = fmt.Sprintf("/orgs/%s/dependabot/alerts", c.owner)
+		var out []adapter.SecurityAlert
+		for _, repo := range c.repos {
+			path := fmt.Sprintf("/repos/%s/%s/dependabot/alerts", c.owner, repo)
+			alerts, err := c.fetch(ctx, path, repo)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, alerts...)
+		}
+		return out, nil
 	}
+	return c.fetch(ctx, fmt.Sprintf("/orgs/%s/dependabot/alerts", c.owner), "")
+}
 
+// fetch pages through one Dependabot-alerts listing endpoint via GitHub's
+// Link-header pagination. defaultRepo names the repository for repo-scoped
+// responses, which omit the repository object org-scoped responses carry.
+func (c *SecurityClient) fetch(ctx context.Context, path, defaultRepo string) ([]adapter.SecurityAlert, error) {
 	next := c.baseURL + path + "?state=open&per_page=100"
 	var out []adapter.SecurityAlert
 
@@ -96,7 +111,7 @@ func (c *SecurityClient) Alerts(ctx context.Context) ([]adapter.SecurityAlert, e
 			return nil, fmt.Errorf("decoding Dependabot alerts: %w", err)
 		}
 		for _, a := range page {
-			out = append(out, a.toSecurityAlert(c.repo))
+			out = append(out, a.toSecurityAlert(defaultRepo))
 		}
 
 		next = nextLink(resp.Header.Get("Link"))
