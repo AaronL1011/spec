@@ -11,11 +11,11 @@ Output docs/demos/demo.gif
 
 # ── Terminal settings ──────────────────────────────────────────────────────────
 Set Shell "bash"
-Set FontSize 15
+Set FontSize 16
 Set Width 1200
 Set Height 720
 Set Theme "Ayu Mirage"
-Set TypingSpeed 35ms
+Set TypingSpeed 55ms
 Set WaitTimeout 10s
 Env HOME "/tmp/spec-vhs-demo"
 
@@ -37,13 +37,13 @@ Sleep 200ms
 Ctrl+C
 Type "~/.spec/demo-spec.sh"
 Enter
-Sleep 200ms
+Sleep 400ms
 Show
 Sleep 2s
 Show
 
 # Dashboard: clear personal work, one active build spec, one visible block.
-Sleep 1500ms
+Sleep 2000ms
 
 # Team context is one key away: every active spec grouped by its stage.
 Type "2"
@@ -120,13 +120,8 @@ Enter
 Sleep 500ms
 
 # Preview a contrasting theme, then settle back on the demo's Ayu Mirage palette.
-Type "l"
-Sleep 250ms
-Type "l"
-Sleep 800ms
-Type "h"
-Sleep 250ms
-Type "h"
+Set TypingSpeed 80ms
+Type "llllllllllllllllllllll"
 Sleep 900ms
 Enter
 Sleep 1200ms

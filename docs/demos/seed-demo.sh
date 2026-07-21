@@ -434,12 +434,41 @@ MARKDOWN
 
 cat >"$DEMO_HOME/.spec/demo-banner.sh" <<'BASH'
 #!/usr/bin/env bash
+# Title card for the demo gif. Centres itself in whatever terminal vhs gives
+# it and states the product promise.
 clear
-printf '\n\n'
-printf '  \033[38;2;255;204;102m✦\033[0m  \033[1;38;2;115;218;202mspec\033[0m\n'
-printf '     \033[38;2;204;204;204myour terminal is your office\033[0m\n\n'
-printf '     \033[38;2;112;192;177mplan\033[0m  ·  \033[38;2;255;179;71mreview\033[0m  ·  \033[38;2;211;130;170mship\033[0m\n\n'
-printf '  \033[38;2;112;112;112m──────────────────────────────────────────────────\033[0m\n'
+
+cols=$(tput cols 2>/dev/null || printf '80')
+rows=$(tput lines 2>/dev/null || printf '24')
+
+teal=$'\033[38;2;115;218;202m'
+gold=$'\033[38;2;255;204;102m'
+ink=$'\033[38;2;216;216;216m'
+dim=$'\033[38;2;128;128;128m'
+faint=$'\033[38;2;58;58;58m'
+bold=$'\033[1m'
+reset=$'\033[0m'
+
+# centre <rendered string> <visible width>
+centre() {
+  local pad=$(( (cols - $2) / 2 ))
+  if (( pad < 0 )); then pad=0; fi
+  printf '%*s%b\n' "$pad" '' "$1"
+}
+
+top=$(( (rows - 10) / 2 ))
+if (( top < 2 )); then top=2; fi
+printf '%.0s\n' $(seq "$top")
+
+centre "${gold}✦${reset}  ${bold}${teal}s p e c${reset}" 10
+centre "${dim}the developer control plane${reset}" 27
+printf '\n'
+centre "${bold}${ink}your team's knowledge, one pane of glass" 40
+centre "straight from the terminal${reset}" 26
+printf '\n'
+centre "${faint}─────────────────${reset}" 17
+printf '\n'
+centre "${dim}draft ${gold}·${reset} ${dim}review ${gold}·${reset} ${dim}build ${gold}·${reset} ${dim}ship${reset}" 29
 BASH
 chmod +x "$DEMO_HOME/.spec/demo-banner.sh"
 
