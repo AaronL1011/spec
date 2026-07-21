@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/config"
-	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/aaronl1011/spec/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -235,8 +234,8 @@ func selectTeamPreset(cmd *cobra.Command) (string, error) {
 	}
 
 	var presetOptions []tui.PresetOption
-	for _, name := range pipeline.PresetNames() {
-		desc, features, stages, _ := pipeline.PresetInfo(name)
+	for _, name := range config.PresetNames() {
+		desc, features, stages, _ := config.PresetInfo(name)
 		presetOptions = append(presetOptions, tui.PresetOption{
 			Name:        name,
 			Description: desc,

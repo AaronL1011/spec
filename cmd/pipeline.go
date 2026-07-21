@@ -98,8 +98,8 @@ func runPipelineShow(cmd *cobra.Command, args []string) error {
 		cmd.Println()
 		cmd.Println("Run 'spec config init' to set up a pipeline, or choose from presets:")
 		cmd.Println()
-		for _, name := range pipeline.PresetNames() {
-			desc, _, _, _ := pipeline.PresetInfo(name)
+		for _, name := range config.PresetNames() {
+			desc, _, _, _ := config.PresetInfo(name)
 			cmd.Printf("  %-12s %s\n", name, desc)
 		}
 		cmd.Println()
@@ -311,8 +311,8 @@ func runPipelinePresets(cmd *cobra.Command, args []string) error {
 	cmd.Println("Available pipeline presets:")
 	cmd.Println()
 
-	for _, name := range pipeline.PresetNames() {
-		desc, features, stages, err := pipeline.PresetInfo(name)
+	for _, name := range config.PresetNames() {
+		desc, features, stages, err := config.PresetInfo(name)
 		if err != nil {
 			continue
 		}

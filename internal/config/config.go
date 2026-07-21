@@ -581,9 +581,20 @@ func (p PipelineConfig) NextStage(current string) (string, bool) {
 }
 
 // EffectivePipeline returns the pipeline from team config, or default if empty.
+//
+// It expands presets, applies Skip, and merges stage overrides via
+// ResolveStages, so callers that read Stages directly (the TUI pipeline view,
+// dashboard, list/status/assign, etc.) see the same final stage list as
+// internal/pipeline.Resolve. Without this, a team config that sets only
+// preset: minimal would silently fall back to the full default pipeline.
 func EffectivePipeline(tc *TeamConfig) PipelineConfig {
-	if tc != nil && len(tc.Pipeline.Stages) > 0 {
-		return tc.Pipeline
+	if tc != nil {
+		stages, _, _, err := ResolveStages(tc.Pipeline)
+		if err == nil && len(stages) > 0 {
+			return PipelineConfig{Stages: stages}
+		}
+		// On an invalid preset, degrade to the default rather than panic; the
+		// config linter reports the underlying error separately.
 	}
 	return DefaultPipeline()
 }

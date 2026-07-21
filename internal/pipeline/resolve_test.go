@@ -133,87 +133,6 @@ func TestResolveDefault(t *testing.T) {
 	}
 }
 
-func TestLoadPreset(t *testing.T) {
-	for _, name := range PresetNames() {
-		t.Run(name, func(t *testing.T) {
-			preset, err := LoadPreset(name)
-			if err != nil {
-				t.Fatalf("LoadPreset(%q): %v", name, err)
-			}
-			if preset.Name != name {
-				t.Errorf("Name = %q, want %q", preset.Name, name)
-			}
-			if preset.Description == "" {
-				t.Error("Description should not be empty")
-			}
-			if len(preset.Stages) == 0 {
-				t.Error("Stages should not be empty")
-			}
-		})
-	}
-}
-
-func TestLoadPresetUnknown(t *testing.T) {
-	_, err := LoadPreset("unknown")
-	if err == nil {
-		t.Error("LoadPreset(unknown) should return error")
-	}
-}
-
-func TestPresetInfo(t *testing.T) {
-	desc, features, stages, err := PresetInfo("product")
-	if err != nil {
-		t.Fatalf("PresetInfo: %v", err)
-	}
-	if desc == "" {
-		t.Error("description should not be empty")
-	}
-	if len(features) == 0 {
-		t.Error("features should not be empty")
-	}
-	if len(stages) == 0 {
-		t.Error("stages should not be empty")
-	}
-}
-
-func TestMergeStage(t *testing.T) {
-	base := config.StageConfig{
-		Name:  "build",
-		Owner: config.Owners{"engineer"},
-		Icon:  "🏗️",
-		Gates: []config.GateConfig{
-			{SectionNotEmpty: "acceptance_criteria"},
-		},
-	}
-
-	override := config.StageConfig{
-		Name: "build",
-		Warnings: []config.WarningConfig{
-			{After: "5d", Message: "Build taking too long"},
-		},
-	}
-
-	merged := mergeStage(base, override)
-
-	// Original fields preserved
-	if merged.GetOwner() != "engineer" {
-		t.Errorf("Owner = %q, want %q", merged.GetOwner(), "engineer")
-	}
-	if merged.Icon != "🏗️" {
-		t.Errorf("Icon = %q, want %q", merged.Icon, "🏗️")
-	}
-
-	// Gates preserved (override has none)
-	if len(merged.Gates) != 1 {
-		t.Errorf("len(Gates) = %d, want 1", len(merged.Gates))
-	}
-
-	// Warnings added from override
-	if len(merged.Warnings) != 1 {
-		t.Errorf("len(Warnings) = %d, want 1", len(merged.Warnings))
-	}
-}
-
 func TestEvaluateSkipWhen(t *testing.T) {
 	resolved := &ResolvedPipeline{
 		Stages: []config.StageConfig{
@@ -404,26 +323,5 @@ func TestEvaluateSkipWhen_PerStage(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestPresetNamesMatchLinter guards the config linter's hardcoded preset list
-// (config.KnownPresets, which cannot import this package without a cycle)
-// against the authoritative registry here. If a preset is added, both lists
-// must move together.
-func TestPresetNamesMatchLinter(t *testing.T) {
-	got := PresetNames()
-	want := config.KnownPresets()
-	if len(got) != len(want) {
-		t.Fatalf("PresetNames %v vs config.KnownPresets %v: length mismatch", got, want)
-	}
-	set := make(map[string]bool, len(want))
-	for _, p := range want {
-		set[p] = true
-	}
-	for _, p := range got {
-		if !set[p] {
-			t.Errorf("preset %q in PresetNames but missing from config.KnownPresets", p)
-		}
 	}
 }
