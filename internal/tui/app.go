@@ -67,6 +67,11 @@ type App struct {
 	width  int
 	height int
 
+	// Boot splash — shown full-screen until the first dashboard payload
+	// arrives, so the app's first real frame is fully contentful.
+	booting bool
+	splash  splashModel
+
 	// Theme
 	theme  Theme
 	styles Styles
@@ -158,6 +163,10 @@ func New(rc *config.ResolvedConfig, reg *adapter.Registry, role, version string)
 	db, err := store.Open(store.DefaultDBPath())
 	app := newAppWithDB(rc, reg, role, db)
 	app.version = version
+	// Boot behind the splash: the dashboard's first render waits for its data
+	// so the app opens fully contentful. Tests construct via newAppWithDB and
+	// skip the splash.
+	app.booting = true
 	if err != nil {
 		// Degrade gracefully: focus and standup persistence are unavailable,
 		// but the rest of the TUI still works. Tell the user why.
@@ -239,6 +248,7 @@ func newAppWithDB(rc *config.ResolvedConfig, reg *adapter.Registry, role string,
 	sb.SetStaleAfter(2 * parseRefreshInterval(rc))
 
 	return App{
+		splash:          newSplash(),
 		rc:              rc,
 		reg:             reg,
 		role:            role,
@@ -296,6 +306,7 @@ func isSpecID(id string) bool {
 func (a App) Init() tea.Cmd {
 	return tea.Batch(
 		a.dashboard.init(),
+		splashTick(),
 		a.tick(),
 		a.spinnerTick(),
 		a.checkForUpdate(),
@@ -357,8 +368,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, a.spinnerTick()
 
+	case splashTickMsg:
+		// Animate the boot loader only while booting; once the first dashboard
+		// payload lands the tick chain simply stops.
+		if !a.booting {
+			return a, nil
+		}
+		a.splash.nextFrame()
+		return a, splashTick()
+
 	// Data messages — route to the owning view regardless of which is active.
 	case dashboardDataMsg:
+		a.booting = false
 		a.markRefreshDone(refreshKeyDashboard)
 		var cmd tea.Cmd
 		a.dashboard, cmd = a.dashboard.update(msg)

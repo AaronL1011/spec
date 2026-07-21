@@ -26,6 +26,12 @@ func (a App) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// and other buttons are ignored so hover/drag noise never drives the UI. In
 	// Bubble Tea v2 the concrete message type encodes the action (click vs wheel
 	// vs motion vs release); the Mouse() payload carries position and button.
+	// The boot splash owns the whole screen — clicks and wheels have no
+	// visible target, so they are absorbed until the first payload lands.
+	if a.booting {
+		return a, nil
+	}
+
 	m := msg.Mouse()
 	_, isWheel := msg.(tea.MouseWheelMsg)
 	click, isClick := msg.(tea.MouseClickMsg)

@@ -9,6 +9,7 @@ import "github.com/aaronl1011/spec/internal/tui/glyph"
 // internal/tui/glyph.
 const (
 	IconFocus      = glyph.Focus
+	IconSpark      = glyph.Spark
 	IconActive     = glyph.Active
 	IconStale      = glyph.Stale
 	IconBlocked    = glyph.Blocked

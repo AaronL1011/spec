@@ -13,6 +13,7 @@ package glyph
 // distinguishable even when colour is stripped (accessibility).
 const (
 	Focus      = "★" // focused spec marker
+	Spark      = "✦" // brand spark (boot splash wordmark)
 	Active     = "●" // active / DO
 	Stale      = "◷" // stale / waiting
 	Blocked    = "■" // blocked

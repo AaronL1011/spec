@@ -10,6 +10,16 @@ import (
 // handleKey is the single entry point for all keyboard input.
 // It follows a strict priority chain — the first match wins, no fall-through.
 func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// ── Layer 0: Boot splash (absorbs everything but quit) ────────
+	// While the first dashboard fetch is in flight the splash owns the
+	// screen; stray keys must not invisibly mutate the views beneath it.
+	if a.booting {
+		if msg.String() == "ctrl+c" {
+			return a, tea.Quit
+		}
+		return a, nil
+	}
+
 	// ── Layer 1: Overlays (absorb all keys) ──────────────────────────
 	// These are modal states that must capture every keystroke.
 

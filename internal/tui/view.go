@@ -35,6 +35,16 @@ func (a App) render() string {
 		return "Initialising…"
 	}
 
+	// Boot splash: full-screen, no chrome, until the first dashboard payload
+	// arrives. Normalised to the exact terminal size so the transition into
+	// the dashboard is a single clean repaint with no stale rows.
+	if a.booting {
+		return strings.Join(
+			normalizeContentLines(a.splash.view(a.width, a.height, a.styles), a.width, a.height),
+			"\n",
+		)
+	}
+
 	a.statusBar.SetScroll(a.activeScrollInfo())
 	a.dashboard.focusedSpecID = a.focusedSpecID
 
