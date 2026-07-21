@@ -56,20 +56,15 @@ var knownGateKeys = []string{
 	"expr", "message", "all", "any", "not",
 }
 
-// knownPresetNames enumerates the built-in pipeline presets. It mirrors the
-// preset registry in internal/pipeline (which cannot be imported here without a
-// cycle, since pipeline depends on config); pipeline.PresetNames is the
-// authoritative list and a test guards these two against drift.
-var knownPresetNames = []string{"minimal", "startup", "product", "platform", "kanban"}
-
 // KnownPresets returns the built-in pipeline preset names recognised by the
-// linter.
+// linter. It delegates to PresetNames (the authoritative registry in this
+// package) so the linter can never drift from the preset map.
 func KnownPresets() []string {
-	return knownPresetNames
+	return PresetNames()
 }
 
 func isKnownPreset(name string) bool {
-	return contains(knownPresetNames, name)
+	return contains(KnownPresets(), name)
 }
 
 // validDoScopes enumerates the accepted dashboard do_scope values.
