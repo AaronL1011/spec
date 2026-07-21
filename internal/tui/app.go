@@ -369,17 +369,27 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.spinnerTick()
 
 	case splashTickMsg:
-		// Animate the boot loader only while booting; once the first dashboard
-		// payload lands the tick chain simply stops.
+		// Animate the boot splash only while booting. Once the first dashboard
+		// payload lands the splash eases out over a few frames; the tick that
+		// completes the fade ends the boot and the chain stops.
 		if !a.booting {
 			return a, nil
 		}
 		a.splash.nextFrame()
+		if a.splash.done() {
+			a.booting = false
+			return a, nil
+		}
 		return a, splashTick()
 
 	// Data messages — route to the owning view regardless of which is active.
 	case dashboardDataMsg:
-		a.booting = false
+		if a.booting {
+			// Don't hard-cut to the dashboard: ease the splash out toward the
+			// base colour first. The payload is stored below either way, so
+			// the dashboard paints fully contentful the moment the fade lands.
+			a.splash.beginFade()
+		}
 		a.markRefreshDone(refreshKeyDashboard)
 		var cmd tea.Cmd
 		a.dashboard, cmd = a.dashboard.update(msg)

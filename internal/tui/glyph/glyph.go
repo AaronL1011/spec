@@ -52,3 +52,13 @@ const (
 
 // SpinnerFrames is the mono-width Braille spinner animation.
 var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// Wordmark is the boot-splash "spec" logotype, drawn in half-block cells.
+// Every cell is exactly one column wide, so the mark measures and centres
+// like ordinary text. All rows must be the same width; the splash paints it
+// cell by cell to apply its gradient.
+var Wordmark = []string{
+	"█▀▀ █▀█ █▀▀ █▀▀",
+	"▀▀█ █▀▀ █▀▀ █  ",
+	"▀▀▀ ▀   ▀▀▀ ▀▀▀",
+}

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"image/color"
 	"math/rand/v2"
 	"strings"
 	"time"
@@ -11,12 +12,26 @@ import (
 	"github.com/aaronl1011/spec/internal/tui/glyph"
 )
 
-// splashTickInterval drives the boot-splash loader animation. It runs faster
-// than the status-bar spinner tick so the splash reads as alive and smooth
-// during the brief window before the first dashboard payload lands.
-const splashTickInterval = 80 * time.Millisecond
+// splashTickInterval drives the boot-splash animation. It runs faster than
+// the status-bar spinner tick so the splash reads as alive and smooth during
+// the brief window before the first dashboard payload lands.
+const splashTickInterval = 60 * time.Millisecond
 
-// splashTickMsg advances the boot-splash loader by one frame.
+// splashFadeFrames is how many ticks the fade-out toward the dashboard takes
+// once the first payload has landed (~400ms at splashTickInterval). Long
+// enough to read as an ease, short enough to never feel like waiting.
+const splashFadeFrames = 7
+
+// Wordmark shimmer tuning. The shimmer is a soft band of brightened cells
+// that sweeps across the logotype, rests off-mark, then repeats.
+const (
+	wordmarkGradientDepth = 0.45 // how far the base gradient leans from Accent toward Text
+	shimmerStrength       = 0.75 // peak brightening applied at the band's centre
+	shimmerRadius         = 3    // half-width of the band, in cells
+	shimmerRestFrames     = 14   // ticks the band rests off-mark between sweeps
+)
+
+// splashTickMsg advances the boot-splash animation by one frame.
 type splashTickMsg time.Time
 
 // splashWords is the pool of words shown beside the boot loader. One is
@@ -36,8 +51,10 @@ var splashWords = []string{
 // splashModel is the boot splash shown while the first dashboard fetch is in
 // flight, so the app's first real frame is fully contentful.
 type splashModel struct {
-	word  string
-	frame int
+	word      string
+	frame     int
+	fading    bool
+	fadeFrame int
 }
 
 // newSplash creates a splash with a randomly chosen loader word.
@@ -45,43 +62,138 @@ func newSplash() splashModel {
 	return splashModel{word: splashWords[rand.IntN(len(splashWords))]}
 }
 
-// nextFrame advances the braille loader animation by one frame.
+// nextFrame advances the animation clock: the shimmer and spinner every tick,
+// and the fade-out counter once the fade has begun.
 func (s *splashModel) nextFrame() {
-	s.frame = (s.frame + 1) % len(glyph.SpinnerFrames)
+	s.frame++
+	if s.fading {
+		s.fadeFrame++
+	}
 }
 
-// splashTick schedules the next loader animation frame.
+// beginFade starts easing the splash out toward the theme base colour. It is
+// idempotent; the fade completes after splashFadeFrames further ticks.
+func (s *splashModel) beginFade() {
+	s.fading = true
+}
+
+// done reports whether the fade-out has fully landed on the base colour, at
+// which point the dashboard can paint as a single clean repaint.
+func (s splashModel) done() bool {
+	return s.fading && s.fadeFrame >= splashFadeFrames
+}
+
+// fadeFraction returns the eased 0→1 progress of the fade-out, or 0 while
+// the splash is still holding.
+func (s splashModel) fadeFraction() float64 {
+	if !s.fading {
+		return 0
+	}
+	f := float64(s.fadeFrame) / splashFadeFrames
+	if f > 1 {
+		f = 1
+	}
+	return f * f * (3 - 2*f) // smoothstep: gentle start, gentle landing
+}
+
+// splashTick schedules the next animation frame.
 func splashTick() tea.Cmd {
 	return tea.Tick(splashTickInterval, func(t time.Time) tea.Msg {
 		return splashTickMsg(t)
 	})
 }
 
-// view renders the full-screen splash: the wordmark dead-centre of the
-// window with the braille loader beneath it. It owns the whole terminal —
-// no chrome. Colours come from the active theme so the splash always sits
-// naturally in the user's configured palette.
+// view renders the full-screen splash: spark, logotype, and loader stacked
+// dead-centre of the window. It owns the whole terminal — no chrome. All
+// colours derive from the active theme so the splash always sits naturally
+// in the user's configured palette.
 func (s splashModel) view(width, height int, styles Styles) string {
-	spark := lipgloss.NewStyle().Foreground(styles.Theme.Warning)
-	wordmark := lipgloss.NewStyle().Foreground(styles.Theme.Accent).Bold(true)
+	t := styles.Theme
+	fade := s.fadeFraction()
 
-	title := spark.Render(IconSpark) + "  " + wordmark.Render("s p e c")
 	spinner := glyph.SpinnerFrames[s.frame%len(glyph.SpinnerFrames)]
-	loader := styles.Muted.Render(spinner + " " + s.word)
-
-	// The wordmark sits on the window's true centre row; the loader hangs a
-	// blank line beneath it so the mark — not the block — is what reads as
-	// centred.
-	top := (height - 1) / 2
+	lines := []string{s.paint(IconSpark, t.Warning, t, fade), ""}
+	lines = append(lines, s.wordmarkLines(width, t, fade)...)
+	lines = append(lines, "", s.paint(spinner+" "+s.word, t.Muted, t, fade))
 
 	var b strings.Builder
-	for range max(top, 0) {
+	for range max((height-len(lines))/2, 0) {
 		b.WriteByte('\n')
 	}
-	b.WriteString(centerLine(title, width))
-	b.WriteString("\n\n")
-	b.WriteString(centerLine(loader, width))
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(centerLine(line, width))
+	}
 	return b.String()
+}
+
+// wordmarkLines renders the logotype rows, falling back to a plain-text mark
+// when the terminal is too narrow to fit the half-block art.
+func (s splashModel) wordmarkLines(width int, t Theme, fade float64) []string {
+	if lipgloss.Width(glyph.Wordmark[0]) > width {
+		return []string{s.paint("s p e c", t.Accent, t, fade)}
+	}
+	lines := make([]string, 0, len(glyph.Wordmark))
+	for _, row := range glyph.Wordmark {
+		lines = append(lines, s.paintWordmarkRow(row, t, fade))
+	}
+	return lines
+}
+
+// paintWordmarkRow colours one row of the logotype cell by cell: a subtle
+// left-to-right gradient from Accent toward Text, with a soft shimmer band
+// sweeping across in time with the loader.
+func (s splashModel) paintWordmarkRow(row string, t Theme, fade float64) string {
+	w := lipgloss.Width(row)
+	band := s.shimmerCol(w)
+	var b strings.Builder
+	x := 0
+	for _, r := range row {
+		if r == ' ' {
+			b.WriteByte(' ')
+			x++
+			continue
+		}
+		f := 0.0
+		if w > 1 {
+			f = float64(x) / float64(w-1)
+		}
+		c := blendColor(t.Accent, t.Text, wordmarkGradientDepth*f)
+		if k := shimmerIntensity(x, band); k > 0 {
+			c = blendColor(c, t.Text, shimmerStrength*k)
+		}
+		b.WriteString(s.paint(string(r), c, t, fade))
+		x++
+	}
+	return b.String()
+}
+
+// paint renders text in a single colour, blended toward the theme base while
+// the splash is easing out so the whole composition fades as one.
+func (s splashModel) paint(text string, c color.Color, t Theme, fade float64) string {
+	return lipgloss.NewStyle().Foreground(blendColor(c, t.Base, fade)).Render(text)
+}
+
+// shimmerCol returns the shimmer band's centre column for the current frame.
+// The band sweeps fully past the mark, rests briefly off-screen, then repeats.
+func (s splashModel) shimmerCol(w int) int {
+	period := w + 2*shimmerRadius + shimmerRestFrames
+	return s.frame%period - shimmerRadius
+}
+
+// shimmerIntensity returns the brightening factor for column x given the
+// band's centre: 1 at the centre, falling linearly to 0 at the band's edge.
+func shimmerIntensity(x, center int) float64 {
+	d := x - center
+	if d < 0 {
+		d = -d
+	}
+	if d >= shimmerRadius {
+		return 0
+	}
+	return 1 - float64(d)/shimmerRadius
 }
 
 // centerLine pads line with leading spaces so it sits horizontally centred
