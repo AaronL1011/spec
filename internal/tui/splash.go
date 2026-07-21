@@ -2,6 +2,7 @@ package tui
 
 import (
 	"image/color"
+	"math"
 	"math/rand/v2"
 	"strings"
 	"time"
@@ -22,13 +23,15 @@ const splashTickInterval = 60 * time.Millisecond
 // enough to read as an ease, short enough to never feel like waiting.
 const splashFadeFrames = 7
 
-// Wordmark shimmer tuning. The shimmer is a soft band of brightened cells
-// that sweeps across the logotype, rests off-mark, then repeats.
+// Wordmark shimmer tuning. The shimmer is a single soft sheen — like light
+// catching a surface — that crosses the logotype exactly once: a slow smooth
+// entry, a quicker glide through the middle, and a slow smooth exit.
 const (
 	wordmarkGradientDepth = 0.45 // how far the base gradient leans from Accent toward Text
-	shimmerStrength       = 0.75 // peak brightening applied at the band's centre
-	shimmerRadius         = 3    // half-width of the band, in cells
-	shimmerRestFrames     = 14   // ticks the band rests off-mark between sweeps
+	shimmerStrength       = 0.75 // peak brightening applied at the sheen's centre
+	shimmerRadius         = 6    // half-width of the sheen, in cells
+	shimmerDelayFrames    = 6    // ticks the mark holds still before the sheen enters (~0.35s)
+	shimmerSweepFrames    = 18   // ticks the one eased edge-to-edge pass takes (~2.2s)
 )
 
 // splashTickMsg advances the boot-splash animation by one frame.
@@ -89,11 +92,7 @@ func (s splashModel) fadeFraction() float64 {
 	if !s.fading {
 		return 0
 	}
-	f := float64(s.fadeFrame) / splashFadeFrames
-	if f > 1 {
-		f = 1
-	}
-	return f * f * (3 - 2*f) // smoothstep: gentle start, gentle landing
+	return smoothstep(float64(s.fadeFrame) / splashFadeFrames)
 }
 
 // splashTick schedules the next animation frame.
@@ -176,24 +175,39 @@ func (s splashModel) paint(text string, c color.Color, t Theme, fade float64) st
 	return lipgloss.NewStyle().Foreground(blendColor(c, t.Base, fade)).Render(text)
 }
 
-// shimmerCol returns the shimmer band's centre column for the current frame.
-// The band sweeps fully past the mark, rests briefly off-screen, then repeats.
-func (s splashModel) shimmerCol(w int) int {
-	period := w + 2*shimmerRadius + shimmerRestFrames
-	return s.frame%period - shimmerRadius
+// shimmerCol returns the sheen's centre column for the current frame. The
+// sheen makes a single eased pass (smoothstep) across the full mark — easing
+// in from the left edge, gliding through the middle like a reflection, and
+// easing out past the right edge — then never returns.
+func (s splashModel) shimmerCol(w int) float64 {
+	f := s.frame - shimmerDelayFrames
+	if f < 0 || f > shimmerSweepFrames {
+		return -2 * shimmerRadius // before entry or after exit: fully off-mark
+	}
+	p := smoothstep(float64(f) / shimmerSweepFrames)
+	return -shimmerRadius + p*float64(w-1+2*shimmerRadius)
 }
 
 // shimmerIntensity returns the brightening factor for column x given the
 // band's centre: 1 at the centre, falling linearly to 0 at the band's edge.
-func shimmerIntensity(x, center int) float64 {
-	d := x - center
-	if d < 0 {
-		d = -d
-	}
+func shimmerIntensity(x int, center float64) float64 {
+	d := math.Abs(float64(x) - center)
 	if d >= shimmerRadius {
 		return 0
 	}
-	return 1 - float64(d)/shimmerRadius
+	return 1 - d/shimmerRadius
+}
+
+// smoothstep is the classic ease-in-out curve over f∈[0,1]: gentle start,
+// gentle landing. Out-of-range input is clamped.
+func smoothstep(f float64) float64 {
+	switch {
+	case f <= 0:
+		return 0
+	case f >= 1:
+		return 1
+	}
+	return f * f * (3 - 2*f)
 }
 
 // centerLine pads line with leading spaces so it sits horizontally centred
