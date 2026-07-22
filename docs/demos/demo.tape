@@ -17,30 +17,32 @@ Set Height 720
 Set Theme "Ayu Mirage"
 Set TypingSpeed 55ms
 Set WaitTimeout 10s
+Env COLORTERM "truecolor"
 Env HOME "/tmp/spec-vhs-demo"
+# The seed script drops a `spec` shim into the demo HOME's bin directory so the
+# tape can call the command by name, exactly as a user would.
+Env PATH "/tmp/spec-vhs-demo/bin:/usr/local/bin:/usr/bin:/bin"
 
 # ── Cold open ──────────────────────────────────────────────────────────────────
-# Reseed and draw the card outside capture; the first visible frame is clean.
+# Reseed outside capture; the first visible frame is a clean prompt.
 Hide
-Type "./docs/demos/seed-demo.sh >/dev/null && ~/.spec/demo-banner.sh"
+Type "./docs/demos/seed-demo.sh >/dev/null"
 Enter
 Sleep 1s
-Show
-Sleep 3s
-
-# ── Daily workspace: Ada's personal queue ─────────────────────────────────────
-# Launch outside the capture too, so the title card cuts cleanly to the TUI.
-Type "spec"
-Sleep 1s
-Hide
-Sleep 200ms
-Ctrl+C
-Type "~/.spec/demo-spec.sh"
+Type "clear"
 Enter
-Sleep 400ms
+Sleep 1s
 Show
 Sleep 2s
-Show
+
+# ── Daily workspace: Ada's personal queue ─────────────────────────────────────
+# Boot spec. The splash owns the screen while the first dashboard payload is in
+# flight, then eases out; hold long enough for the splash to read and the
+# dashboard to settle.
+Type "spec"
+Sleep 1s
+Enter
+Sleep 3s
 
 # Dashboard: clear personal work, one active build spec, one visible block.
 Sleep 2000ms
@@ -120,9 +122,8 @@ Enter
 Sleep 500ms
 
 # Preview a contrasting theme, then settle back on the demo's Ayu Mirage palette.
-Set TypingSpeed 80ms
-Type "llllllllllllllllllllll"
-Sleep 900ms
+Type@500ms "lllllllllllll"
+Sleep 250ms
 Enter
 Sleep 1200ms
 

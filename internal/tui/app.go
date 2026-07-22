@@ -385,10 +385,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Data messages — route to the owning view regardless of which is active.
 	case dashboardDataMsg:
 		if a.booting {
-			// Don't hard-cut to the dashboard: ease the splash out toward the
-			// base colour first. The payload is stored below either way, so
-			// the dashboard paints fully contentful the moment the fade lands.
-			a.splash.beginFade()
+			// Don't hard-cut to the dashboard: the splash eases out toward the
+			// base colour once its opening animation has run for its minimum
+			// exposure time. The payload is stored below either way, so the
+			// dashboard paints fully contentful the moment the fade lands.
+			a.splash.readyForExit()
 		}
 		a.markRefreshDone(refreshKeyDashboard)
 		var cmd tea.Cmd

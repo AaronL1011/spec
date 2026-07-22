@@ -432,52 +432,15 @@ boundary is under review.
 break-glass support access. Owner: Priya. Review scheduled for 2026-07-15.
 MARKDOWN
 
-cat >"$DEMO_HOME/.spec/demo-banner.sh" <<'BASH'
-#!/usr/bin/env bash
-# Title card for the demo gif. Centres itself in whatever terminal vhs gives
-# it and states the product promise.
-clear
-
-cols=$(tput cols 2>/dev/null || printf '80')
-rows=$(tput lines 2>/dev/null || printf '24')
-
-teal=$'\033[38;2;115;218;202m'
-gold=$'\033[38;2;255;204;102m'
-ink=$'\033[38;2;216;216;216m'
-dim=$'\033[38;2;128;128;128m'
-faint=$'\033[38;2;58;58;58m'
-bold=$'\033[1m'
-reset=$'\033[0m'
-
-# centre <rendered string> <visible width>
-centre() {
-  local pad=$(( (cols - $2) / 2 ))
-  if (( pad < 0 )); then pad=0; fi
-  printf '%*s%b\n' "$pad" '' "$1"
-}
-
-top=$(( (rows - 10) / 2 ))
-if (( top < 2 )); then top=2; fi
-printf '%.0s\n' $(seq "$top")
-
-centre "${gold}✦${reset}  ${bold}${teal}s p e c${reset}" 10
-centre "${dim}the developer control plane${reset}" 27
-printf '\n'
-centre "${bold}${ink}your team's knowledge, one pane of glass" 40
-centre "straight from the terminal${reset}" 26
-printf '\n'
-centre "${faint}─────────────────${reset}" 17
-printf '\n'
-centre "${dim}draft ${gold}·${reset} ${dim}review ${gold}·${reset} ${dim}build ${gold}·${reset} ${dim}ship${reset}" 29
-BASH
-chmod +x "$DEMO_HOME/.spec/demo-banner.sh"
-
-cat >"$DEMO_HOME/.spec/demo-spec.sh" <<BASH
+# Shim onto the demo HOME's PATH so the tape can invoke `spec` by name. The
+# cd keeps the recorder's own project config out of config resolution.
+mkdir -p "$DEMO_HOME/bin"
+cat >"$DEMO_HOME/bin/spec" <<BASH
 #!/usr/bin/env bash
 cd /tmp
 exec "$SPEC_BIN" "\$@"
 BASH
-chmod +x "$DEMO_HOME/.spec/demo-spec.sh"
+chmod +x "$DEMO_HOME/bin/spec"
 
 # Give the local clone the shape of a real specs repository. No remote is
 # configured: every action in the tape is either a local read or a local thread

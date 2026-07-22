@@ -34,6 +34,12 @@ const (
 	shimmerSweepFrames    = 18   // ticks the one eased edge-to-edge pass takes (~2.2s)
 )
 
+// splashMinFrames is the minimum number of animation frames the splash holds
+// before it may begin fading out: one complete shimmer sweep (~1.4s at
+// splashTickInterval). The first payload can land instantly on a warm cache;
+// this floor guarantees the opening animation always runs to completion.
+const splashMinFrames = shimmerDelayFrames + shimmerSweepFrames + splashFadeFrames
+
 // splashTickMsg advances the boot-splash animation by one frame.
 type splashTickMsg time.Time
 
@@ -59,6 +65,7 @@ var splashWords = []string{
 type splashModel struct {
 	word      string
 	frame     int
+	ready     bool
 	fading    bool
 	fadeFrame int
 }
@@ -69,18 +76,25 @@ func newSplash() splashModel {
 }
 
 // nextFrame advances the animation clock: the shimmer and spinner every tick,
-// and the fade-out counter once the fade has begun.
+// and the fade-out counter once the fade has begun. Once the first payload
+// has landed (readyForExit), it starts the fade as soon as splashMinFrames
+// have elapsed, so the opening animation always completes a full shimmer
+// sweep regardless of how fast the data arrives.
 func (s *splashModel) nextFrame() {
 	s.frame++
+	if s.ready && !s.fading && s.frame >= splashMinFrames {
+		s.fading = true
+	}
 	if s.fading {
 		s.fadeFrame++
 	}
 }
 
-// beginFade starts easing the splash out toward the theme base colour. It is
-// idempotent; the fade completes after splashFadeFrames further ticks.
-func (s *splashModel) beginFade() {
-	s.fading = true
+// readyForExit records that the first dashboard payload has landed. The fade
+// does not start here — nextFrame begins it once splashMinFrames have
+// elapsed, guaranteeing a minimum exposure time for the opening animation.
+func (s *splashModel) readyForExit() {
+	s.ready = true
 }
 
 // done reports whether the fade-out has fully landed on the base colour, at
