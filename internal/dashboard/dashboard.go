@@ -13,6 +13,7 @@ import (
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/identity"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/aaronl1011/spec/internal/thread"
@@ -159,7 +160,9 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 	// DO section: specs scoped to the viewer by stage dashboard scope.
 	// BLOCKED section: blocked specs scoped by the team blocked config.
 	// DISCUSSION section: open threads on any spec (not just ones the viewer
-	// owns) where it is the viewer's turn.
+	// owns) where it is the viewer's turn. Claiming a spec counts as
+	// involvement in all its threads, so claimants see new comments without
+	// an explicit @-mention.
 	if rc.SpecsRepoDir != "" {
 		specs, err := loadSpecs(rc)
 		if err == nil {
@@ -186,8 +189,9 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 						SortTime:      stageEntryTime(s.StageEnteredAt, s.Updated),
 					})
 				}
+				claimed := identity.AnyIdentity(s.Assignees, viewer)
 				data.Discussion = append(data.Discussion,
-					discussionItems(threadStore, s.ID, s.Title, viewer, reviewWindow, curve, now)...)
+					discussionItems(threadStore, s.ID, s.Title, viewer, claimed, reviewWindow, curve, now)...)
 			}
 		}
 

@@ -27,23 +27,27 @@ func TestIsViewerTurn(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
-		th   thread.Thread
-		v    identity.Viewer
-		want bool
+		name    string
+		th      thread.Thread
+		v       identity.Viewer
+		claimed bool
+		want    bool
 	}{
-		{"open, viewer is participant (asker), viewer spoke last (asked it)", openAskedByBenNoReplies, ben, false},
-		{"open, addressed to a different viewer", openAskedByBenNoReplies, ana, false},
-		{"resolved threads never need a turn", resolvedAskedByBen, ben, false},
-		{"open, viewer mentioned, viewer has not spoken", openMentionsAna, ana, true},
-		{"open, viewer replied last — not their turn anymore", openAnaRepliedLast, ana, false},
-		{"open, someone else replied last after viewer — viewer's turn", openAnaRepliedLast, ben, true},
-		{"open, viewer (asker) replied last again", openBenRepliedLast, ben, false},
-		{"uninvolved viewer never has a turn", openMentionsAna, identity.Viewer{Name: "Carlos"}, false},
+		{"open, viewer is participant (asker), viewer spoke last (asked it)", openAskedByBenNoReplies, ben, false, false},
+		{"open, addressed to a different viewer", openAskedByBenNoReplies, ana, false, false},
+		{"resolved threads never need a turn", resolvedAskedByBen, ben, false, false},
+		{"open, viewer mentioned, viewer has not spoken", openMentionsAna, ana, false, true},
+		{"open, viewer replied last — not their turn anymore", openAnaRepliedLast, ana, false, false},
+		{"open, someone else replied last after viewer — viewer's turn", openAnaRepliedLast, ben, false, true},
+		{"open, viewer (asker) replied last again", openBenRepliedLast, ben, false, false},
+		{"uninvolved viewer never has a turn", openMentionsAna, identity.Viewer{Name: "Carlos"}, false, false},
+		{"claimant sees a thread they never participated in", openAskedByBenNoReplies, ana, true, true},
+		{"claimant who spoke last still has no turn", openAnaRepliedLast, ana, true, false},
+		{"claiming never surfaces resolved threads", resolvedAskedByBen, ana, true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isViewerTurn(tt.th, tt.v); got != tt.want {
+			if got := isViewerTurn(tt.th, tt.v, tt.claimed); got != tt.want {
 				t.Errorf("isViewerTurn() = %v, want %v", got, tt.want)
 			}
 		})
@@ -93,14 +97,21 @@ func TestDiscussionItems(t *testing.T) {
 	}
 
 	ana := identity.Viewer{Name: "Ana", Handle: "@ana", Identities: []string{"@ana"}}
-	items := discussionItems(store, "SPEC-039", "Rate limiting", ana, 0, dashboardCurve(&config.ResolvedConfig{}), time.Now())
+	items := discussionItems(store, "SPEC-039", "Rate limiting", ana, false, 0, dashboardCurve(&config.ResolvedConfig{}), time.Now())
 	// Ana was not mentioned and did not ask — not her turn.
 	if len(items) != 0 {
 		t.Fatalf("items for uninvolved viewer = %v, want none", items)
 	}
 
+	// If Ana has claimed the spec, the unanswered question surfaces for her
+	// even though she was never mentioned.
+	items = discussionItems(store, "SPEC-039", "Rate limiting", ana, true, 0, dashboardCurve(&config.ResolvedConfig{}), time.Now())
+	if len(items) != 1 {
+		t.Fatalf("items for claimant = %v, want 1", items)
+	}
+
 	carlos := identity.Viewer{Name: "Carlos", Handle: "@carlos", Identities: []string{"@carlos"}}
-	items = discussionItems(store, "SPEC-039", "Rate limiting", carlos, 0, dashboardCurve(&config.ResolvedConfig{}), time.Now())
+	items = discussionItems(store, "SPEC-039", "Rate limiting", carlos, false, 0, dashboardCurve(&config.ResolvedConfig{}), time.Now())
 	// Carlos asked it and nobody has replied yet — it's not "his turn" either
 	// (he spoke last), so no item for the asker until someone replies.
 	if len(items) != 0 {
@@ -112,7 +123,7 @@ func TestDiscussionItems(t *testing.T) {
 		t.Fatalf("Reply: %v", err)
 	}
 
-	items = discussionItems(store, "SPEC-039", "Rate limiting", carlos, 0, dashboardCurve(&config.ResolvedConfig{}), time.Now())
+	items = discussionItems(store, "SPEC-039", "Rate limiting", carlos, false, 0, dashboardCurve(&config.ResolvedConfig{}), time.Now())
 	if len(items) != 1 {
 		t.Fatalf("items for the asker after a reply = %v, want 1", items)
 	}
@@ -127,7 +138,7 @@ func TestDiscussionItems(t *testing.T) {
 
 func TestDiscussionItems_MissingSidecarIsEmpty(t *testing.T) {
 	store := thread.NewSidecarStore(t.TempDir())
-	items := discussionItems(store, "SPEC-999", "No threads", identity.Viewer{}, 0, dashboardCurve(&config.ResolvedConfig{}), time.Now())
+	items := discussionItems(store, "SPEC-999", "No threads", identity.Viewer{}, false, 0, dashboardCurve(&config.ResolvedConfig{}), time.Now())
 	if items != nil {
 		t.Errorf("items for a spec with no sidecar = %v, want nil", items)
 	}
@@ -180,5 +191,41 @@ func TestAggregate_Discussion_TurnSemantics(t *testing.T) {
 	}
 	if len(data.Discussion) != 0 {
 		t.Fatalf("Discussion (Ana replied last) = %v, want none", data.Discussion)
+	}
+}
+
+// TestAggregate_Discussion_ClaimedSpecSurfacesWithoutMention proves that a
+// viewer who has claimed a spec sees new comments on it in DISCUSSION even
+// when nobody @-mentioned them.
+func TestAggregate_Discussion_ClaimedSpecSurfacesWithoutMention(t *testing.T) {
+	dir := t.TempDir()
+	writeSpec(t, dir, "SPEC-040", "engineering", []string{"@ana"})
+
+	store := thread.NewSidecarStore(dir)
+	if _, err := store.Create("SPEC-040", "acceptance_criteria", "@carlos",
+		"is the retry budget per request or per client?", nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	ana := &config.ResolvedConfig{SpecsRepoDir: dir, Team: scopedTeamConfig(),
+		User: userCfg("Ana", "@ana", "engineer")}
+
+	data, err := Aggregate(context.Background(), ana, nil, "engineer")
+	if err != nil {
+		t.Fatalf("Aggregate: %v", err)
+	}
+	if len(data.Discussion) != 1 || data.Discussion[0].SpecID != "SPEC-040" {
+		t.Fatalf("Discussion (claimant, no mention) = %v, want one SPEC-040 row", data.Discussion)
+	}
+
+	// A different engineer who has not claimed the spec sees nothing.
+	ben := &config.ResolvedConfig{SpecsRepoDir: dir, Team: scopedTeamConfig(),
+		User: userCfg("Ben", "@ben", "engineer")}
+	data, err = Aggregate(context.Background(), ben, nil, "engineer")
+	if err != nil {
+		t.Fatalf("Aggregate: %v", err)
+	}
+	if len(data.Discussion) != 0 {
+		t.Fatalf("Discussion (non-claimant, uninvolved) = %v, want none", data.Discussion)
 	}
 }
