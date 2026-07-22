@@ -9,9 +9,15 @@ import (
 	"github.com/aaronl1011/spec/internal/markdown"
 )
 
+// promoteFields builds the SpecFields a promote test needs, with fixed
+// author/cycle/date so assertions stay focused on body injection.
+func promoteFields(id, title, source string) markdown.SpecFields {
+	return markdown.SpecFields{ID: id, Title: title, Author: "alice", Cycle: "Cycle 0", Source: source, Date: "2026-01-01"}
+}
+
 func TestBuildPromotedSpec_InjectBody(t *testing.T) {
 	body := "Login loop after SSO refresh — users bounced back immediately."
-	content := buildPromotedSpec("", markdown.TemplateConfig{}, "SPEC-015", "Login loop", "alice", "Cycle 0", "TRIAGE-003", body)
+	content := buildPromotedSpec("", markdown.TemplateConfig{}, promoteFields("SPEC-015", "Login loop", "TRIAGE-003"), body)
 
 	if !strings.Contains(content, "## 1. Problem Statement") {
 		t.Fatal("spec must contain §1 heading")
@@ -22,7 +28,7 @@ func TestBuildPromotedSpec_InjectBody(t *testing.T) {
 }
 
 func TestBuildPromotedSpec_EmptyBody(t *testing.T) {
-	content := buildPromotedSpec("", markdown.TemplateConfig{}, "SPEC-015", "Login loop", "alice", "Cycle 0", "TRIAGE-003", "")
+	content := buildPromotedSpec("", markdown.TemplateConfig{}, promoteFields("SPEC-015", "Login loop", "TRIAGE-003"), "")
 	// With empty body, §1 heading still exists but no extra injection.
 	if !strings.Contains(content, "## 1. Problem Statement") {
 		t.Fatal("spec must contain §1 heading even with empty body")
@@ -31,7 +37,7 @@ func TestBuildPromotedSpec_EmptyBody(t *testing.T) {
 
 func TestBuildPromotedSpec_SanitisesHeadings(t *testing.T) {
 	body := "Overview\n## Bad heading\nMore text"
-	content := buildPromotedSpec("", markdown.TemplateConfig{}, "SPEC-015", "Title", "alice", "Cycle 0", "TRIAGE-001", body)
+	content := buildPromotedSpec("", markdown.TemplateConfig{}, promoteFields("SPEC-015", "Title", "TRIAGE-001"), body)
 	// The ## heading in the body must be demoted.
 	if strings.Contains(content, "\n## Bad heading\n") {
 		t.Error("level-2 heading in triage body must be demoted in the spec")
@@ -91,7 +97,7 @@ title: <% title %>
 	}
 
 	body := "Users bounced back to login after SSO refresh."
-	content := buildPromotedSpec(dir, markdown.TemplateConfig{}, "SPEC-020", "Login loop", "alice", "Cycle 0", "TRIAGE-004", body)
+	content := buildPromotedSpec(dir, markdown.TemplateConfig{}, promoteFields("SPEC-020", "Login loop", "TRIAGE-004"), body)
 
 	if !strings.Contains(content, "## Problem Statement\n\n"+body) {
 		t.Errorf("triage body not injected under custom Problem Statement heading:\n%s", content)

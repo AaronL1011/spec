@@ -340,6 +340,31 @@ func TestDiscussionCount_CountsOnlyTheViewersTurn(t *testing.T) {
 	}
 }
 
+// TestDiscussionCount_ClaimedSpecCountsWithoutMention proves the awareness
+// count matches the DISCUSSION section for claimants: a thread on a spec the
+// viewer claimed counts even when they were never mentioned.
+func TestDiscussionCount_ClaimedSpecCountsWithoutMention(t *testing.T) {
+	dir := t.TempDir()
+	writeSpec(t, dir, "SPEC-100", "engineering", []string{"@ana"})
+
+	store := thread.NewSidecarStore(dir)
+	if _, err := store.Create("SPEC-100", "problem_statement", "@ben", "why polling over webhooks?", nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	ana := &config.ResolvedConfig{SpecsRepoDir: dir, Team: scopedTeamConfig(),
+		User: userCfg("Ana", "@ana", "engineer")}
+	if count := DiscussionCount(ana, "engineer"); count != 1 {
+		t.Errorf("DiscussionCount (claimant, no mention) = %d, want 1", count)
+	}
+
+	carlos := &config.ResolvedConfig{SpecsRepoDir: dir, Team: scopedTeamConfig(),
+		User: userCfg("Carlos", "@carlos", "engineer")}
+	if count := DiscussionCount(carlos, "engineer"); count != 0 {
+		t.Errorf("DiscussionCount (non-claimant, uninvolved) = %d, want 0", count)
+	}
+}
+
 func TestPrintAwarenessLine_CombinesPendingAndDiscussion(t *testing.T) {
 	dir := t.TempDir()
 	writeSpec(t, dir, "SPEC-100", "engineering", []string{"@ana"})

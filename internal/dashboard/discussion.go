@@ -11,14 +11,17 @@ import (
 )
 
 // isViewerTurn reports whether an open thread is awaiting the viewer: they
-// are a participant (author, replier, or mentioned) and did not speak last.
-// Shared by the DISCUSSION dashboard section and the passive awareness line
-// so the two can never disagree about what counts as "your turn".
-func isViewerTurn(t thread.Thread, v identity.Viewer) bool {
+// are involved — a participant (author, replier, or mentioned) or the
+// claimant of the spec — and did not speak last. Claiming a spec makes every
+// thread on it the claimant's business, so new comments surface without an
+// explicit @-mention. Shared by the DISCUSSION dashboard section and the
+// passive awareness line so the two can never disagree about what counts as
+// "your turn".
+func isViewerTurn(t thread.Thread, v identity.Viewer, claimed bool) bool {
 	if !t.IsOpen() {
 		return false
 	}
-	if !identity.AnyIdentity(t.Participants(), v) {
+	if !claimed && !identity.AnyIdentity(t.Participants(), v) {
 		return false
 	}
 	return !identity.MatchesIdentity(lastContributor(t), v)
@@ -71,7 +74,10 @@ func displayHandle(handle string) string {
 // pointer to the sidecar, not a live join against parsed sections, and stays
 // the fallback discovery path when a heading rename orphans a reader anchor
 // (see discussion-03-reader-cockpit.md §2.4).
-func discussionItems(store *thread.SidecarStore, specID, specTitle string, viewer identity.Viewer, discussionWindow time.Duration, curve urgency.Curve, now time.Time) []DashboardItem {
+// claimed reports whether the viewer has claimed the spec (is an assignee);
+// claimants see every open thread awaiting a response, not just ones they
+// participate in.
+func discussionItems(store *thread.SidecarStore, specID, specTitle string, viewer identity.Viewer, claimed bool, discussionWindow time.Duration, curve urgency.Curve, now time.Time) []DashboardItem {
 	threads, err := store.List(specID)
 	if err != nil {
 		return nil
@@ -79,7 +85,7 @@ func discussionItems(store *thread.SidecarStore, specID, specTitle string, viewe
 
 	var items []DashboardItem
 	for _, t := range threads {
-		if !isViewerTurn(t, viewer) {
+		if !isViewerTurn(t, viewer, claimed) {
 			continue
 		}
 		activity := latestActivity(t)

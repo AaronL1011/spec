@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/identity"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/thread"
 )
@@ -79,8 +80,9 @@ func DiscussionCount(rc *config.ResolvedConfig, role string) int {
 		if err != nil {
 			continue
 		}
+		claimed := identity.AnyIdentity(meta.Assignees, viewer)
 		for _, t := range threads {
-			if isViewerTurn(t, viewer) {
+			if isViewerTurn(t, viewer, claimed) {
 				count++
 			}
 		}

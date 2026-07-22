@@ -51,7 +51,9 @@ func promoteTriageItem(rc *config.ResolvedConfig, item triageItem) tea.Cmd {
 			// Build the spec content and inject the triage body into the
 			// Problem Statement section. Resolved inside the sync wrapper so
 			// the spec scaffolds from the just-pulled (latest) team template.
-			specContent := buildPromotedSpec(repoPath, tuiTemplateConfig(rc), specID, item.Title, author, cycle, source, item.Body)
+			specContent := buildPromotedSpec(repoPath, tuiTemplateConfig(rc),
+				markdown.SpecFields{ID: specID, Title: item.Title, Author: author, Cycle: cycle, Source: source,
+					Date: time.Now().Format("2006-01-02"), Assignees: creatorAssignees(rc)}, item.Body)
 
 			// Write the new spec file.
 			specPath := filepath.Join(sd, specID+".md")
@@ -81,9 +83,8 @@ func promoteTriageItem(rc *config.ResolvedConfig, item triageItem) tea.Cmd {
 // with different numbering, spacing, or owner markers still receives the
 // body. If the body is blank — or the template genuinely lacks the section —
 // the scaffold is returned unmodified (safe fallback, never corrupts).
-func buildPromotedSpec(repoDir string, tc markdown.TemplateConfig, id, title, author, cycle, source, triageBody string) string {
-	base := markdown.ScaffoldSpecFromConfig(repoDir, tc,
-		markdown.SpecFields{ID: id, Title: title, Author: author, Cycle: cycle, Source: source, Date: time.Now().Format("2006-01-02")})
+func buildPromotedSpec(repoDir string, tc markdown.TemplateConfig, fields markdown.SpecFields, triageBody string) string {
+	base := markdown.ScaffoldSpecFromConfig(repoDir, tc, fields)
 	body := sanitiseBodyForSpec(strings.TrimSpace(triageBody))
 	if body == "" {
 		return base

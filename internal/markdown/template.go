@@ -58,6 +58,13 @@ func (k TemplateKind) defaultPath() string {
 // SpecFields are the scaffold fields available to a spec template.
 type SpecFields struct {
 	ID, Title, Author, Cycle, Source, Date string
+
+	// Assignees is the initial claim written to the scaffolded frontmatter
+	// (typically the creator, so new specs start claimed rather than
+	// unclaimed). It is not a template placeholder: it is injected into the
+	// rendered frontmatter, so custom team templates receive it without
+	// referencing it. A template that already emits an assignees key wins.
+	Assignees []string
 }
 
 // TriageFields are the scaffold fields available to a triage template.
@@ -174,6 +181,12 @@ func RenderSpec(tpl string, fields SpecFields, defaults []KV) (string, error) {
 	out, err := renderTemplate("spec", tpl, specFieldsMap(fields))
 	if err != nil {
 		return "", err
+	}
+	// Assignees inject before frontmatter defaults so a computed claim wins
+	// over a team-configured `assignees` default, matching the "runtime
+	// fields always win" rule documented on injectFrontmatterDefaults.
+	if len(fields.Assignees) > 0 {
+		out = injectFrontmatterLines(out, []frontmatterLine{{key: "assignees", value: yamlFlowSeq(fields.Assignees)}})
 	}
 	if len(defaults) > 0 {
 		out = injectFrontmatterDefaults(out, defaults)
@@ -308,6 +321,23 @@ func ScaffoldTriageFromConfig(repoDir string, tc TemplateConfig, fields TriageFi
 // Keys already present (computed fields) are skipped, so runtime fields always
 // win. The block is written directly (no YAML round-trip) to keep diffs stable.
 func injectFrontmatterDefaults(rendered string, defaults []KV) string {
+	entries := make([]frontmatterLine, 0, len(defaults))
+	for _, d := range defaults {
+		entries = append(entries, frontmatterLine{key: d.Key, value: yamlScalar(d.Value)})
+	}
+	return injectFrontmatterLines(rendered, entries)
+}
+
+// frontmatterLine is one frontmatter entry to inject: a key and an
+// already-rendered YAML value (scalar or flow sequence).
+type frontmatterLine struct {
+	key   string
+	value string
+}
+
+// injectFrontmatterLines inserts pre-rendered frontmatter entries before the
+// closing ---, in declaration order, skipping keys the block already has.
+func injectFrontmatterLines(rendered string, entries []frontmatterLine) string {
 	lines := strings.Split(rendered, "\n")
 	if len(lines) < 2 || strings.TrimSpace(lines[0]) != "---" {
 		return rendered
@@ -328,12 +358,12 @@ func injectFrontmatterDefaults(rendered string, defaults []KV) string {
 		existing[strings.TrimSpace(kv[0])] = true
 	}
 	var insert []string
-	for _, d := range defaults {
-		if d.Key == "" || existing[d.Key] {
+	for _, e := range entries {
+		if e.key == "" || existing[e.key] {
 			continue
 		}
-		insert = append(insert, d.Key+": "+yamlScalar(d.Value))
-		existing[d.Key] = true
+		insert = append(insert, e.key+": "+e.value)
+		existing[e.key] = true
 	}
 	if len(insert) == 0 {
 		return rendered
@@ -343,6 +373,16 @@ func injectFrontmatterDefaults(rendered string, defaults []KV) string {
 	merged = append(merged, insert...)
 	merged = append(merged, lines[closeIdx:]...)
 	return strings.Join(merged, "\n")
+}
+
+// yamlFlowSeq renders values as a YAML flow sequence (e.g. ["@ana", "@ben"]),
+// quoting each element by the same rules as yamlScalar.
+func yamlFlowSeq(values []string) string {
+	quoted := make([]string, len(values))
+	for i, v := range values {
+		quoted[i] = yamlScalar(v)
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
 // yamlScalar returns v rendered as a YAML scalar, double-quoting it when the

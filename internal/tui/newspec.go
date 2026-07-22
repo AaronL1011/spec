@@ -37,7 +37,7 @@ func createSpec(rc *config.ResolvedConfig, title string) tea.Cmd {
 			// Resolve and render the template inside the sync wrapper so the
 			// spec scaffolds from the just-pulled (latest) team template state.
 			content := markdown.ScaffoldSpecFromConfig(repoPath, tuiTemplateConfig(rc),
-				markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: "tui", Date: time.Now().Format("2006-01-02")})
+				markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: "tui", Date: time.Now().Format("2006-01-02"), Assignees: creatorAssignees(rc)})
 
 			specPath := filepath.Join(sd, specID+".md")
 			if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {

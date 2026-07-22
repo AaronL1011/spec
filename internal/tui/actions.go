@@ -363,6 +363,17 @@ func selfAssignIdentity(rc *config.ResolvedConfig) string {
 	return ""
 }
 
+// creatorAssignees returns the default assignee list for a newly created
+// spec: the creator claims it at creation (mirroring how author is stamped)
+// so specs start claimed instead of relying on a remembered manual claim.
+// Empty when no self identity is configured — the spec scaffolds unclaimed.
+func creatorAssignees(rc *config.ResolvedConfig) []string {
+	if self := selfAssignIdentity(rc); self != "" {
+		return []string{self}
+	}
+	return nil
+}
+
 // parseAssignInput interprets the assign modal input into an assignee list:
 // "-", "clear", or "none" clears all assignees; otherwise the input is split on
 // spaces/commas and de-duplicated (case-insensitively, ignoring a leading '@').
