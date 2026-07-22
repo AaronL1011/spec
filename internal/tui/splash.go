@@ -43,12 +43,15 @@ type splashTickMsg time.Time
 var splashWords = []string{
 	"aligning",
 	"cooperating",
+	"communicating",
 	"orienting",
 	"focusing",
 	"refining",
 	"sharpening",
 	"igniting",
 	"inspiring",
+	"disseminating",
+	"sharing",
 }
 
 // splashModel is the boot splash shown while the first dashboard fetch is in
