@@ -78,7 +78,7 @@ func runPromote(cmd *cobra.Command, args []string) error {
 		// Resolve and render the template inside the sync wrapper so the spec
 		// scaffolds from the just-pulled (latest) team template state.
 		content := markdown.ScaffoldSpecFromConfig(repoPath, teamTemplateConfig(rc),
-			markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: source, Date: time.Now().Format("2006-01-02")})
+			markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: source, Date: time.Now().Format("2006-01-02"), Assignees: creatorAssignees(rc)})
 
 		// Write the new spec
 		specPath := filepath.Join(sd, specID+".md")

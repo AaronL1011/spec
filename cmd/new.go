@@ -61,6 +61,8 @@ func runNew(cmd *cobra.Command, args []string) error {
 
 	author := gitpkg.UserName(ctx())
 	cycle := rc.CycleLabel()
+	// The creator claims the spec at creation — see creatorAssignees.
+	assignees := creatorAssignees(rc)
 
 	// Write to specs repo via WithSpecsRepo
 	err = gitpkg.WithSpecsRepoOpts(ctx(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
@@ -70,7 +72,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 		// Resolve and render the template inside the sync wrapper so the spec
 		// scaffolds from the just-pulled (latest) team template state.
 		content := markdown.ScaffoldSpecFromConfig(repoPath, teamTemplateConfig(rc),
-			markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: "direct", Date: time.Now().Format("2006-01-02")})
+			markdown.SpecFields{ID: specID, Title: title, Author: author, Cycle: cycle, Source: "direct", Date: time.Now().Format("2006-01-02"), Assignees: assignees})
 
 		specPath := filepath.Join(sd, specID+".md")
 		if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {
@@ -113,6 +115,9 @@ func runNew(cmd *cobra.Command, args []string) error {
 	fmt.Printf("✓ Created %s — %s\n", specID, title)
 	fmt.Printf("  Location: %s/%s.md\n", filepath.Join(repoDir, gitpkg.SpecsSubDir), specID)
 	fmt.Printf("  Status: draft\n")
+	if len(assignees) > 0 {
+		fmt.Printf("  Assignee: %s (you)\n", assignees[0])
+	}
 	fmt.Printf("  Edit with: spec edit %s\n", specID)
 
 	return nil

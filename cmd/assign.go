@@ -179,6 +179,17 @@ func selfIdentity(rc *config.ResolvedConfig) string {
 	return ""
 }
 
+// creatorAssignees returns the default assignee list for a newly created
+// spec: the creator claims it at creation (mirroring how author is stamped)
+// so specs start claimed instead of relying on a remembered manual claim.
+// Empty when no self identity is configured — the spec scaffolds unclaimed.
+func creatorAssignees(rc *config.ResolvedConfig) []string {
+	if self := selfIdentity(rc); self != "" {
+		return []string{self}
+	}
+	return nil
+}
+
 // normalizeAssignees trims, drops blanks, and de-duplicates assignees
 // (case-insensitively, ignoring a leading '@') while preserving input order.
 func normalizeAssignees(users []string) []string {

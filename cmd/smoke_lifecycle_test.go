@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aaronl1011/spec/internal/markdown"
 )
 
 func TestSmoke_New(t *testing.T) {
@@ -17,6 +20,19 @@ func TestSmoke_New(t *testing.T) {
 	}
 	if !strings.Contains(out, "SPEC-001") || !strings.Contains(out, "Auth refactor") {
 		t.Errorf("new output = %q, want a created SPEC id and title", out)
+	}
+
+	// The creator claims the spec at creation: frontmatter carries the
+	// smoke user's handle as the default assignee, and the output says so.
+	meta, err := markdown.ReadMeta(filepath.Join(e.specsDirPath(), "SPEC-001.md"))
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	if len(meta.Assignees) != 1 || meta.Assignees[0] != "dev" {
+		t.Errorf("Assignees = %v, want [dev] (creator default claim)", meta.Assignees)
+	}
+	if !strings.Contains(out, "Assignee: dev (you)") {
+		t.Errorf("new output = %q, want the default claim announced", out)
 	}
 }
 

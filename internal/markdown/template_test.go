@@ -159,6 +159,75 @@ created: <% date %>
 	}
 }
 
+func TestRenderSpec_AssigneesInjected(t *testing.T) {
+	tpl := `---
+id: <% id %>
+title: <% title %>
+status: draft
+---
+
+# <% id %> - <% title %>
+`
+	out, err := RenderSpec(tpl, SpecFields{ID: "SPEC-001", Title: "T", Assignees: []string{"@ana"}}, nil)
+	if err != nil {
+		t.Fatalf("RenderSpec: %v", err)
+	}
+	if !strings.Contains(out, `assignees: ["@ana"]`) {
+		t.Errorf("assignees not injected into frontmatter:\n%s", out)
+	}
+	// Round-trips through the frontmatter parser as a real list.
+	meta, err := ParseMeta(out)
+	if err != nil {
+		t.Fatalf("ParseMeta: %v", err)
+	}
+	if len(meta.Assignees) != 1 || meta.Assignees[0] != "@ana" {
+		t.Errorf("Assignees = %v, want [@ana]", meta.Assignees)
+	}
+}
+
+func TestRenderSpec_NoAssigneesMeansNoKey(t *testing.T) {
+	tpl := "---\nid: <% id %>\n---\n\n# <% id %>\n"
+	out, err := RenderSpec(tpl, SpecFields{ID: "SPEC-001"}, nil)
+	if err != nil {
+		t.Fatalf("RenderSpec: %v", err)
+	}
+	if strings.Contains(out, "assignees:") {
+		t.Errorf("empty assignees must not emit a key:\n%s", out)
+	}
+}
+
+func TestRenderSpec_TemplateAssigneesWin(t *testing.T) {
+	// A team template that hardcodes an assignees key keeps it — injection
+	// never duplicates or overrides an existing frontmatter key.
+	tpl := "---\nid: <% id %>\nassignees: [\"@oncall\"]\n---\n\n# <% id %>\n"
+	out, err := RenderSpec(tpl, SpecFields{ID: "SPEC-001", Assignees: []string{"@ana"}}, nil)
+	if err != nil {
+		t.Fatalf("RenderSpec: %v", err)
+	}
+	if strings.Contains(out, "@ana") {
+		t.Errorf("injected assignees overrode template's own key:\n%s", out)
+	}
+	if !strings.Contains(out, `assignees: ["@oncall"]`) {
+		t.Errorf("template assignees lost:\n%s", out)
+	}
+}
+
+func TestRenderSpec_AssigneesWinOverFrontmatterDefaults(t *testing.T) {
+	tpl := "---\nid: <% id %>\n---\n\n# <% id %>\n"
+	out, err := RenderSpec(tpl, SpecFields{ID: "SPEC-001", Assignees: []string{"@ana"}}, []KV{
+		{Key: "assignees", Value: "SHOULD-NOT-WIN"},
+	})
+	if err != nil {
+		t.Fatalf("RenderSpec: %v", err)
+	}
+	if strings.Contains(out, "SHOULD-NOT-WIN") {
+		t.Errorf("team default overrode the runtime claim:\n%s", out)
+	}
+	if !strings.Contains(out, `assignees: ["@ana"]`) {
+		t.Errorf("runtime claim lost:\n%s", out)
+	}
+}
+
 func TestRenderSpec_FrontmatterDefaultsDoNotOverrideComputed(t *testing.T) {
 	tpl := `---
 id: <% id %>
