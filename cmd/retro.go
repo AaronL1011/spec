@@ -14,6 +14,29 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// scanSpecsByStage reads spec files and counts how many are in each stage.
+// Used by the retro's local-activity metrics path.
+func scanSpecsByStage(specsDir string) map[string]int {
+	counts := make(map[string]int)
+	entries, err := os.ReadDir(specsDir)
+	if err != nil {
+		return counts
+	}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
+			continue
+		}
+		meta, err := markdown.ReadMeta(filepath.Join(specsDir, e.Name()))
+		if err != nil || !strings.HasPrefix(meta.ID, "SPEC-") {
+			continue
+		}
+		if meta.Status != "" {
+			counts[meta.Status]++
+		}
+	}
+	return counts
+}
+
 var retroCmd = &cobra.Command{
 	Use:   "retro",
 	Short: "Auto-populate retrospective with cycle metrics",

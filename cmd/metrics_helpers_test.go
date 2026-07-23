@@ -20,7 +20,7 @@ func TestParseSinceFlag(t *testing.T) {
 		{"7 days", "7d", 7 * 24 * time.Hour, false},
 		{"24 hours", "24h", 24 * time.Hour, false},
 		{"1 hour", "1h", time.Hour, false},
-		{"empty defaults to 30d", "", 30 * 24 * time.Hour, false},
+		{"empty defaults to 90d", "", 90 * 24 * time.Hour, false},
 		{"invalid", "garbage", 0, true},
 	}
 
