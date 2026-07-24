@@ -22,7 +22,10 @@ require (
 	modernc.org/sqlite v1.54.0
 )
 
-require github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
+require (
+	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
+	go.abhg.dev/goldmark/mermaid v0.6.0
+)
 
 require github.com/dlclark/regexp2/v2 v2.2.1 // indirect
 

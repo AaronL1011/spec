@@ -69,6 +69,36 @@ func TestRenderSpecHTMLHighlightsCode(t *testing.T) {
 	}
 }
 
+func TestRenderSpecHTMLRendersMermaid(t *testing.T) {
+	content := "```mermaid\ngraph TD;\n  A-->B;\n```\n"
+	doc, err := renderSpecHTML(content, "SPEC-001")
+	if err != nil {
+		t.Fatalf("renderSpecHTML: %v", err)
+	}
+	if !strings.Contains(doc, `<pre class="mermaid">`) {
+		t.Errorf("mermaid fence not rendered as mermaid block")
+	}
+	if !strings.Contains(doc, "A--&gt;B") {
+		t.Errorf("diagram source missing from mermaid block")
+	}
+	if !strings.Contains(doc, "cdn.jsdelivr.net/npm/mermaid@11") {
+		t.Errorf("mermaid loader script missing")
+	}
+	if strings.Contains(doc, `<pre class="chroma"><code>graph`) {
+		t.Errorf("mermaid fence was highlighted as code instead of diagram")
+	}
+}
+
+func TestRenderSpecHTMLOmitsMermaidScriptWithoutDiagrams(t *testing.T) {
+	doc, err := renderSpecHTML("# Plain", "SPEC-002")
+	if err != nil {
+		t.Fatalf("renderSpecHTML: %v", err)
+	}
+	if strings.Contains(doc, "cdn.jsdelivr.net/npm/mermaid") {
+		t.Errorf("mermaid script injected for spec without diagrams")
+	}
+}
+
 func TestRenderSpecHTMLEscapesTitle(t *testing.T) {
 	doc, err := renderSpecHTML("body", `<script>alert(1)</script>`)
 	if err != nil {

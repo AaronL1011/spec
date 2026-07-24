@@ -18,6 +18,7 @@ import (
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"github.com/yuin/goldmark/extension"
+	"go.abhg.dev/goldmark/mermaid"
 
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
@@ -99,6 +100,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 1.5em 0; }
 img { max-width: 100%%; }
 ul.contains-task-list { list-style: none; padding-left: 1em; }
 pre.chroma { background: var(--code-bg) !important; }
+pre.mermaid { background: none; text-align: center; }
 %s
 #theme-toggle {
   position: fixed;
@@ -135,12 +137,39 @@ pre.chroma { background: var(--code-bg) !important; }
     root.setAttribute("data-theme", next);
     localStorage.setItem("spec-preview-theme", next);
     paint();
+    if (window.__renderMermaid) window.__renderMermaid();
   });
   paint();
 })();
 </script>
-</body>
+%s</body>
 </html>
+`
+
+// mermaidScript loads MermaidJS from CDN and renders diagram blocks
+// client-side, re-rendering from the original source whenever the theme
+// toggle flips so diagram colours follow the page theme. Only injected when
+// the document contains mermaid blocks. Offline, diagrams degrade to their
+// fenced source text.
+const mermaidScript = `<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+var blocks = Array.from(document.querySelectorAll("pre.mermaid"));
+blocks.forEach(function (b) { b.dataset.src = b.textContent; });
+function diagramTheme() {
+  var t = document.documentElement.getAttribute("data-theme") ||
+    (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  return t === "dark" ? "dark" : "default";
+}
+window.__renderMermaid = function () {
+  blocks.forEach(function (b) {
+    b.removeAttribute("data-processed");
+    b.textContent = b.dataset.src;
+  });
+  mermaid.initialize({ startOnLoad: false, theme: diagramTheme() });
+  mermaid.run({ nodes: blocks });
+};
+window.__renderMermaid();
+</script>
 `
 
 // renderSpecHTML converts spec markdown (front matter stripped) into a
@@ -149,6 +178,11 @@ func renderSpecHTML(content, title string) (string, error) {
 	var buf bytes.Buffer
 	md := goldmark.New(goldmark.WithExtensions(
 		extension.GFM,
+		// Client-side rendering only: RenderModeAuto would silently switch
+		// to server-side rendering when the mermaid CLI happens to be on
+		// PATH. NoScript because the template injects its own theme-aware
+		// loader script.
+		&mermaid.Extender{RenderMode: mermaid.RenderModeClient, NoScript: true},
 		highlighting.NewHighlighting(
 			highlighting.WithFormatOptions(chromahtml.WithClasses(true)),
 		),
@@ -156,8 +190,13 @@ func renderSpecHTML(content, title string) (string, error) {
 	if err := md.Convert([]byte(markdown.Body(content)), &buf); err != nil {
 		return "", err
 	}
+	body := buf.String()
+	script := ""
+	if strings.Contains(body, `<pre class="mermaid">`) {
+		script = mermaidScript
+	}
 	return fmt.Sprintf(htmlPreviewTemplate,
-		html.EscapeString(title), highlightCSS(), buf.String()), nil
+		html.EscapeString(title), highlightCSS(), body, script), nil
 }
 
 var (
