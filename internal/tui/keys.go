@@ -23,6 +23,14 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// ── Layer 1: Overlays (absorb all keys) ──────────────────────────
 	// These are modal states that must capture every keystroke.
 
+	// The draft flow owns the keyboard while active, so its fixed action set
+	// (a/e/r/R/s, [ ]) cannot collide with the global advance/edit/sync bindings
+	// — the same scoping the confirm modals rely on.
+	if a.draft.active() {
+		var cmd tea.Cmd
+		a, cmd = a.updateDraft(msg)
+		return a, cmd
+	}
 	if a.search.visible {
 		return a.updateSearchOverlay(msg)
 	}
@@ -274,6 +282,23 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyPressMsg) (tea.Cmd, boo
 			editor = a.rc.User.Preferences.Editor
 		}
 		return editSpec(a.rc, specID, editor), true
+	// Drafting targets the section under the reader cursor, so spec already knows
+	// what "work on this" means and the user does not have to say it.
+	case key.Matches(msg, a.keys.Draft) && isSpecID(specID):
+		canGenerate, _ := a.agentCapabilities()
+		if !canGenerate {
+			a.statusBar.SetStatusError("Drafting unavailable", a.agentPlaneExplanation())
+			return nil, true
+		}
+		return a.startSectionDraft(specID, a.draftTargetSection()), true
+	case key.Matches(msg, a.keys.DraftSession) && isSpecID(specID):
+		_, canSession := a.agentCapabilities()
+		if !canSession {
+			a.statusBar.SetStatusError("Interactive unavailable", "this agent does not support sessions")
+			return nil, true
+		}
+		slug := a.draftTargetSection()
+		return interactiveDraftSession(a.rc, specID, interactiveKickoff(specID, slug, "", nil)), true
 	case key.Matches(msg, a.keys.Build) && isSpecID(specID):
 		// Pre-flight stage guard runs before the confirm modal so an invalid
 		// spec surfaces inline and never reaches the confirm step.

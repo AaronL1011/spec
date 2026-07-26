@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/aaronl1011/spec/internal/adapter/resolve"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -600,6 +602,11 @@ func (m settingsModel) layoutLines() []settingsLine {
 	for _, ig := range settingsIntegrations {
 		appendLine(m.renderIntegrationRow(ig.name, ig.category), fieldCount, false)
 	}
+	// The agent sits under Integrations for familiarity but is read from personal
+	// config, not the team's, and shows its capability set — so a user can see at
+	// a glance whether drafting and sessions are available rather than
+	// discovering it by pressing a key.
+	appendLine(m.renderAgentRow(), fieldCount, false)
 	appendLine("\n", fieldCount, false)
 
 	appendLine(m.styles.SectionTitle.Render("  Config Paths")+"\n", fieldCount, false)
@@ -747,6 +754,46 @@ func (m settingsModel) renderIntegrationRow(name, category string) string {
 	row := m.styles.RowNormal.Render(label) + status.Render(provider)
 	if identity != "" {
 		row += m.styles.Muted.Render(fmt.Sprintf("  as %s", identity))
+	}
+	return row + "\n"
+}
+
+// renderAgentRow shows the resolved personal agent and what it can do.
+func (m settingsModel) renderAgentRow() string {
+	label := fmt.Sprintf("    %-10s", "Agent")
+
+	provider := ""
+	if m.rc != nil {
+		provider = m.rc.EffectiveAgentConfig().Provider
+	}
+	if provider == "" || provider == "none" {
+		return m.styles.RowNormal.Render(label) +
+			m.styles.Muted.Render("— (personal: set 'agent:' in ~/.spec/config.yaml)") + "\n"
+	}
+
+	row := m.styles.RowNormal.Render(label) + m.styles.Success.Render(provider)
+
+	// Name the planes explicitly. "sessions + drafting" tells the user which
+	// keys will work; a bare provider name does not.
+	var planes []string
+	// resolve.Agent always returns a usable adapter (noop when unconfigured), so
+	// the capability set is what distinguishes providers, not nil-ness.
+	agent, _ := resolve.Agent(m.rc.EffectiveAgentConfig())
+	caps := agent.Capabilities()
+	if caps.Generate {
+		planes = append(planes, "drafting")
+	}
+	if caps.MCP {
+		planes = append(planes, "sessions")
+	}
+	switch {
+	case len(planes) == 0:
+		row += m.styles.Muted.Render("  (no planes available)")
+	default:
+		row += m.styles.Muted.Render("  " + strings.Join(planes, " + "))
+	}
+	if m.rc.User != nil && !m.rc.User.Preferences.AgentDraftsEnabled() {
+		row += m.styles.Muted.Render("  · drafting off")
 	}
 	return row + "\n"
 }

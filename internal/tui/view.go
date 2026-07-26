@@ -89,6 +89,8 @@ func (a App) render() string {
 		content = renderTriageClose(a.triageClose, a.styles)
 	case a.triageNote.active:
 		content = renderTriageNote(a.triageNote, a.styles)
+	case a.draft.active():
+		content = a.viewDraft()
 	case a.modal.Visible:
 		content = a.modal.View()
 	case a.showDetail:

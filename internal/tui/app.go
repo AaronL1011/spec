@@ -116,6 +116,11 @@ type App struct {
 	revert  revertOverlay
 	search  searchOverlayModel
 
+	// draft holds the active draft-review flow. Zero value means inactive; it
+	// owns the keyboard while active so the fixed action set cannot collide with
+	// global bindings.
+	draft draftSession
+
 	// searchIx is the shared FTS5 indexer backing the global search overlay
 	// (SPEC-028). Nil-safe: a nil store degrades search to the live fallback.
 	searchIx *search.Indexer
@@ -596,6 +601,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.openDetail(msg.SpecID),
 			a.scheduleRefresh(refreshKeyTriage, a.triage.refresh()),
 		)
+
+	// Draft-review flow: generation results, the elapsed-time tick, $EDITOR
+	// round-trips, and the write that follows an accept.
+	case draftResultMsg:
+		return a.handleDraftResult(msg)
+	case draftTickMsg:
+		return a.handleDraftTick()
+	case draftEditedMsg:
+		return a.handleDraftEdited(msg)
+	case draftWrittenMsg:
+		return a.handleDraftWritten(msg)
 
 	// Action results — show toast and refresh.
 	case actionResultMsg:

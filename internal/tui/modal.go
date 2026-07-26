@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/aaronl1011/spec/internal/tui/components"
@@ -75,6 +77,13 @@ func (a *App) armAssignModal(specID string) {
 // For confirm modals, input is empty. For input modals, it contains the user's text.
 func (a *App) executeActionWithInput(input string) tea.Cmd {
 	specID := a.pendingSpecID
+
+	// Chaining into the next empty section carries its slug in the action name,
+	// so accepting one draft can flow into the next without a dedicated field.
+	if slug, ok := strings.CutPrefix(a.pendingAction, "draft-next:"); ok {
+		return a.startSectionDraft(specID, slug)
+	}
+
 	switch a.pendingAction {
 	case "advance":
 		return a.startAction("advancing "+specID, advanceSpec(a.rc, a.reg, a.db, specID, a.role))

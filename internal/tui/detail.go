@@ -44,6 +44,9 @@ func (a *App) openDetailWithIntent(specID string, reviewIntent bool) tea.Cmd {
 	a.detail = newSpecDetail(a.rc, specID, a.styles, a.keys, a.theme)
 	a.detail.reviewIntent = reviewIntent
 	a.detail.db = a.db
+	// Capability is read once per open, so empty sections advertise the draft key
+	// only when the configured agent can actually serve a completion.
+	a.detail.agentCanDraft, _ = a.agentCapabilities()
 	a.detail.setSize(a.width, a.contentHeight())
 	a.statusBar.SetView(a.activeView.Label() + " › " + specID)
 	a.syncBusyState()
