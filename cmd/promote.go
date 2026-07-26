@@ -24,6 +24,8 @@ var promoteCmd = &cobra.Command{
 
 func init() {
 	promoteCmd.Flags().String("title", "", "override the spec title (defaults to triage title)")
+	promoteCmd.Flags().Bool("draft", false, "draft the problem statement and goals with the configured agent")
+	promoteCmd.Flags().Bool("accept", false, "accept the drafted sections without review (for scripts and CI)")
 	rootCmd.AddCommand(promoteCmd)
 }
 
@@ -31,6 +33,8 @@ func runPromote(cmd *cobra.Command, args []string) error {
 	p := newPrinter(cmd)
 	triageID := strings.ToUpper(args[0])
 	titleOverride, _ := cmd.Flags().GetString("title")
+	withDraft, _ := cmd.Flags().GetBool("draft")
+	autoAccept, _ := cmd.Flags().GetBool("accept")
 
 	rc, err := resolveConfig()
 	if err != nil {
@@ -70,6 +74,18 @@ func runPromote(cmd *cobra.Command, args []string) error {
 	cycle := rc.CycleLabel()
 	source := triageID
 
+	// Draft before the write so the review gate runs while nothing is committed:
+	// a declined draft leaves a normal promoted spec rather than a half-written
+	// one. Drafting failures are warnings for the same reason — promotion is the
+	// user's intent and the agent is an assist.
+	var drafted promotedSections
+	if withDraft {
+		drafted, err = draftPromotedSections(rc, triageMeta, triagePath, autoAccept)
+		if err != nil {
+			p.Warn("could not draft sections: %v", err)
+		}
+	}
+
 	var newSpecID string
 
 	err = gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
@@ -84,6 +100,12 @@ func runPromote(cmd *cobra.Command, args []string) error {
 		specPath := filepath.Join(sd, specID+".md")
 		if err := os.WriteFile(specPath, []byte(content), 0o644); err != nil {
 			return "", fmt.Errorf("writing spec: %w", err)
+		}
+
+		// Apply accepted draft content through the markdown engine, so drafted
+		// sections are validated and formatted like hand-written ones.
+		if err := applyPromotedSections(specPath, drafted); err != nil {
+			return "", err
 		}
 
 		// Remove the triage item
