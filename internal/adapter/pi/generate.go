@@ -36,12 +36,6 @@ var containmentFlags = []string{
 	"--no-session",
 }
 
-// ContainmentFlags returns the containment argv fragment. Exported so the
-// contract test can assert the flags without duplicating the list.
-func ContainmentFlags() []string {
-	return append([]string(nil), containmentFlags...)
-}
-
 // generateArgs builds the full argv for a contained completion.
 func generateArgs(req adapter.GenerateRequest, model string) []string {
 	args := []string{"-p", "--mode", "json"}
