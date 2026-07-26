@@ -29,6 +29,8 @@ func init() {
 	draftCmd.Flags().Int("pr-number", 0, "target a specific PR (used with --pr)")
 	draftCmd.Flags().Bool("pr-stack", false, "propose a PR stack plan for §7.3")
 	draftCmd.Flags().Bool("accept", false, "accept the first draft without review (for scripts and CI)")
+	draftCmd.Flags().Bool("interactive", false, "open a conversational authoring session against the MCP authoring port")
+	draftCmd.Flags().String("kickoff", "", "opening prompt for --interactive (used by the TUI when escalating a draft)")
 	rootCmd.AddCommand(draftCmd)
 }
 
@@ -42,6 +44,8 @@ func runDraft(cmd *cobra.Command, args []string) error {
 	prMode, _ := cmd.Flags().GetBool("pr")
 	prStack, _ := cmd.Flags().GetBool("pr-stack")
 	autoAccept, _ := cmd.Flags().GetBool("accept")
+	interactive, _ := cmd.Flags().GetBool("interactive")
+	kickoff, _ := cmd.Flags().GetString("kickoff")
 
 	rc, err := resolveConfig()
 	if err != nil {
@@ -52,6 +56,13 @@ func runDraft(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("no agent configured — set 'agent:' in ~/.spec/config.yaml, or write the section manually with 'spec edit %s'", specID)
 		}
 		return fmt.Errorf("agent drafting is disabled in your preferences; set 'preferences.agent_drafts: true' in ~/.spec/config.yaml to enable")
+	}
+
+	// Interactive drafting needs a session plane, not a completion plane, so it
+	// is dispatched before the completion-availability check — a session-only
+	// harness must not be turned away here.
+	if interactive {
+		return runInteractiveDraft(rc, specID, section, kickoff)
 	}
 
 	svc := newLLMService(rc)
