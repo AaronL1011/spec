@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
 )
@@ -69,7 +70,9 @@ func (db *DB) Conn() *sql.DB {
 	return db.conn
 }
 
-const schemaVersion = 8
+// schemaVersion is the latest migration version. Bump it when adding a
+// migrateVN, or the version assertion in db_test.go will catch the omission.
+const schemaVersion = 9
 
 func (db *DB) migrate() error {
 	// Create migrations table if not exists
@@ -128,6 +131,11 @@ func (db *DB) migrate() error {
 			return err
 		}
 	}
+	if currentVersion < 9 {
+		if err := db.migrateV9(); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -157,6 +165,9 @@ func (db *DB) migrateV1() error {
 		)`,
 
 		// Activity log: append-only event log per spec
+		// actor_kind distinguishes a human CLI action from an agent tool call.
+		// It must stay in sync with migrateV9, which adds the column to databases
+		// created before it existed: this CREATE TABLE only runs for fresh ones.
 		`CREATE TABLE IF NOT EXISTS activity (
 			id         INTEGER PRIMARY KEY AUTOINCREMENT,
 			spec_id    TEXT NOT NULL,
@@ -164,6 +175,7 @@ func (db *DB) migrateV1() error {
 			summary    TEXT NOT NULL,
 			metadata   TEXT,
 			user_name  TEXT NOT NULL,
+			actor_kind TEXT NOT NULL DEFAULT 'human',
 			created_at INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_activity_spec ON activity(spec_id, created_at)`,
@@ -472,6 +484,39 @@ func (db *DB) migrateV8() error {
 		}
 	}
 	return tx.Commit()
+}
+
+// migrateV9 adds actor_kind to the activity log so an agent's authoring-port
+// writes are distinguishable from a human's CLI actions.
+//
+// The column is additive with a 'human' default, so existing rows keep their
+// meaning without a backfill: every entry written before agents could author
+// specs was, by definition, a human action.
+func (db *DB) migrateV9() error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning migration v9: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// A fresh database already has the column from the CREATE TABLE schema, so
+	// tolerate a duplicate-column error and only record the version.
+	if _, err := tx.Exec(`ALTER TABLE activity ADD COLUMN actor_kind TEXT NOT NULL DEFAULT 'human'`); err != nil {
+		if !isDuplicateColumnErr(err) {
+			return fmt.Errorf("migration v9 adding activity.actor_kind: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO migrations (version) VALUES (9)`); err != nil {
+		return fmt.Errorf("migration v9 recording version: %w", err)
+	}
+	return tx.Commit()
+}
+
+// isDuplicateColumnErr reports whether err is SQLite complaining that a column
+// already exists, which happens when a fresh database created from the current
+// schema also runs the additive migration.
+func isDuplicateColumnErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "duplicate column name")
 }
 
 // DefaultDBPath returns the default database path.
