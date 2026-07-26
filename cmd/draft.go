@@ -146,6 +146,11 @@ func reviewDraft(rc *config.ResolvedConfig, svc *llm.Service, taskID string, in 
 		if res == nil || strings.TrimSpace(res.Text) == "" {
 			return "", fmt.Errorf("the agent returned an empty draft for %s", task.ID)
 		}
+		recordGeneration(rc, in.SpecID, &llm.Outcome{
+			Action:   llm.ActionAccept,
+			Content:  res.Text,
+			Attempts: []llm.Attempt{{Content: res.Text, Result: res}},
+		}, task.ID)
 		return res.Text, nil
 	}
 
@@ -168,6 +173,12 @@ func reviewDraft(rc *config.ResolvedConfig, svc *llm.Service, taskID string, in 
 	if err != nil {
 		return "", draftError(err)
 	}
+
+	// Record every review, accepted or not: a skip after three retries is the
+	// signal that a task is underperforming, and it is only visible if declined
+	// drafts are counted too.
+	recordGeneration(rc, in.SpecID, outcome, task.ID)
+
 	if outcome.Action != llm.ActionAccept {
 		fmt.Println("Draft skipped — nothing written.")
 		return "", nil
