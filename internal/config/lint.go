@@ -119,6 +119,10 @@ func lintTeamConfigNode(path string, doc *yaml.Node) []Diagnostic {
 		})
 	}
 
+	// Keys this release ignores. Reported as errors here — resolve only warns,
+	// so lint is where the cutover fails loudly.
+	diags = append(diags, lintRemovedIntegrationKeys(path, root)...)
+
 	pipelineNode := mapValue(root, "pipeline")
 	if pipelineNode != nil {
 		diags = append(diags, lintPipelineNode(path, pipelineNode)...)

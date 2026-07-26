@@ -46,6 +46,12 @@ func runConfigLint(cmd *cobra.Command, _ []string) error {
 		if userRes, uerr := config.LintUserIdentitiesFile(rc.UserConfigPath, rc.Team); uerr == nil {
 			result.Diagnostics = append(result.Diagnostics, userRes.Diagnostics...)
 		}
+		// Personal-config rules: the renamed drafting preference and agent
+		// completion settings that cannot take effect for the chosen provider.
+		// Also best-effort, for the same reason.
+		if agentRes, aerr := config.LintUserConfigFile(rc.UserConfigPath); aerr == nil {
+			result.Diagnostics = append(result.Diagnostics, agentRes.Diagnostics...)
+		}
 	}
 
 	if p.JSONEnabled() {

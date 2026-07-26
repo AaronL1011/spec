@@ -45,6 +45,38 @@ type TeamConfig struct {
 	// Templates configures custom spec/triage skeleton templates committed
 	// to the specs repo (SPEC-025). Empty falls back to embedded defaults.
 	Templates TemplatesConfig `yaml:"templates,omitempty"`
+
+	// removedIntegrationKeys records which keys this release ignores were still
+	// present in the file. The corresponding struct fields are gone, so an
+	// ignored key can only be recognised from the source YAML — without this,
+	// "key absent" and "key removed" are indistinguishable and the cutover is
+	// silent.
+	removedIntegrationKeys map[string]bool
+}
+
+// UnmarshalYAML decodes a team config and records any removed integration keys
+// still present, so resolve can warn and lint can error on them.
+func (c *TeamConfig) UnmarshalYAML(value *yaml.Node) error {
+	// A type alias sheds this method, so the default decoding applies and this
+	// does not recurse.
+	type plain TeamConfig
+	var out plain
+	if err := value.Decode(&out); err != nil {
+		return err
+	}
+	*c = TeamConfig(out)
+
+	if integrations := mappingValue(value, "integrations"); integrations != nil {
+		for _, removed := range removedTeamKeys {
+			if mappingValue(integrations, removed.key) != nil {
+				if c.removedIntegrationKeys == nil {
+					c.removedIntegrationKeys = make(map[string]bool, len(removedTeamKeys))
+				}
+				c.removedIntegrationKeys[removed.key] = true
+			}
+		}
+	}
+	return nil
 }
 
 // TemplatesConfig names the spec/triage template paths inside the specs repo
@@ -193,24 +225,77 @@ type SpecsRepoConfig struct {
 }
 
 // IntegrationsConfig holds all integration provider configs.
+//
+// The agent is deliberately absent: a coding harness and its auth are personal
+// tools, so `agent:` lives only in ~/.spec/config.yaml (see UserConfig.Agent).
+// Shared agent-adjacent *policy* (build.router, build.strategy) stays in team
+// config, because policy is a team concern even though the harness is not.
 type IntegrationsConfig struct {
 	Comms  ProviderConfig `yaml:"comms"`
 	PM     ProviderConfig `yaml:"pm"`
 	Docs   ProviderConfig `yaml:"docs"`
 	Repo   ProviderConfig `yaml:"repo"`
-	Agent  ProviderConfig `yaml:"agent"`
-	AI     ProviderConfig `yaml:"ai"`
 	Design ProviderConfig `yaml:"design"`
 	Deploy DeployConfig   `yaml:"deploy"`
 	Intake IntakeConfig   `yaml:"intake"`
+}
+
+// GenerateConfig holds completion-plane settings for an agent provider.
+//
+// It is an explicit struct rather than another Extra key because a nested YAML
+// mapping cannot survive ProviderConfig's flattening unmarshal: it would be
+// stringified into Extra as "map[model:x ...]".
+type GenerateConfig struct {
+	// Model is passed through verbatim in the provider's own spelling. spec does
+	// not translate model names; `spec agent check` reports which model actually
+	// answered, which is how a wrong spelling surfaces.
+	Model string `yaml:"model,omitempty"`
+	// MaxTokens caps the response. Honoured by completion-API providers only —
+	// neither `claude -p` nor `pi -p` exposes a token cap, so it is inert for
+	// harness providers and reported as such by lint and `spec agent check`.
+	MaxTokens int `yaml:"max_tokens,omitempty"`
+	// BaseURL is the OpenAI-compatible endpoint. Required for the generic
+	// openai-compatible provider; vendor presets supply a default.
+	BaseURL string `yaml:"base_url,omitempty"`
+	// Token is an optional bearer credential for gateways that require one.
+	// Write it as ${SPEC_LLM_TOKEN}: see tokenSource for why.
+	Token string `yaml:"token,omitempty"`
+	// Timeout bounds a single completion (e.g. "120s"). Empty uses the adapter
+	// default, which is deliberately generous because local models are slow.
+	Timeout string `yaml:"timeout,omitempty"`
+
+	// tokenSource retains the literal pre-interpolation spelling of Token (e.g.
+	// "${SPEC_LLM_TOKEN}") so a config round-trip re-emits the reference rather
+	// than the resolved secret. Config loading expands ${VAR} before unmarshal,
+	// so without this a TUI settings save would persist a plaintext API key into
+	// ~/.spec/config.yaml — likely a dotfiles repo.
+	tokenSource string
+}
+
+// TokenSource returns the literal spelling of the token as written in config,
+// which is the env-var reference when one was used. Empty when the token was
+// absent or written literally.
+func (g GenerateConfig) TokenSource() string { return g.tokenSource }
+
+// IsZero reports whether any completion setting is present, so marshalling can
+// omit an empty generate block entirely.
+func (g GenerateConfig) IsZero() bool {
+	return g.Model == "" && g.MaxTokens == 0 && g.BaseURL == "" &&
+		g.Token == "" && g.Timeout == ""
 }
 
 // ProviderConfig is a generic integration config with a provider name and extra fields.
 type ProviderConfig struct {
 	Provider string            `yaml:"provider"`
 	Extra    map[string]string `yaml:"-"`
+	// Generate holds completion-plane settings. Only meaningful for the agent.
+	Generate GenerateConfig `yaml:"-"`
 	raw      map[string]interface{}
 }
+
+// generateKey is the nested mapping ProviderConfig decodes into Generate rather
+// than flattening into Extra.
+const generateKey = "generate"
 
 // Get returns an extra config value by key.
 func (p ProviderConfig) Get(key string) string {
@@ -221,6 +306,10 @@ func (p ProviderConfig) Get(key string) string {
 }
 
 // UnmarshalYAML captures all keys into raw and extracts provider + extras.
+//
+// The `generate` key is decoded into the typed Generate field and excluded from
+// Extra: flattening it with fmt.Sprintf would turn a nested mapping into the
+// string "map[model:x]", which no caller can use.
 func (p *ProviderConfig) UnmarshalYAML(value *yaml.Node) error {
 	var raw map[string]interface{}
 	if err := value.Decode(&raw); err != nil {
@@ -232,8 +321,18 @@ func (p *ProviderConfig) UnmarshalYAML(value *yaml.Node) error {
 	}
 	p.Extra = make(map[string]string)
 	for k, v := range raw {
-		if k != "provider" {
-			p.Extra[k] = fmt.Sprintf("%v", v)
+		if k == "provider" || k == generateKey {
+			continue
+		}
+		p.Extra[k] = fmt.Sprintf("%v", v)
+	}
+
+	// Decode the nested generate mapping through the YAML node so types (int
+	// max_tokens) survive rather than being stringified.
+	p.Generate = GenerateConfig{}
+	if node := mappingValue(value, generateKey); node != nil {
+		if err := node.Decode(&p.Generate); err != nil {
+			return fmt.Errorf("parsing agent generate config: %w", err)
 		}
 	}
 	return nil
@@ -242,15 +341,102 @@ func (p *ProviderConfig) UnmarshalYAML(value *yaml.Node) error {
 // MarshalYAML emits provider plus all extra settings so a ProviderConfig
 // round-trips through WriteUserConfig (e.g. a TUI settings save) without
 // dropping keys like `command` or `skill`, which live in Extra (yaml:"-").
+//
+// The generate block is emitted as a nested mapping, and its token is written
+// back as the original ${VAR} reference so a resolved credential is never
+// persisted to disk.
 func (p ProviderConfig) MarshalYAML() (interface{}, error) {
-	m := make(map[string]string, len(p.Extra)+1)
+	m := make(map[string]interface{}, len(p.Extra)+2)
 	if p.Provider != "" {
 		m["provider"] = p.Provider
 	}
 	for k, v := range p.Extra {
 		m[k] = v
 	}
+	if !p.Generate.IsZero() {
+		gen, err := p.Generate.forMarshal()
+		if err != nil {
+			return nil, err
+		}
+		m[generateKey] = gen
+	}
 	return m, nil
+}
+
+// forMarshal renders the generate block for writing, substituting the env-var
+// reference for a resolved token. A token that was written literally cannot be
+// re-emitted safely, so the write is refused with the env-var form named — spec
+// never writes a resolved credential to ~/.spec/config.yaml.
+func (g GenerateConfig) forMarshal() (map[string]interface{}, error) {
+	out := make(map[string]interface{}, 5)
+	if g.Model != "" {
+		out["model"] = g.Model
+	}
+	if g.MaxTokens != 0 {
+		out["max_tokens"] = g.MaxTokens
+	}
+	if g.BaseURL != "" {
+		out["base_url"] = g.BaseURL
+	}
+	if g.Timeout != "" {
+		out["timeout"] = g.Timeout
+	}
+	if g.Token != "" {
+		switch {
+		case g.tokenSource != "":
+			out["token"] = g.tokenSource
+		default:
+			return nil, fmt.Errorf("refusing to write agent.generate.token as a literal value — set it to an environment reference such as ${SPEC_LLM_TOKEN} and export the variable, so the credential stays out of ~/.spec/config.yaml")
+		}
+	}
+	return out, nil
+}
+
+// mappingValue returns the value node for key in a YAML mapping, or nil.
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// SetTokenSource records the literal pre-interpolation spelling of the token so
+// a later marshal re-emits the reference instead of the resolved secret. The
+// loader calls this after parsing, because ${VAR} expansion happens on the raw
+// bytes before YAML sees them.
+func (p *ProviderConfig) SetTokenSource(literal string) {
+	p.Generate.tokenSource = literal
+}
+
+// envRefPattern matches a whole-value environment reference such as
+// ${SPEC_LLM_TOKEN}. Only a whole-value match is safe to re-emit: a token
+// assembled from a prefix plus a variable cannot be reconstructed losslessly.
+var envRefPattern = regexp.MustCompile(`^\$\{[A-Za-z_][A-Za-z0-9_]*\}$`)
+
+// agentTokenSource extracts the literal spelling of agent.generate.token from
+// raw config bytes, before ${VAR} interpolation. Returns empty when the token is
+// absent or not a whole-value env reference.
+func agentTokenSource(data []byte) string {
+	var probe struct {
+		Agent struct {
+			Generate struct {
+				Token string `yaml:"token"`
+			} `yaml:"generate"`
+		} `yaml:"agent"`
+	}
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return ""
+	}
+	token := strings.TrimSpace(probe.Agent.Generate.Token)
+	if envRefPattern.MatchString(token) {
+		return token
+	}
+	return ""
 }
 
 // DeployConfig holds deployment provider and environments.
@@ -643,18 +829,35 @@ func (r *ResolvedConfig) AutoPushEnabled() bool {
 	return r.AutoPushPolicy() != AutoPushOff
 }
 
-// EffectiveAgentConfig returns the coding-agent provider config to use,
-// preferring the per-user override (~/.spec/config.yaml `agent:`) when its
-// provider is set, then the team default (integrations.agent), then empty.
-// This lets engineers pick their own harness while keeping a shared baseline.
+// EffectiveAgentConfig returns the coding-agent provider config, which comes
+// solely from personal config (~/.spec/config.yaml `agent:`).
+//
+// There is no team fallback: a harness and its auth are individual, so the
+// team-default-plus-override precedence was a resolve path nobody needed.
+// Shared agent-adjacent policy (build.router, build.strategy) still lives in
+// team config.
 func (r *ResolvedConfig) EffectiveAgentConfig() ProviderConfig {
-	if r.User != nil && r.User.Agent != nil && r.User.Agent.Provider != "" {
+	if r.User != nil && r.User.Agent != nil {
 		return *r.User.Agent
 	}
-	if r.Team != nil {
-		return r.Team.Integrations.Agent
-	}
 	return ProviderConfig{}
+}
+
+// HasAgent reports whether a usable agent provider is configured. Agent config
+// is personal, so this deliberately does not consult team config — callers that
+// used HasIntegration("agent") must use this instead or they silently report
+// "no agent" for every user.
+func (r *ResolvedConfig) HasAgent() bool {
+	p := r.EffectiveAgentConfig().Provider
+	return p != "" && p != "none"
+}
+
+// AgentTransitionsAllowed reports whether agent sessions may drive stage
+// transitions through the MCP authoring port. Off by default: section writes are
+// recoverable from the specs-repo diff, but a transition fires team-visible
+// pipeline effects, so it needs an explicit opt-in.
+func (r *ResolvedConfig) AgentTransitionsAllowed() bool {
+	return r.User != nil && r.User.Preferences.AgentAuthoring.Transitions
 }
 
 // OwnerRole returns the user's owner role, with optional override.
@@ -712,10 +915,10 @@ func (r *ResolvedConfig) ProviderHandle(provider string) string {
 }
 
 // IdentityForCategory resolves the handle to use for an integration category
-// ("repo", "comms", "pm", "docs", "agent", "ai", "design", "deploy"): it maps
-// the category to the team's configured provider, then resolves that
-// provider's handle. Falls back to the canonical handle when the category has
-// no provider or no mapping exists.
+// ("repo", "comms", "pm", "docs", "design", "deploy"): it maps the category to
+// the team's configured provider, then resolves that provider's handle. Falls
+// back to the canonical handle when the category has no provider or no mapping
+// exists. "agent" is not a team category — see EffectiveAgentConfig.
 func (r *ResolvedConfig) IdentityForCategory(category string) string {
 	return r.ProviderHandle(r.providerForCategory(category))
 }
@@ -743,10 +946,6 @@ func (r *ResolvedConfig) providerForCategory(category string) string {
 		return in.Docs.Provider
 	case "repo":
 		return in.Repo.Provider
-	case "agent":
-		return in.Agent.Provider
-	case "ai":
-		return in.AI.Provider
 	case "design":
 		return in.Design.Provider
 	case "deploy":
@@ -816,10 +1015,6 @@ func (r *ResolvedConfig) HasIntegration(category string) bool {
 		return r.Team.Integrations.Docs.Provider != "" && r.Team.Integrations.Docs.Provider != "none"
 	case "repo":
 		return r.Team.Integrations.Repo.Provider != "" && r.Team.Integrations.Repo.Provider != "none"
-	case "agent":
-		return r.Team.Integrations.Agent.Provider != "" && r.Team.Integrations.Agent.Provider != "none"
-	case "ai":
-		return r.Team.Integrations.AI.Provider != "" && r.Team.Integrations.AI.Provider != "none"
 	case "design":
 		return r.Team.Integrations.Design.Provider != "" && r.Team.Integrations.Design.Provider != "none"
 	case "deploy":
@@ -829,12 +1024,14 @@ func (r *ResolvedConfig) HasIntegration(category string) bool {
 	}
 }
 
-// AIDraftsEnabled returns whether AI drafting is enabled for the user.
-func (r *ResolvedConfig) AIDraftsEnabled() bool {
-	if r.User != nil && !r.User.Preferences.AIDraftsEnabled() {
+// AgentDraftsEnabled returns whether agent-assisted drafting is enabled for the
+// user: an agent must be configured (personal config) and the preference must
+// not be switched off.
+func (r *ResolvedConfig) AgentDraftsEnabled() bool {
+	if r.User != nil && !r.User.Preferences.AgentDraftsEnabled() {
 		return false
 	}
-	return r.HasIntegration("ai")
+	return r.HasAgent()
 }
 
 // SpecsRepoRoot returns the local path to the specs repo clone root (the

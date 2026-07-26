@@ -764,10 +764,6 @@ func (m settingsModel) integrationProvider(category string) string {
 		return m.rc.Team.Integrations.Docs.Provider
 	case "repo":
 		return m.rc.Team.Integrations.Repo.Provider
-	case "agent":
-		return m.rc.Team.Integrations.Agent.Provider
-	case "ai":
-		return m.rc.Team.Integrations.AI.Provider
 	case "design":
 		return m.rc.Team.Integrations.Design.Provider
 	case "deploy":

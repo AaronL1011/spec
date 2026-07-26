@@ -109,8 +109,9 @@ func writeUserIdentity(name, role, handle string) error {
 	cfg.User.Name = strings.TrimSpace(name)
 	cfg.User.OwnerRole = role
 	cfg.User.Handle = strings.TrimSpace(handle)
-	aiDrafts := true
-	cfg.Preferences.AIDrafts = &aiDrafts
+	// No agent_drafts preference is written here: it would point at an agent the
+	// user has not configured yet. The preference defaults to enabled, so
+	// drafting works as soon as an agent exists (see the agent setup step).
 
 	return config.WriteUserConfig(config.UserConfigPath(), cfg)
 }

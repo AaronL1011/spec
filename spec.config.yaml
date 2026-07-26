@@ -22,10 +22,8 @@ integrations:
     provider: github
     owner: AaronL1011
     token: ${SPEC_GITHUB_TOKEN}
-  agent:
-    provider: none
-  ai:
-    provider: none
+  # The coding agent is personal config (~/.spec/config.yaml `agent:`), not a
+  # team integration: a harness and its auth are individual tools.
   design:
     provider: none
   deploy:

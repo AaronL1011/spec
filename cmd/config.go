@@ -101,8 +101,9 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 func runUserConfigInit() error {
 	reader := bufio.NewReader(os.Stdin)
 	cfg := &config.UserConfig{}
-	aiDrafts := true
-	cfg.Preferences.AIDrafts = &aiDrafts
+	// No agent_drafts preference is written up front: writing it true while no
+	// agent is configured points a preference at nothing. It defaults to enabled,
+	// so drafting works as soon as an agent is set up.
 
 	fmt.Println("Setting up your personal spec identity (~/.spec/config.yaml)")
 	fmt.Println()
@@ -375,8 +376,6 @@ func runConfigTest(cmd *cobra.Command, args []string) error {
 		{"PM", "pm"},
 		{"Docs", "docs"},
 		{"Repo", "repo"},
-		{"Agent", "agent"},
-		{"AI", "ai"},
 		{"Design", "design"},
 		{"Deploy", "deploy"},
 	}
@@ -389,6 +388,14 @@ func runConfigTest(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Printf("    · %s: not configured\n", cat.name)
 		}
+	}
+
+	// The agent is personal config, not a team integration, so it is reported
+	// from the user's own config rather than alongside team rows.
+	if agent := rc.EffectiveAgentConfig(); agent.Provider != "" && agent.Provider != "none" {
+		fmt.Printf("    ✓ Agent: %s (personal)\n", agent.Provider)
+	} else {
+		fmt.Println("    · Agent: not configured (personal — set 'agent:' in ~/.spec/config.yaml)")
 	}
 
 	return nil

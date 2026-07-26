@@ -44,19 +44,22 @@ func TestBuildEngineOptions_Defaults(t *testing.T) {
 	}
 }
 
-func TestBuildEngineOptions_TeamAndUserOverrides(t *testing.T) {
+// Build policy (router, strategy) stays in team config because it is a team
+// concern; the harness and its per-agent extras come from personal config. This
+// asserts the two sources compose, with the agent's router winning.
+func TestBuildEngineOptions_TeamPolicyAndPersonalAgent(t *testing.T) {
 	team := &config.TeamConfig{}
 	team.Build.Router = "team-router"
 	team.Build.Strategy = "team-strategy"
-	team.Integrations.Agent = config.ProviderConfig{
+	user := &config.UserConfig{Agent: &config.ProviderConfig{
 		Provider: "pi",
 		Extra: map[string]string{
 			"skill":        "s1, s2",
 			"router":       "user-router",
 			"test_command": "go test ./...",
 		},
-	}
-	rc := &config.ResolvedConfig{Team: team}
+	}}
+	rc := &config.ResolvedConfig{Team: team, User: user}
 
 	opts := buildEngineOptions(rc, false)
 	if opts.Headless {

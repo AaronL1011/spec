@@ -56,12 +56,10 @@ func All(cfg *config.TeamConfig) (*adapter.Registry, []string) {
 	}
 	reg.WithRepo(repo)
 
-	// Agent
-	agent, warn := resolveAgent(cfg)
-	if warn != "" {
-		warnings = append(warnings, warn)
-	}
-	reg.WithAgent(agent)
+	// Agent: personal config only, so All() installs the noop and the caller
+	// overlays the user's agent (see cmd.buildRegistry). A team config can no
+	// longer configure a harness for the whole team.
+	reg.WithAgent(noop.Agent{})
 
 	// Deploy
 	deploy, warn := resolveDeploy(cfg)
@@ -214,13 +212,9 @@ func resolveRepo(cfg *config.TeamConfig) (adapter.RepoAdapter, string) {
 	}
 }
 
-func resolveAgent(cfg *config.TeamConfig) (adapter.AgentAdapter, string) {
-	return Agent(cfg.Integrations.Agent)
-}
-
-// Agent resolves a coding-agent adapter from a single provider config. It is
-// exported so callers can resolve a per-user agent override independently of
-// the team registry (see ResolvedConfig.EffectiveAgentConfig).
+// Agent resolves a coding-agent adapter from a single provider config. The
+// agent is personal config, so callers pass ResolvedConfig.EffectiveAgentConfig
+// rather than anything from the team registry.
 func Agent(agentCfg config.ProviderConfig) (adapter.AgentAdapter, string) {
 	provider := agentCfg.Provider
 	switch provider {

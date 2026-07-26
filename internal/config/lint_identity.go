@@ -84,9 +84,11 @@ func configuredProviders(teamCfg *TeamConfig) map[string]bool {
 		return set
 	}
 	in := teamCfg.Integrations
+	// The agent is not a team integration (it is personal config), so it
+	// contributes no provider name here.
 	for _, p := range []string{
 		in.Comms.Provider, in.PM.Provider, in.Docs.Provider, in.Repo.Provider,
-		in.Agent.Provider, in.AI.Provider, in.Design.Provider, in.Deploy.Provider,
+		in.Design.Provider, in.Deploy.Provider,
 	} {
 		p = strings.ToLower(strings.TrimSpace(p))
 		if p != "" && p != "none" {

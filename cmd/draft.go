@@ -42,8 +42,8 @@ func runDraft(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if !rc.AIDraftsEnabled() {
-		return fmt.Errorf("AI drafting is disabled in your preferences; set 'preferences.ai_drafts: true' in ~/.spec/config.yaml to enable")
+	if !rc.AgentDraftsEnabled() {
+		return fmt.Errorf("AI drafting is disabled in your preferences; set 'preferences.agent_drafts: true' in ~/.spec/config.yaml to enable")
 	}
 
 	reg := buildRegistry(rc)
