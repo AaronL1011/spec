@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/config"
@@ -143,6 +144,11 @@ func runUserConfigInit() error {
 		editor = editorInput
 	}
 	cfg.Preferences.Editor = editor
+
+	// Agent setup. A personal-config feature that no setup flow offers is
+	// invisible to exactly the users it is for, so this is where most people
+	// first learn the two planes exist.
+	promptAgentSetup(reader, cfg)
 
 	path := config.UserConfigPath()
 	if err := config.WriteUserConfig(path, cfg); err != nil {
@@ -399,4 +405,77 @@ func runConfigTest(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// promptAgentSetup offers an optional coding-agent step.
+//
+// Detected harnesses come first so the common case is a single keystroke, then
+// the endpoint option for people running a local or hosted completions server,
+// then skip. Skipping leaves provider unset and writes nothing agent-related —
+// no nagging, and no preference pointing at an agent that does not exist.
+func promptAgentSetup(reader *bufio.Reader, cfg *config.UserConfig) {
+	fmt.Println()
+	fmt.Println("Coding agent (optional) — powers spec draft and spec build.")
+
+	detected := detectedHarnesses()
+	options := make([]string, 0, len(detected)+2)
+	options = append(options, detected...)
+	options = append(options, "openai-compatible")
+
+	for i, opt := range options {
+		label := opt
+		if i < len(detected) {
+			label += "  (found on PATH)"
+		} else {
+			label += "  (local or hosted completions endpoint)"
+		}
+		fmt.Printf("  %d) %s\n", i+1, label)
+	}
+	fmt.Printf("  %d) skip\n", len(options)+1)
+
+	def := len(options) + 1
+	if len(detected) > 0 {
+		// Default to the first detected harness: zero typing for the common case.
+		def = 1
+	}
+	fmt.Printf("Choose [%d]: ", def)
+
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(answer)
+	choice := def
+	if answer != "" {
+		if n, err := strconv.Atoi(answer); err == nil {
+			choice = n
+		}
+	}
+	if choice < 1 || choice > len(options)+1 {
+		choice = len(options) + 1
+	}
+	if choice == len(options)+1 {
+		fmt.Println("  Skipped — configure 'agent:' in ~/.spec/config.yaml later.")
+		return
+	}
+
+	provider := options[choice-1]
+	agentCfg := &config.ProviderConfig{Provider: provider, Extra: map[string]string{}}
+
+	if provider == "openai-compatible" {
+		fmt.Print("  Endpoint base_url (e.g. http://localhost:11434/v1): ")
+		url, _ := reader.ReadString('\n')
+		url = strings.TrimSpace(url)
+		if url == "" {
+			fmt.Println("  No endpoint given — skipping agent setup.")
+			return
+		}
+		agentCfg.Generate.BaseURL = url
+
+		fmt.Print("  Model (blank uses the server default): ")
+		model, _ := reader.ReadString('\n')
+		if model = strings.TrimSpace(model); model != "" {
+			agentCfg.Generate.Model = model
+		}
+	}
+
+	cfg.Agent = agentCfg
+	fmt.Printf("  ✓ %s configured. Verify it with 'spec agent check'.\n", provider)
 }
