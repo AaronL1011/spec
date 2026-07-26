@@ -3,16 +3,19 @@
 > Advanced reference for agent-harness authors. Most users start and resume
 > builds with `b` in the TUI. Use `spec build --check` to diagnose setup.
 
-This document defines the versioned MCP port behind `spec build`. A harness
-that can speak MCP and dispatch work into a directory can drive a build without
-depending on spec internals or bundled skills.
+This document defines the versioned MCP ports spec exposes to an agent: the
+build port behind `spec build` (§1–§9), and the smaller
+[authoring port](#11-authoring-port) behind `spec draft --interactive` (§11). A
+harness that can speak MCP and dispatch work into a directory can drive either
+without depending on spec internals or bundled skills.
 
 `spec` owns the dependency graph, durable node ledger, Git/worktree mechanics,
 and GitHub calls. The harness supplies implementation judgment and worker
 dispatch.
 
 For user setup, see [Configuration](CONFIGURATION.md#coding-agent) and the
-[TUI guide](TUI.md#actions-on-a-selected-spec).
+[TUI guide](TUI.md#actions-on-a-selected-spec). `spec agent check` reports which
+planes the configured agent serves.
 
 ## 1. Launch and capability negotiation
 
@@ -268,3 +271,96 @@ synthetic fixture under both the default stack and
 
 The spec/DAG/ledger/Git/MCP kernel is mandatory and contains no agent policy.
 Routers and strategies are replaceable boundary adapters.
+
+## 11. Authoring port
+
+`build-port/v1` above covers implementation. The **authoring port**
+(`authoring-port/v1`) is the separate, smaller surface for writing spec content:
+what `spec draft --interactive` and TUI `D` open a session against.
+
+It exists because the two jobs need different authority. A build session
+provisions worktrees and closes nodes; an authoring session edits prose and
+records decisions. Handing the second the first's tools would grant authority
+nobody asked for.
+
+Authoring tools are present whenever an MCP session runs with a database
+available. They are additive to the build tools, not a replacement.
+
+### `spec_section_read(spec_id, section)`
+
+Returns the section body plus a `content_hash`:
+
+```json
+{
+  "spec_id": "SPEC-034",
+  "section": "proposed_solution",
+  "content": "The completion plane…",
+  "content_hash": "sha256:1f3a…"
+}
+```
+
+### `spec_section_write(spec_id, section, content, base_hash?)`
+
+Replaces a section through spec's markdown engine, so the write is validated,
+formatted, and logged. Returns the **post-format** hash — the same value a
+subsequent read returns, so a session can write twice in a row without a spurious
+conflict.
+
+Pass `base_hash` from a prior read. If the section changed in between, the call
+fails with a conflict carrying the expected hash, the actual hash, and the current
+content, so the agent can reapply rather than clobber:
+
+```json
+{
+  "error": "conflict",
+  "section": "proposed_solution",
+  "expected_hash": "sha256:1f3a…",
+  "actual_hash": "sha256:9c02…",
+  "current_content": "…"
+}
+```
+
+Omitting `base_hash` is an unconditional write. Sessions should not omit it: a
+human editing in `$EDITOR` while the agent thinks is the ordinary case, not the
+exotic one.
+
+### `spec_acceptance_add(spec_id, criteria)`
+
+Appends acceptance criteria, ignoring any that already exist. Idempotent, so a
+retrying agent does not duplicate them.
+
+### `spec_meta_update(spec_id, title?, assignees?, repos?)`
+
+Updates frontmatter metadata. Stage and status are deliberately not writable
+here — those are transitions, and they live behind the tier below.
+
+### Transition tier
+
+`spec_advance` and `spec_revert` are **absent from `tools/list`** unless granted:
+
+```yaml
+# ~/.spec/config.yaml
+preferences:
+  agent_authoring:
+    transitions: true
+```
+
+Absence rather than failure is deliberate: a tool that is not offered is
+self-documenting, whereas one that fails at call time wastes turns and reads like
+a bug.
+
+They are gated separately from writes because they are not symmetric with them. A
+bad section write is recoverable from the specs-repo diff. An advance fires the
+pipeline's configured effects — Jira status sync, Slack posts, review requests —
+which reach into a human review pipeline and cannot be reverted by editing a file.
+When gates fail, the call returns the unmet gates rather than forcing.
+
+### Attribution
+
+Every write through the port is recorded in the activity log with
+`actor_kind = agent`, so agent and human edits are distinguishable in history
+rather than blended into one anonymous stream.
+
+### Schema
+
+`docs/schemas/authoring.v1.json`.

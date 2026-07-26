@@ -34,7 +34,7 @@ updated: 2026-04-21
 | 011 | Should intake/triage be a first-class pipeline stage? | (1) Specs always start at `draft` (PM creates them), (2) Add `triage` stage before `draft` for lightweight intake, (3) Separate intake queue outside the pipeline | **(2) `triage` stage as pipeline entry point** | Half of engineering work originates from bugs, alerts, and ad-hoc requests - not PM-authored specs; a lightweight `triage` stage lets anyone create an intake item with just a title, source, and priority; the PM then fleshes it into a full spec at `draft` or the TL fast-tracks it; this captures the full "feature request and bug alert intake" workflow | - | 2026-04-21 |
 | 012 | Should the pipeline extend past `done` into deployment? | (1) Pipeline ends at `done`, deployment is external, (2) Optional deployment stages after `done`, (3) Mandatory deployment stages | **(2) Optional post-merge stages** | "Done" in real life means deployed, validated in staging, promoted to production, and monitored for regressions - not just "PRs merged"; optional `deploying` and `monitoring` stages close the loop without forcing teams that deploy differently to conform; the `optional: true` flag keeps the pipeline configurable | - | 2026-04-21 |
 | 013 | What role should AI/LLM play in `spec`? | (1) No AI - purely deterministic, (2) AI-required for core features, (3) AI as progressive enhancement - every feature works without it, AI drafts content for human review | **(3) Progressive enhancement with human-in-the-loop** | `spec` must never depend on an LLM provider for core functionality; AI is a drafting assistant, not a decision maker; every AI-powered feature returns a draft that the user accepts, edits, or skips; the `ai` integration is entirely optional - omitting it or setting `provider: none` is a first-class configuration, not a degraded state; this also means `spec` works offline, air-gapped, and in enterprises that can't send data to external APIs | - | 2026-04-21 |
-| 014 | Should `agent` (coding tool) and `ai` (spec's own LLM) be the same integration? | (1) Single `agent` config for both, (2) Separate `agent` and `ai` integrations | **(2) Separate integrations** | They serve different purposes - `agent` is an external coding tool that `spec` orchestrates by writing files and launching processes (Claude Code, Cursor, etc.); `ai` is an LLM API that `spec` itself calls for content drafting, summarisation, and semantic search; conflating them forces teams to use their coding agent's API for unrelated tasks; separating them lets a team use Cursor for builds and Ollama for drafting, or Claude Code for builds and no AI at all | - | 2026-04-21 |
+| 014 | Should `agent` (coding tool) and `ai` (spec's own LLM) be the same integration? | (1) Single `agent` config for both, (2) Separate `agent` and `ai` integrations | **(2) Separate integrations** | They serve different purposes - `agent` is an external coding tool that `spec` orchestrates by writing files and launching processes (Claude Code, Cursor, etc.); `ai` is an LLM API that `spec` itself calls for content drafting, summarisation, and semantic search; conflating them forces teams to use their coding agent's API for unrelated tasks; separating them lets a team use Cursor for builds and Ollama for drafting, or Claude Code for builds and no AI at all | **Reversed by SPEC-031 (2026-06).** The split was drawn around *how* spec talks to a provider (subprocess vs API) rather than *what it needs* (a session vs a completion). A modern harness serves both, so the honest axis is capability, not integration identity: one `agent` in personal config, two planes advertised through `Capabilities`. The scenarios cited above still work — a completion endpoint for drafting with no harness, or a harness for both — they are now expressed as capabilities rather than as two config keys. | 2026-04-21 |
 | 015 | How should `spec` deliver context to coding agents? | (1) Write to agent-specific config files (CLAUDE.md, .cursor/rules, etc.), (2) MCP server that agents connect to, (3) Consolidated context file passed as CLI arg, (4) MCP primary + context file fallback | **(4) MCP primary + context file fallback** | Writing to proprietary config files is brittle, pollutes the workspace, and requires a format-specific adapter for every new agent; MCP inverts the relationship - `spec` exposes structured context via a standard protocol and any MCP-compatible agent connects automatically; Claude Code, Cursor, Copilot, and Pi all support MCP already; the MCP server also enables bidirectional communication (agent can record decisions, mark steps done mid-session); consolidated context file is the fallback for non-MCP agents | - | 2026-04-21 |
 
 ---
@@ -98,7 +98,7 @@ The fundamental insight is this: **developers don't hate their tools. They hate 
 
 - `spec` **does not replace** Jira, Linear, Confluence, Slack, or GitHub as data stores. It subsumes their developer-facing interfaces. PMs can keep living in Jira. Designers can keep living in Figma. `spec` meets each role where they are.
 - `spec` is **not an AI coding agent** - it orchestrates agents and provides them structured context. It is not one itself.
-- `spec` **does not depend on an LLM provider**. AI features are progressive enhancements - every command works fully without an `ai` integration configured. AI drafts content for human review; it never writes directly to specs, makes decisions, or gates pipeline transitions.
+- `spec` **does not depend on an LLM provider**. Agent features are progressive enhancements - every command works fully without an `agent` configured. AI drafts content for human review; it never writes directly to specs, makes decisions, or gates pipeline transitions.
 - `spec` **does not enforce** any specific cycle length, team structure, or methodology beyond the configurable pipeline stages.
 - `spec` is **not a CI/CD system** - it triggers deployments via adapters, it does not run them.
 - `spec` is **not a monitoring tool** - it can surface alerts via intake adapters, but observability remains in dedicated tools.
@@ -204,7 +204,7 @@ Its core responsibilities:
 10. **Knowledge base** - the specs repo is a searchable archive of every spec, decision, and rationale the team has ever produced. Keyword and full-text search make it queryable today; semantic/indexed search is a future enhancement.
 11. **Async ceremonies** - auto-generate standups from real activity; capture retrospective metrics from pipeline data.
 12. **Passive awareness** - a "you have mail" status line on every `spec` invocation so pending items surface when the dev is ready, not when a notification interrupts flow state.
-13. **AI-assisted drafting** - optionally use an LLM to draft spec sections, PR descriptions, triage summaries, and PR stack plans. Every AI feature follows the same contract: draft → human review (accept / edit / skip). AI is never required - omitting the `ai` integration is a first-class configuration.
+13. **Agent-assisted drafting** - optionally use an LLM to draft spec sections, PR descriptions, triage summaries, and PR stack plans. Every drafting feature follows the same contract: draft → human review (accept / retry / edit / skip). It is never required - omitting `agent` is a first-class configuration.
 
 ### 4.2 The Developer Experience
 
@@ -601,7 +601,7 @@ preferences:
     - incoming
     - blocked
   standup_auto_post: false           # if true, `spec standup` posts without confirmation
-  ai_drafts: true                    # if false, suppresses AI draft prompts even when ai is configured
+  agent_drafts: true                 # if false, hides draft affordances even when an agent is configured
 ```
 
 ### 4.8 `SPEC.md` Template Structure
@@ -687,7 +687,7 @@ The `repos` frontmatter field lists the service repos this spec touches (e.g., `
 | Command | Description |
 |---|---|
 | `spec intake "<title>" [--source <source>] [--priority <priority>]` | Create a lightweight triage item. Minimal friction - just a title is required. Source and priority can be added or inferred. |
-| `spec promote <triage-id> [--title "..."]` | Promote a triage item to a full spec. Scaffolds the `SPEC.md` template with context pre-populated. If `ai` is configured, offers an AI-drafted §1 Problem Statement for review (accept / edit / skip). |
+| `spec promote <triage-id> [--title "..."]` | Promote a triage item to a full spec. Scaffolds the `SPEC.md` template with context pre-populated. With `--draft`, offers an agent-drafted §1 Problem Statement for review (accept / retry / edit / skip). |
 
 #### Spec Lifecycle
 
@@ -714,7 +714,9 @@ The `repos` frontmatter field lists the service repos this spec touches (e.g., `
 
 | Command | Description |
 |---|---|
-| `spec draft <id> --section <slug>` | Request an AI draft of a spec section based on existing context (triage data, other sections, decision log, related specs). Presents the draft for accept / edit / skip. Requires `ai` integration; errors clearly if unconfigured. |
+| `spec draft <id> --section <slug>` | Request an agent draft of a spec section based on existing context (triage data, other sections, decision log, related specs). Presents the draft for accept / retry / retry-with-note / edit / skip. Requires an agent with the `Generate` capability; errors clearly if unconfigured. |
+| `spec draft <id> --interactive` | Open a conversational authoring session against the MCP authoring port. Requires an agent with the `MCP` capability; falls back to one-shot drafting otherwise. |
+| `spec agent check` | Verify the configured agent: reachability, capability planes, and a contained round-trip with measured latency. |
 | `spec draft <id> --pr [--pr-number <#>]` | Generate a PR description from the diff, spec context, and PR stack position. If `--pr-number` is omitted, drafts for the current branch's open PR. Presents for accept / edit / skip. |
 | `spec draft <id> --pr-stack` | Propose a PR stack plan for §7.3 based on §4 and §7.1. Presents the proposed plan for accept / edit / skip. |
 
@@ -908,19 +910,30 @@ Each version is independently useful. Nobody has to buy the whole vision to star
 
 Every feature in `spec` works without an LLM. If you configure one, things get better - drafts appear, summaries sharpen. (Search stays keyword/full-text either way; semantic search is a future enhancement.) If you don't, or the provider is down, or you're offline, everything functions via templates, deterministic logic, and manual input. **AI is a drafting assistant, not a decision maker.**
 
-#### Two distinct agent concepts
+#### Two planes, one agent
 
-`spec` separates two fundamentally different uses of AI:
+> **Amended by SPEC-031.** This section originally described two separate
+> integrations (`agent` and `ai`). They are now one `agent` in personal config
+> advertising two capability planes. See decision 014.
 
-| | `agent` integration | `ai` integration |
+`spec` needs two different things from a provider:
+
+| | Session plane | Completion plane |
 |---|---|---|
-| **Purpose** | External coding tool for building features | `spec`'s own LLM for content drafting |
-| **Interaction** | `spec` writes context files and launches the tool | `spec` calls an API and receives text |
-| **Examples** | Claude Code, Cursor, Copilot, Pi | Anthropic API, OpenAI API, Ollama (local) |
-| **When used** | `spec build`, `spec do` | `spec draft`, `spec promote`, `spec review`, `spec context` |
-| **Required?** | No - engineers can build without an agent | No - every feature has a non-AI fallback |
+| **Purpose** | Build features, author interactively | Draft content for review |
+| **Interaction** | `spec` launches a tool with an MCP port | `spec` requests one completion and gets text |
+| **Capability** | `MCP` | `Generate` |
+| **Examples** | Claude Code, Pi | Anthropic API, OpenAI-compatible endpoints, and the same harnesses headless |
+| **When used** | `spec build`, `spec do`, `spec draft --interactive` | `spec draft`, `spec promote --draft` |
+| **Required?** | No - engineers can build without an agent | No - every feature has a non-agent fallback |
 
-A team can use Cursor for builds and Ollama for drafting, or Claude Code for builds and no AI at all. The two are fully independent.
+A harness serves both planes. A completion endpoint serves only the second. The
+planes are independent: a provider offering one degrades cleanly on the other,
+and `spec agent check` reports which are available.
+
+Configuration is personal-only. Which agent someone runs depends on what they
+have installed and pay for, so a team-wide default would be wrong for everyone
+who chose differently.
 
 #### The `null` contract
 
@@ -936,9 +949,9 @@ interface AIService {
 
 Every method returns `null` when:
 
-- `ai.provider` is `none` or unconfigured
+- `agent.provider` is `none` or unconfigured, or advertises no `Generate` capability
 - The provider is unreachable (offline, rate-limited, errored)
-- The user has set `preferences.ai_drafts: false`
+- The user has set `preferences.agent_drafts: false`
 
 **Callers always handle `null` gracefully.** This is enforced architecturally - no feature can assume AI is available. The fallback is always: template output, manual input, or the feature simply skips the enhancement.
 
@@ -999,7 +1012,7 @@ Including `ollama` (local models) as a first-class provider is essential for:
 - Privacy-sensitive specs
 - Cost control
 
-Local models are worse at drafting long-form content but adequate for the content-drafting prompts `spec draft` uses. The `ai` adapter interface is the same regardless of provider - switching from `anthropic` to `ollama` is a config change.
+Local models are worse at drafting long-form content but adequate for the content-drafting prompts `spec draft` uses. The agent interface is the same regardless of provider - switching from `anthropic` to a local endpoint is a config change.
 
 ---
 
@@ -1212,8 +1225,8 @@ Local models are worse at drafting long-form content but adequate for the conten
 
 - [ ] `spec draft SPEC-042 --section problem_statement` generates an AI draft using available context (triage data, other completed sections, decision log, related specs from `spec context`)
 - [ ] The draft is presented via accept / edit / skip; accepted or edited content is written to the target section in the spec
-- [ ] `spec draft` requires the `ai` integration to be configured; if unconfigured, it prints: `AI integration not configured. Write the section manually with 'spec edit SPEC-042'. To enable AI drafting, run 'spec config init' and configure the ai integration.`
-- [ ] If `preferences.ai_drafts: false` is set, `spec draft` prints: `AI drafting is disabled in your preferences. Set 'preferences.ai_drafts: true' in ~/.spec/config.yaml to enable.`
+- [ ] `spec draft` requires an agent with the `Generate` capability; if unconfigured, it names the fix: write the section manually with `spec edit SPEC-042`, or configure a completion-capable provider in `~/.spec/config.yaml`. `spec agent check` diagnoses which plane is missing.
+- [ ] If `preferences.agent_drafts: false` is set, `spec draft` prints: `Agent drafting is disabled in your preferences. Set 'preferences.agent_drafts: true' in ~/.spec/config.yaml to enable.`
 - [ ] AI-generated content is never written to a spec without passing through accept / edit / skip
 - [ ] The section slug must match a valid section in the spec template; invalid slugs produce a clear error listing valid options
 
@@ -1854,7 +1867,7 @@ spec (no args)
 | Semantic search quality for `spec context` | Medium | Medium | Start with full-text search via git-grep; add embedding search when AI adapter ships; structured spec format makes keyword search effective |
 | Activity log grows unbounded | Low | Low | Prune activity older than 90 days on `spec` startup; archive with spec on close |
 | AI-generated content gets rubber-stamped | Medium | High | Accept/edit/skip forces conscious choice; no auto-accept; `spec retro` can track AI acceptance rates as quality signal |
-| AI provider costs accumulate | Medium | Medium | AI only called on explicit user action; no background calls; `ollama` for zero-cost local; `preferences.ai_drafts: false` per-user opt-out |
+| Agent provider costs accumulate | Medium | Medium | Completions only on explicit user action; no background calls; local endpoints (`ollama`, `llama-server`, `lmstudio`) for zero cost; `preferences.agent_drafts: false` per-user opt-out |
 | AI hallucination in `spec context` | Medium | High | Answers grounded in retrieved spec content only; citations required and verifiable; labelled as AI-generated |
 | Pure Go SQLite (modernc.org) is slower than CGo version | Low | Low | Acceptable for the data volumes spec handles (hundreds of specs, not millions); benchmark during v0.1 |
 | Teams webhook limitations (no bidirectional read) | Medium | Medium | Teams adapter supports outbound notifications via webhook; FetchMentions may require Graph API with additional auth; degrade gracefully if Graph API isn't configured |

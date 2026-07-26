@@ -209,6 +209,7 @@ Select a spec in Dashboard, Pipeline, or Specs. The main lifecycle keys are:
 | `u` | Resume a blocked spec |
 | `c` | Record a decision |
 | `b` | Start or resume an agent build |
+| `d` | Draft an empty section, then accept / retry / edit / skip |
 | `p` | Push local spec changes |
 | `s` | Publish/sync through the docs integration |
 | `g a` / `g r` | Archive / restore |
