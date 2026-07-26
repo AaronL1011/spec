@@ -143,11 +143,16 @@ func (h *GenericHandler) GetResource(uri string) (*Resource, error) {
 
 // ListTools returns available tools.
 //
-// The authoring tier is always present: section reads and writes are what make
-// the port useful, and every write is recoverable from the specs-repo diff.
+// The authoring tier is always present; the transition tier is appended only
+// when enabled, so a disabled capability is missing from the list rather than
+// failing at call time. That makes the authority boundary discoverable by
+// looking instead of by trying.
 func (h *GenericHandler) ListTools() []Tool {
 	tools := h.baseTools()
 	tools = append(tools, authoringTools()...)
+	if h.transitionsEnabled() {
+		tools = append(tools, transitionTools()...)
+	}
 	return tools
 }
 
@@ -333,6 +338,14 @@ func (h *GenericHandler) CallTool(name string, args json.RawMessage) (*ToolResul
 		return h.toolAcceptanceAdd(args)
 	case "spec_meta_update":
 		return h.toolMetaUpdate(args)
+
+	// authoring-port/v1, transition tier: opt-in. These stay reachable so a
+	// client that calls a tool tools/list omitted gets an explanation naming the
+	// preference, rather than "unknown tool".
+	case "spec_advance":
+		return h.toolAdvance(args)
+	case "spec_revert":
+		return h.toolRevert(args)
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)

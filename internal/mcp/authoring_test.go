@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/store"
 )
@@ -388,9 +389,8 @@ func TestAuthoringPort_MissingSpecIsAnError(t *testing.T) {
 	}
 }
 
-// The transition tier does not exist yet, so its tools must not appear. The
-// authoring tier is present in the same session, which is the point of tiering
-// rather than gating the whole port.
+// --- transition tier gating ---
+
 func TestTransitionTier_AbsentByDefault(t *testing.T) {
 	h, _ := authoringHandler(t)
 
@@ -407,7 +407,48 @@ func TestTransitionTier_AbsentByDefault(t *testing.T) {
 	}
 }
 
+func TestTransitionTier_PresentWhenEnabled(t *testing.T) {
+	h, _ := authoringHandler(t)
+	h.config = configWithTransitions(true)
+
+	names := toolNameSet(h.ListTools())
+	for _, name := range []string{"spec_advance", "spec_revert"} {
+		if !names[name] {
+			t.Errorf("%q should appear once transitions are enabled", name)
+		}
+	}
+}
+
+// Calling a disabled tool must explain the boundary rather than failing opaquely.
+func TestTransitionTier_DisabledCallNamesThePreference(t *testing.T) {
+	h, _ := authoringHandler(t)
+
+	res := callJSON(t, h, "spec_advance", map[string]interface{}{"id": "SPEC-001"})
+	if res.Success {
+		t.Fatal("advance must not run while the tier is disabled")
+	}
+	if !strings.Contains(res.Message, "agent_authoring") || !strings.Contains(res.Message, "transitions") {
+		t.Errorf("message should name the enabling preference, got: %s", res.Message)
+	}
+}
+
+func TestTransitionTier_RevertRequiresReason(t *testing.T) {
+	h, _ := authoringHandler(t)
+	h.config = configWithTransitions(true)
+
+	res := callJSON(t, h, "spec_revert", map[string]interface{}{"id": "SPEC-001", "reason": ""})
+	if res.Success {
+		t.Error("a revert without a reason should be rejected")
+	}
+}
+
 // --- helpers ---
+
+func configWithTransitions(enabled bool) *config.ResolvedConfig {
+	user := &config.UserConfig{}
+	user.Preferences.AgentAuthoring.Transitions = enabled
+	return &config.ResolvedConfig{User: user}
+}
 
 func toolNameSet(tools []Tool) map[string]bool {
 	out := make(map[string]bool, len(tools))
