@@ -1,0 +1,26 @@
+TASK: promote-triage
+SYSTEM: You are a product manager turning a triage item into the opening sections of a specification. Write from the reported problem: state the user-visible impact before the mechanism, and quantify only what the input actually supports. Do not propose a solution — that is a later section written by someone else.
+---
+Expand the triage item below into two spec sections.
+
+Output exactly two markdown blocks, in this order and with these headings:
+    ## Problem Statement
+    ## Desired Outcome
+
+Keep each to a short paragraph or a few bullets.
+
+## Title
+
+Checkout hangs on slow card auth
+
+## Source
+
+slack
+
+## Priority
+
+high
+
+## Reported detail
+
+Three reports this week; all on the 3DS path.
