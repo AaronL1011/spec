@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 )
@@ -19,6 +20,11 @@ import (
 type Agent struct {
 	// Command is the CLI executable name. Defaults to "claude".
 	Command string
+	// Model overrides the harness default for completions, in Claude Code's own
+	// spelling. Empty uses whatever the harness is configured for.
+	Model string
+	// Timeout bounds one contained completion. Zero uses harness.DefaultTimeout.
+	Timeout time.Duration
 }
 
 // NewAgent creates a Claude Code AgentAdapter.
@@ -75,21 +81,6 @@ func (a *Agent) Invoke(ctx context.Context, req adapter.InvokeRequest) (*adapter
 		return nil, fmt.Errorf("claude exited with error: %w", err)
 	}
 	return &adapter.InvokeResult{}, nil
-}
-
-// Generate is not yet implemented for Claude Code. The completion plane rides
-// the harness's headless JSON mode under hard tool-disable flags; until that
-// containment is in place Capabilities.Generate stays false and callers degrade
-// as they would for any completion-less provider.
-func (a *Agent) Generate(ctx context.Context, req adapter.GenerateRequest) (*adapter.GenerateResult, error) {
-	return nil, adapter.ErrNotSupported
-}
-
-// Capabilities reports Claude Code's supported features. Claude Code is
-// MCP-native and accepts an appended system prompt; skill-dir mapping is not
-// handled here, so skill bodies are folded into the system prompt by the engine.
-func (a *Agent) Capabilities() adapter.Capabilities {
-	return adapter.Capabilities{MCP: true, SystemPrompt: true}
 }
 
 // installMCPConfig writes the engine-generated MCP config to <workDir>/.mcp.json

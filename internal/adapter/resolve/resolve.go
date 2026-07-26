@@ -221,9 +221,15 @@ func Agent(agentCfg config.ProviderConfig) (adapter.AgentAdapter, string) {
 	case "", "none":
 		return noop.Agent{}, ""
 	case "claude-code":
-		return claude.NewAgent(agentCfg.Get("command")), ""
+		agent := claude.NewAgent(agentCfg.Get("command"))
+		agent.Model = agentCfg.Generate.Model
+		agent.Timeout = generateTimeout(agentCfg)
+		return agent, ""
 	case "pi":
-		return pi.NewAgent(agentCfg.Get("command")), ""
+		agent := pi.NewAgent(agentCfg.Get("command"))
+		agent.Model = agentCfg.Generate.Model
+		agent.Timeout = generateTimeout(agentCfg)
+		return agent, ""
 	case "anthropic":
 		token := agentCfg.Get("token")
 		if token == "" {

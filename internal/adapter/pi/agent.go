@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 )
@@ -18,6 +19,11 @@ import (
 type Agent struct {
 	// Command is the CLI executable name. Defaults to "pi".
 	Command string
+	// Model overrides the harness default for completions, in pi's own spelling
+	// (it accepts "provider/id"). Empty uses pi's configured default.
+	Model string
+	// Timeout bounds one contained completion. Zero uses harness.DefaultTimeout.
+	Timeout time.Duration
 }
 
 // NewAgent creates a pi.dev AgentAdapter.
@@ -27,20 +33,6 @@ func NewAgent(command string) *Agent {
 		command = "pi"
 	}
 	return &Agent{Command: command}
-}
-
-// Capabilities reports pi's supported features: MCP, headless autonomous runs,
-// repeatable skills, and an appended system prompt.
-func (a *Agent) Capabilities() adapter.Capabilities {
-	return adapter.Capabilities{MCP: true, Headless: true, Skills: true, SystemPrompt: true}
-}
-
-// Generate is not yet implemented for pi. The completion plane rides pi's
-// headless JSON mode under hard tool-disable flags; until that containment is
-// in place Capabilities.Generate stays false and callers degrade as they would
-// for any completion-less provider.
-func (a *Agent) Generate(ctx context.Context, req adapter.GenerateRequest) (*adapter.GenerateResult, error) {
-	return nil, adapter.ErrNotSupported
 }
 
 // Invoke spawns pi for a build session. Interactive (default) inherits stdio

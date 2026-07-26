@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"sort"
+	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/adapter/noop"
@@ -56,18 +57,46 @@ func completionPresetNames() []string {
 // completionAgent builds the openaicompat adapter for a preset. An explicit
 // base_url always wins over the preset default, so a stale default is a
 // nuisance rather than a blocker.
+//
+// Completion settings are read from the typed Generate struct, falling back to
+// flat Extra keys so a config written before `generate:` existed keeps working.
 func completionAgent(preset completionPreset, agentCfg config.ProviderConfig) (adapter.AgentAdapter, string) {
-	baseURL := agentCfg.Get("base_url")
-	if baseURL == "" {
-		baseURL = preset.defaultBaseURL
-	}
+	baseURL := firstNonEmpty(agentCfg.Generate.BaseURL, agentCfg.Get("base_url"), preset.defaultBaseURL)
 	client, err := openaicompat.New(openaicompat.Options{
 		BaseURL: baseURL,
-		Model:   agentCfg.Get("model"),
-		Token:   agentCfg.Get("token"),
+		Model:   firstNonEmpty(agentCfg.Generate.Model, agentCfg.Get("model")),
+		Token:   firstNonEmpty(agentCfg.Generate.Token, agentCfg.Get("token")),
+		Timeout: generateTimeout(agentCfg),
 	})
 	if err != nil {
 		return noop.Agent{}, err.Error()
 	}
 	return client, ""
+}
+
+// generateTimeout parses agent.generate.timeout, falling back to the adapter
+// default when unset or unparseable. An invalid duration degrades to the default
+// rather than failing resolution: a typo in a tuning knob should not disable
+// drafting entirely.
+func generateTimeout(agentCfg config.ProviderConfig) time.Duration {
+	raw := firstNonEmpty(agentCfg.Generate.Timeout, agentCfg.Get("timeout"))
+	if raw == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
+}
+
+// firstNonEmpty returns the first non-empty string, for layering typed config
+// over legacy flat keys over a preset default.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
