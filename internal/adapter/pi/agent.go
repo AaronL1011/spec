@@ -35,6 +35,14 @@ func (a *Agent) Capabilities() adapter.Capabilities {
 	return adapter.Capabilities{MCP: true, Headless: true, Skills: true, SystemPrompt: true}
 }
 
+// Generate is not yet implemented for pi. The completion plane rides pi's
+// headless JSON mode under hard tool-disable flags; until that containment is
+// in place Capabilities.Generate stays false and callers degrade as they would
+// for any completion-less provider.
+func (a *Agent) Generate(ctx context.Context, req adapter.GenerateRequest) (*adapter.GenerateResult, error) {
+	return nil, adapter.ErrNotSupported
+}
+
 // Invoke spawns pi for a build session. Interactive (default) inherits stdio
 // and blocks until exit; headless runs `-p --mode json` autonomously. Progress
 // is reconciled by spec-cli from the node ledger after pi exits, so the result

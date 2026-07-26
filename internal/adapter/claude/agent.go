@@ -77,6 +77,14 @@ func (a *Agent) Invoke(ctx context.Context, req adapter.InvokeRequest) (*adapter
 	return &adapter.InvokeResult{}, nil
 }
 
+// Generate is not yet implemented for Claude Code. The completion plane rides
+// the harness's headless JSON mode under hard tool-disable flags; until that
+// containment is in place Capabilities.Generate stays false and callers degrade
+// as they would for any completion-less provider.
+func (a *Agent) Generate(ctx context.Context, req adapter.GenerateRequest) (*adapter.GenerateResult, error) {
+	return nil, adapter.ErrNotSupported
+}
+
 // Capabilities reports Claude Code's supported features. Claude Code is
 // MCP-native and accepts an appended system prompt; skill-dir mapping is not
 // handled here, so skill bodies are folded into the system prompt by the engine.

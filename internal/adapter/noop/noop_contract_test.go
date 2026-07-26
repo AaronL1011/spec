@@ -101,8 +101,18 @@ func TestAgent_AllNoops(t *testing.T) {
 	if res == nil {
 		t.Error("Invoke result = nil, want a non-nil empty result")
 	}
+	gen, err := a.Generate(ctx, adapter.GenerateRequest{Task: "draft-section"})
+	if err != nil {
+		t.Errorf("Generate err = %v, want nil", err)
+	}
+	if gen == nil {
+		t.Fatal("Generate result = nil, want a non-nil empty result")
+	}
+	if gen.Text != "" {
+		t.Errorf("Generate text = %q, want empty", gen.Text)
+	}
 	caps := a.Capabilities()
-	if caps.MCP || caps.SystemPrompt {
+	if caps.MCP || caps.SystemPrompt || caps.Generate || caps.StructuredOutput {
 		t.Errorf("Capabilities = %+v, want all false", caps)
 	}
 }
@@ -118,13 +128,6 @@ func TestDeploy_AllNoops(t *testing.T) {
 	}
 }
 
-func TestAI_AllNoops(t *testing.T) {
-	out, err := AI{}.Complete(context.Background(), "prompt", "system")
-	if out != "" || err != nil {
-		t.Errorf("Complete = (%q, %v), want (\"\", nil)", out, err)
-	}
-}
-
 // TestNoopsImplementInterfaces is a compile-time assertion that every noop
 // satisfies its adapter interface — a broken signature fails the build here.
 func TestNoopsImplementInterfaces(t *testing.T) {
@@ -135,6 +138,5 @@ func TestNoopsImplementInterfaces(t *testing.T) {
 		_ adapter.RepoAdapter   = Repo{}
 		_ adapter.AgentAdapter  = Agent{}
 		_ adapter.DeployAdapter = Deploy{}
-		_ adapter.AIAdapter     = AI{}
 	)
 }

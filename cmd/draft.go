@@ -42,17 +42,15 @@ func runDraft(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Check AI is configured
-	if !rc.HasIntegration("ai") {
-		return fmt.Errorf("AI integration not configured; write the section manually with 'spec edit %s' or run 'spec config init' to configure", specID)
-	}
-
 	if !rc.AIDraftsEnabled() {
 		return fmt.Errorf("AI drafting is disabled in your preferences; set 'preferences.ai_drafts: true' in ~/.spec/config.yaml to enable")
 	}
 
 	reg := buildRegistry(rc)
-	aiService := ai.NewService(reg.AI(), true)
+	aiService := ai.NewService(reg.Agent(), true)
+	if !aiService.IsAvailable() {
+		return fmt.Errorf("no agent completion plane configured; write the section manually with 'spec edit %s' or configure 'agent:' in ~/.spec/config.yaml", specID)
+	}
 
 	if section != "" {
 		return draftSection(rc, aiService, specID, section)

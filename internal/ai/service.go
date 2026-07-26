@@ -4,31 +4,36 @@ package ai
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/aaronl1011/spec/internal/adapter"
 )
 
-// Service wraps an AIAdapter with null-safe semantics.
+// Service wraps the agent adapter's completion plane with null-safe semantics.
 // Every method returns empty/nil when the adapter is nil or unconfigured.
 type Service struct {
-	adapter adapter.AIAdapter
+	adapter adapter.AgentAdapter
 	enabled bool
 }
 
-// NewService creates an AI service. If adapter is nil or disabled, all methods
-// return nil — callers always handle the nil case.
-func NewService(ai adapter.AIAdapter, enabled bool) *Service {
-	return &Service{adapter: ai, enabled: enabled}
+// NewService creates an AI service over an agent adapter's completion plane. If
+// the adapter is nil or disabled, all methods return empty — callers always
+// handle the empty case.
+func NewService(agent adapter.AgentAdapter, enabled bool) *Service {
+	return &Service{adapter: agent, enabled: enabled}
 }
 
-// IsAvailable returns true if the AI service is configured and enabled.
+// IsAvailable reports whether a completion plane is configured and enabled.
+// A session-only harness (no Capabilities.Generate) is not available here.
 func (s *Service) IsAvailable() bool {
-	return s != nil && s.adapter != nil && s.enabled
+	if s == nil || s.adapter == nil || !s.enabled {
+		return false
+	}
+	return s.adapter.Capabilities().Generate
 }
 
 // Draft sends a prompt with context and returns the completion.
-// Returns ("", nil) when AI is unavailable.
+// Returns ("", nil) when the completion plane is unavailable.
 func (s *Service) Draft(ctx context.Context, prompt string, contextParts ...string) (string, error) {
 	if !s.IsAvailable() {
 		return "", nil
@@ -37,18 +42,29 @@ func (s *Service) Draft(ctx context.Context, prompt string, contextParts ...stri
 	system := "You are a technical writing assistant helping draft spec sections. " +
 		"Write clear, concise, professional content. Use markdown formatting."
 
-	fullPrompt := prompt
+	parts := make([]adapter.ContextPart, 0, len(contextParts))
 	for _, part := range contextParts {
 		if part != "" {
-			fullPrompt += "\n\n---\n" + part
+			parts = append(parts, adapter.ContextPart{Content: part})
 		}
 	}
 
-	result, err := s.adapter.Complete(ctx, fullPrompt, system)
+	res, err := s.adapter.Generate(ctx, adapter.GenerateRequest{
+		Task:    "draft-section",
+		System:  system,
+		Prompt:  prompt,
+		Context: parts,
+	})
 	if err != nil {
-		// Degrade gracefully: return nil, not an error
-		fmt.Printf("AI provider unreachable. Proceeding without draft.\n")
+		// A provider without a completion plane is a capability gap, not a
+		// failure: degrade quietly. Any other error is the caller's to report.
+		if errors.Is(err, adapter.ErrNotSupported) {
+			return "", nil
+		}
+		return "", err
+	}
+	if res == nil {
 		return "", nil
 	}
-	return result, nil
+	return res.Text, nil
 }

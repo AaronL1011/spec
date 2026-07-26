@@ -36,6 +36,11 @@ func (f *fakeAgent) Invoke(_ context.Context, req adapter.InvokeRequest) (*adapt
 	return &r, nil
 }
 
+// Generate is unused by the build engine, which only drives the session plane.
+func (f *fakeAgent) Generate(_ context.Context, _ adapter.GenerateRequest) (*adapter.GenerateResult, error) {
+	return nil, adapter.ErrNotSupported
+}
+
 func (f *fakeAgent) Capabilities() adapter.Capabilities { return f.caps }
 
 func initRepo(t *testing.T) string {

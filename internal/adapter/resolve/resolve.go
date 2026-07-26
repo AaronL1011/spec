@@ -8,13 +8,11 @@ import (
 	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
-	"github.com/aaronl1011/spec/internal/adapter/anthropic"
 	"github.com/aaronl1011/spec/internal/adapter/claude"
 	"github.com/aaronl1011/spec/internal/adapter/confluence"
 	gh "github.com/aaronl1011/spec/internal/adapter/github"
 	"github.com/aaronl1011/spec/internal/adapter/jira"
 	"github.com/aaronl1011/spec/internal/adapter/noop"
-	"github.com/aaronl1011/spec/internal/adapter/ollama"
 	"github.com/aaronl1011/spec/internal/adapter/pi"
 	"github.com/aaronl1011/spec/internal/adapter/slack"
 	"github.com/aaronl1011/spec/internal/adapter/teams"
@@ -69,13 +67,6 @@ func All(cfg *config.TeamConfig) (*adapter.Registry, []string) {
 		warnings = append(warnings, warn)
 	}
 	reg.WithDeploy(deploy)
-
-	// AI
-	ai, warn := resolveAI(cfg)
-	if warn != "" {
-		warnings = append(warnings, warn)
-	}
-	reg.WithAI(ai)
 
 	return reg, warnings
 }
@@ -267,28 +258,5 @@ func resolveDeploy(cfg *config.TeamConfig) (adapter.DeployAdapter, string) {
 		return noop.Deploy{}, fmt.Sprintf("%s deploy adapter not yet implemented — deploy disabled", provider)
 	default:
 		return noop.Deploy{}, fmt.Sprintf("unknown deploy provider %q — deploy disabled", provider)
-	}
-}
-
-func resolveAI(cfg *config.TeamConfig) (adapter.AIAdapter, string) {
-	provider := cfg.Integrations.AI.Provider
-	switch provider {
-	case "", "none":
-		return noop.AI{}, ""
-	case "anthropic":
-		token := cfg.Integrations.AI.Get("token")
-		if token == "" {
-			return noop.AI{}, "anthropic: token not configured — AI disabled"
-		}
-		model := cfg.Integrations.AI.Get("model")
-		return anthropic.NewClient(token, model), ""
-	case "ollama":
-		model := cfg.Integrations.AI.Get("model")
-		baseURL := cfg.Integrations.AI.Get("base_url")
-		return ollama.NewClient(model, baseURL), ""
-	case "openai":
-		return noop.AI{}, "openai adapter not yet implemented — AI disabled"
-	default:
-		return noop.AI{}, fmt.Sprintf("unknown AI provider %q — AI disabled", provider)
 	}
 }

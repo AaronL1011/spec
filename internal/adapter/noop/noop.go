@@ -76,6 +76,13 @@ type Agent struct{}
 func (Agent) Invoke(ctx context.Context, req adapter.InvokeRequest) (*adapter.InvokeResult, error) {
 	return &adapter.InvokeResult{}, nil
 }
+
+// Generate satisfies the completion plane. Like every noop method it returns an
+// empty result and a nil error, so an unconfigured agent degrades to "no draft"
+// rather than an error the caller has to special-case.
+func (Agent) Generate(ctx context.Context, req adapter.GenerateRequest) (*adapter.GenerateResult, error) {
+	return &adapter.GenerateResult{}, nil
+}
 func (Agent) Capabilities() adapter.Capabilities { return adapter.Capabilities{} }
 
 // Deploy is a no-op DeployAdapter.
@@ -86,11 +93,4 @@ func (Deploy) Trigger(ctx context.Context, repos []string, env string) (*adapter
 }
 func (Deploy) Status(ctx context.Context, run *adapter.DeployRun) (*adapter.DeployStatus, error) {
 	return nil, nil
-}
-
-// AI is a no-op AIAdapter.
-type AI struct{}
-
-func (AI) Complete(ctx context.Context, prompt string, system string) (string, error) {
-	return "", nil
 }

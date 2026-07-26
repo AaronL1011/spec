@@ -22,7 +22,6 @@ func TestAll_EmptyConfig_AllNoop(t *testing.T) {
 		{"Repo", isNoop[noop.Repo](reg.Repo())},
 		{"Agent", isNoop[noop.Agent](reg.Agent())},
 		{"Deploy", isNoop[noop.Deploy](reg.Deploy())},
-		{"AI", isNoop[noop.AI](reg.AI())},
 	}
 	for _, c := range checks {
 		if !c.ok {
@@ -68,41 +67,13 @@ func TestAll_GitHubRepo_Resolves(t *testing.T) {
 	}
 }
 
-func TestAll_AnthropicAI_Resolves(t *testing.T) {
-	cfg := &config.TeamConfig{}
-	cfg.Integrations.AI = makeProvider("anthropic", map[string]string{
-		"token": "sk-ant-test",
-	})
-	reg, warnings := All(cfg)
-
-	if _, ok := reg.AI().(noop.AI); ok {
-		t.Error("expected Anthropic AI, got noop")
-	}
-	if len(warnings) != 0 {
-		t.Errorf("unexpected warnings: %v", warnings)
-	}
-}
-
-func TestAll_OllamaAI_Resolves(t *testing.T) {
-	cfg := &config.TeamConfig{}
-	cfg.Integrations.AI = makeProvider("ollama", nil)
-	reg, warnings := All(cfg)
-
-	if _, ok := reg.AI().(noop.AI); ok {
-		t.Error("expected Ollama AI, got noop")
-	}
-	if len(warnings) != 0 {
-		t.Errorf("unexpected warnings: %v", warnings)
-	}
-}
-
 func TestAll_UnknownProvider_Warning(t *testing.T) {
 	cfg := &config.TeamConfig{}
-	cfg.Integrations.AI = makeProvider("deepseek", nil)
+	cfg.Integrations.Comms = makeProvider("deepseek", nil)
 	reg, warnings := All(cfg)
 
-	if _, ok := reg.AI().(noop.AI); !ok {
-		t.Error("expected noop AI for unknown provider")
+	if _, ok := reg.Comms().(noop.Comms); !ok {
+		t.Error("expected noop comms for unknown provider")
 	}
 	if len(warnings) != 1 {
 		t.Fatalf("expected 1 warning, got %d", len(warnings))
