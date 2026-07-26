@@ -5,9 +5,11 @@ package resolve
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/adapter/anthropic"
 	"github.com/aaronl1011/spec/internal/adapter/claude"
 	"github.com/aaronl1011/spec/internal/adapter/confluence"
 	gh "github.com/aaronl1011/spec/internal/adapter/github"
@@ -228,10 +230,24 @@ func Agent(agentCfg config.ProviderConfig) (adapter.AgentAdapter, string) {
 		return claude.NewAgent(agentCfg.Get("command")), ""
 	case "pi":
 		return pi.NewAgent(agentCfg.Get("command")), ""
+	case "anthropic":
+		token := agentCfg.Get("token")
+		if token == "" {
+			return noop.Agent{}, "anthropic agent: token not configured — drafting disabled"
+		}
+		return anthropic.NewClient(token, agentCfg.Get("model")), ""
 	case "cursor", "copilot":
 		return noop.Agent{}, fmt.Sprintf("%s agent adapter not yet implemented — agent disabled", provider)
 	default:
-		return noop.Agent{}, fmt.Sprintf("unknown agent provider %q — agent disabled", provider)
+		if preset, ok := completionPresets[provider]; ok {
+			return completionAgent(preset, agentCfg)
+		}
+		// Teach the general mechanism, not just the enumeration: an unanticipated
+		// server is reachable through openai-compatible + base_url with no spec
+		// release, so the error names that escape hatch alongside the valid names.
+		return noop.Agent{}, fmt.Sprintf(
+			"unknown agent provider %q — agent disabled; valid providers: claude-code, pi, anthropic, %s; for any other OpenAI-compatible server use provider 'openai-compatible' with generate.base_url",
+			provider, strings.Join(completionPresetNames(), ", "))
 	}
 }
 
