@@ -105,7 +105,13 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	gitpkg.SetReadSurface(store.SurfaceMCP)
 
 	// Generic mode - serve all specs
-	handler := mcp.NewGenericHandler(rc, specsDir)
+	handler := mcp.NewGenericHandler(rc, specsDir).WithRegistry(buildRegistry(rc))
+	// Attribution and transitions want a database, but the server must still
+	// serve reads in a bare checkout, so a failure to open one is not fatal.
+	if db, err := openDB(); err == nil {
+		defer func() { _ = db.Close() }()
+		handler.WithDB(db)
+	}
 	defer handler.Close()
 	return mcp.Serve(context.Background(), handler, os.Stdin, os.Stdout, os.Stderr)
 }
@@ -136,7 +142,7 @@ func runBuildMCPServer(cmd *cobra.Command, specID string, rc *config.ResolvedCon
 				specsDir = specsRepoPath
 			}
 		}
-		handler := mcp.NewGenericHandler(rc, specsDir)
+		handler := mcp.NewGenericHandler(rc, specsDir).WithRegistry(buildRegistry(rc)).WithDB(db)
 		defer handler.Close()
 		return mcp.Serve(context.Background(), handler, os.Stdin, os.Stdout, os.Stderr)
 	}
@@ -159,7 +165,9 @@ func runBuildMCPServer(cmd *cobra.Command, specID string, rc *config.ResolvedCon
 
 	buildServer := build.NewMCPServer(session, buildCtx, db, specPath, buildEngineOptions(rc, false)).
 		WithRepo(buildRegistry(rc).Repo())
-	generic := mcp.NewGenericHandler(rc, filepath.Dir(specPath))
+	generic := mcp.NewGenericHandler(rc, filepath.Dir(specPath)).
+		WithRegistry(buildRegistry(rc)).
+		WithDB(db)
 	defer generic.Close()
 	handler := &combinedHandler{
 		generic: generic,
