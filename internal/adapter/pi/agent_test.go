@@ -23,6 +23,8 @@ func TestCapabilities(t *testing.T) {
 	}
 }
 
+// MCP config is installed as .mcp.json by Invoke, not passed on the command
+// line: pi has no --mcp-config flag, so args must never carry one.
 func TestArgsBuildsFlags(t *testing.T) {
 	a := NewAgent("")
 	got := a.args(adapter.InvokeRequest{
@@ -34,7 +36,6 @@ func TestArgsBuildsFlags(t *testing.T) {
 	joined := strings.Join(got, " ")
 
 	for _, want := range []string{
-		"--mcp-config /tmp/mcp.json",
 		"--skill /skills/build",
 		"--skill /skills/fix",
 		"--append-system-prompt do the thing",
@@ -43,6 +44,9 @@ func TestArgsBuildsFlags(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("args %q missing %q", joined, want)
 		}
+	}
+	if strings.Contains(joined, "--mcp-config") {
+		t.Errorf("args must not carry --mcp-config; pi discovers MCP via .mcp.json: %q", joined)
 	}
 }
 

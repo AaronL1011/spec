@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/adapter/harness"
 )
 
 // Agent implements adapter.AgentAdapter for pi.dev.
@@ -39,9 +40,23 @@ func NewAgent(command string) *Agent {
 // and blocks until exit; headless runs `-p --mode json` autonomously. Progress
 // is reconciled by spec-cli from the node ledger after pi exits, so the result
 // is empty either way.
+//
+// pi discovers MCP servers via a project-local .mcp.json file, the same
+// convention Claude Code uses, so the config is installed to the working
+// directory (restoring any prior file on exit) rather than passed on the
+// command line. pi has no --mcp-config flag; passing one was the bug that broke
+// every pi session path.
 func (a *Agent) Invoke(ctx context.Context, req adapter.InvokeRequest) (*adapter.InvokeResult, error) {
 	if _, err := exec.LookPath(a.Command); err != nil {
 		return nil, fmt.Errorf("%s not found in PATH — install pi: https://pi.dev", a.Command)
+	}
+
+	if req.MCPConfigPath != "" && req.WorkDir != "" {
+		restore, err := harness.InstallMCPConfig(req.MCPConfigPath, req.WorkDir)
+		if err != nil {
+			return nil, err
+		}
+		defer restore()
 	}
 
 	if req.Headless {
@@ -50,12 +65,11 @@ func (a *Agent) Invoke(ctx context.Context, req adapter.InvokeRequest) (*adapter
 	return a.invokeInteractive(ctx, req)
 }
 
-// args builds the shared pi flag set for a request.
+// args builds the shared pi flag set for a request. MCP configuration is not
+// here: pi discovers servers from a project .mcp.json installed by Invoke, not
+// from a flag (there is no --mcp-config on pi).
 func (a *Agent) args(req adapter.InvokeRequest) []string {
 	var args []string
-	if req.MCPConfigPath != "" {
-		args = append(args, "--mcp-config", req.MCPConfigPath)
-	}
 	for _, skill := range req.SkillPaths {
 		args = append(args, "--skill", skill)
 	}
