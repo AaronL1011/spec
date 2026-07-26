@@ -75,16 +75,11 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		rc = nil
 	}
 
-	// Determine specs directory
-	specsDir := "."
-	if rc != nil && rc.Team != nil {
-		// Try to find specs repo
-		specsRepoPath := filepath.Join(os.Getenv("HOME"), ".spec", "repos",
-			rc.Team.SpecsRepo.Owner, rc.Team.SpecsRepo.Repo)
-		if _, err := os.Stat(specsRepoPath); err == nil {
-			specsDir = specsRepoPath
-		}
-	}
+	// Determine the directory holding SPEC-NNN.md files. Specs live in the
+	// repo's specs/ subdirectory, not at its root, so this resolves the same way
+	// every other command does — pointing the handler at the clone root makes
+	// every path-based tool look one level too high.
+	mcpSpecsDir := resolveMCPSpecsDir(rc)
 
 	// Check for build session mode
 	if specIDFlag != "" {
@@ -105,7 +100,7 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	gitpkg.SetReadSurface(store.SurfaceMCP)
 
 	// Generic mode - serve all specs
-	handler := mcp.NewGenericHandler(rc, specsDir).WithRegistry(buildRegistry(rc))
+	handler := mcp.NewGenericHandler(rc, mcpSpecsDir).WithRegistry(buildRegistry(rc))
 	// Attribution and transitions want a database, but the server must still
 	// serve reads in a bare checkout, so a failure to open one is not fatal.
 	if db, err := openDB(); err == nil {
@@ -134,15 +129,7 @@ func runBuildMCPServer(cmd *cobra.Command, specID string, rc *config.ResolvedCon
 	// If no session, fall back to generic mode with spec focus
 	if session == nil {
 		fmt.Fprintf(os.Stderr, "spec mcp: no build session for %s, serving in generic mode\n", specID)
-		specsDir := "."
-		if rc != nil && rc.Team != nil {
-			specsRepoPath := filepath.Join(os.Getenv("HOME"), ".spec", "repos",
-				rc.Team.SpecsRepo.Owner, rc.Team.SpecsRepo.Repo)
-			if _, err := os.Stat(specsRepoPath); err == nil {
-				specsDir = specsRepoPath
-			}
-		}
-		handler := mcp.NewGenericHandler(rc, specsDir).WithRegistry(buildRegistry(rc)).WithDB(db)
+		handler := mcp.NewGenericHandler(rc, resolveMCPSpecsDir(rc)).WithRegistry(buildRegistry(rc)).WithDB(db)
 		defer handler.Close()
 		return mcp.Serve(context.Background(), handler, os.Stdin, os.Stdout, os.Stderr)
 	}
@@ -254,4 +241,19 @@ func (h *combinedHandler) CallTool(name string, args json.RawMessage) (*mcp.Tool
 
 	// Generic tools
 	return h.generic.CallTool(name, args)
+}
+
+// resolveMCPSpecsDir returns the directory holding SPEC-NNN.md files for the MCP
+// server, falling back to the working directory when no specs clone is present
+// (a bare checkout must still serve reads).
+func resolveMCPSpecsDir(rc *config.ResolvedConfig) string {
+	if rc == nil || rc.Team == nil {
+		return "."
+	}
+	repoPath := filepath.Join(os.Getenv("HOME"), ".spec", "repos",
+		rc.Team.SpecsRepo.Owner, rc.Team.SpecsRepo.Repo)
+	if _, err := os.Stat(repoPath); err != nil {
+		return "."
+	}
+	return specsDir(repoPath)
 }
