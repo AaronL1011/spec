@@ -47,6 +47,12 @@ var registry = map[string]llm.Task{
 	DraftPR:         draftPRTask,
 	DraftPRStack:    draftPRStackTask,
 	PromoteTriage:   promoteTriageTask,
+
+	// Fast-follow set: same gate, same budgeting, no new code paths.
+	ReviseSection:     reviseSectionTask,
+	ReviewPlan:        reviewPlanTask,
+	SummariseActivity: summariseActivityTask,
+	ExtractDecision:   extractDecisionTask,
 }
 
 // Get returns a task by id.

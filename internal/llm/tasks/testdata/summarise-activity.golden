@@ -1,0 +1,27 @@
+TASK: summarise-activity
+SYSTEM: You are summarising a project activity log for a team update. Report only what the log shows: no speculation about intent, no invented progress, and no claims about work that is not recorded. Prefer specifics (what moved, what blocked) over adjectives. If the log shows little activity, say that plainly.
+---
+Summarise SPEC-034 ("Checkout timeout handling") as a short progress note.
+
+Write two to four sentences of prose, then '### Blocked' as a bullet list if and only if the log records blockers.
+
+## Activity log
+
+2026-06-01 advanced draft -> review
+2026-06-02 blocked: waiting on payments SDK bump
+
+## Problem Statement
+
+Checkout requests exceeding 30s time out silently for ~4% of paid conversions.
+
+## Goals Non Goals
+
+Goal: every checkout completes or reports an actionable failure within 30s.
+
+## Proposed Solution
+
+Queue the capture step and reconcile asynchronously.
+
+## Decision Log
+
+| 001 | Queue vs synchronous retry | Queue | Bounded latency |

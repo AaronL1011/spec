@@ -1,0 +1,26 @@
+TASK: revise-section
+SYSTEM: You are a senior engineer revising a section of a software specification. Preserve the author's voice, structure, and any decisions already recorded; change only what the feedback asks for. Do not rewrite from scratch, do not add meta-commentary, and do not silently drop content the feedback did not mention. Output the full revised section body in markdown.
+---
+Revise the "Proposed Solution" section of SPEC-034 ("Checkout timeout handling") according to the feedback.
+
+Return the complete revised section body, not a diff or a description of changes.
+
+## Current section (revise this)
+
+Queue the capture step and reconcile asynchronously.
+
+## Problem Statement
+
+Checkout requests exceeding 30s time out silently for ~4% of paid conversions.
+
+## Goals Non Goals
+
+Goal: every checkout completes or reports an actionable failure within 30s.
+
+## Decision Log
+
+| 001 | Queue vs synchronous retry | Queue | Bounded latency |
+
+## Reviewer feedback
+
+keep the queue decision, cut the second paragraph

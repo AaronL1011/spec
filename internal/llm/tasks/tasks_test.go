@@ -86,6 +86,47 @@ func TestGoldenPrompts(t *testing.T) {
 			},
 		},
 		{
+			name:   "revise-section",
+			taskID: ReviseSection,
+			in: func() llm.Input {
+				in := fixtureInput()
+				in.Section = "proposed_solution"
+				in.SteerNotes = []string{"keep the queue decision, cut the second paragraph"}
+				return in
+			}(),
+		},
+		{
+			name:   "review-plan",
+			taskID: ReviewPlan,
+			in: func() llm.Input {
+				in := fixtureInput()
+				in.Sections["pr_stack_plan"] = "1. Add queue table\n2. Wire capture through the queue\n3. Reconciler"
+				return in
+			}(),
+		},
+		{
+			name:   "summarise-activity",
+			taskID: SummariseActivity,
+			in: func() llm.Input {
+				in := fixtureInput()
+				in.Extra = map[string]string{
+					"activity": "2026-06-01 advanced draft -> review\n2026-06-02 blocked: waiting on payments SDK bump",
+				}
+				return in
+			}(),
+		},
+		{
+			name:   "extract-decision",
+			taskID: ExtractDecision,
+			in: func() llm.Input {
+				in := fixtureInput()
+				in.Extra = map[string]string{
+					"discussion": "Ada: queue or synchronous retry?\nGrace: retry keeps latency unbounded under load.\nAda: agreed, queue it.",
+				}
+				return in
+			}(),
+		},
+		{
 			name:   "draft-section-with-steer-and-prior",
 			taskID: DraftSection,
 			in: func() llm.Input {

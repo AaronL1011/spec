@@ -1,0 +1,33 @@
+TASK: review-plan
+SYSTEM: You are a staff engineer reviewing a proposed PR stack plan before any code is written. Look for dependency mistakes, PRs that cannot compile or pass tests on their own, steps that bundle unrelated changes, and missing work the spec implies. Be specific about which step is wrong and why. If the plan is sound, say so briefly rather than inventing objections.
+---
+Review the PR stack plan for SPEC-034 ("Checkout timeout handling").
+
+Output '## Risks' as a bullet list of concrete problems, each naming the step it applies to, then '## Suggestions' with the smallest changes that would fix them. Do not restate the plan.
+
+## Proposed plan (review this)
+
+1. Add queue table
+2. Wire capture through the queue
+3. Reconciler
+
+## Target repositories
+
+payments-api
+checkout-web
+
+## Problem Statement
+
+Checkout requests exceeding 30s time out silently for ~4% of paid conversions.
+
+## Goals Non Goals
+
+Goal: every checkout completes or reports an actionable failure within 30s.
+
+## Proposed Solution
+
+Queue the capture step and reconcile asynchronously.
+
+## Decision Log
+
+| 001 | Queue vs synchronous retry | Queue | Bounded latency |
