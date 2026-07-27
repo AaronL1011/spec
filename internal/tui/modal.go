@@ -15,6 +15,12 @@ func (a App) updateModal(msg tea.KeyPressMsg) (App, tea.Cmd) {
 		switch {
 		case msg.String() == "esc", msg.String() == "enter",
 			msg.Text == "q":
+			// A one-time notice records its dismissal on close, so it is loud
+			// once instead of nagging every launch.
+			if a.pendingAction == "ack-agent-migration" {
+				acknowledgeAgentMigration(&a)
+				a.pendingAction = ""
+			}
 			a.modal.Hide()
 		}
 		return a, nil

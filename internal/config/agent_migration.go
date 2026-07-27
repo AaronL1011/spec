@@ -53,6 +53,20 @@ func HasRemovedAgentKeys(cfg *TeamConfig) bool {
 	return len(removedKeysPresent(cfg)) > 0
 }
 
+// RemovedAgentKeys returns the removed integration keys a team config still
+// sets, in stable order, so a renderer can name them.
+//
+// Unlike AgentConfigWarnings this is not once-per-process: a TUI notice renders
+// from state rather than as a side effect, and it must survive a redraw.
+func RemovedAgentKeys(cfg *TeamConfig) []string {
+	return removedKeysPresent(cfg)
+}
+
+// AgentMigrationYAML is the replacement block for a user cutting over. It is
+// exported so the TUI notice and `spec config lint` show the same literal YAML:
+// two renderings of one migration must not disagree about the fix.
+func AgentMigrationYAML() string { return replacementAgentYAML }
+
 // removedKeysPresent returns the removed integration keys a team config still
 // sets, in stable order.
 //

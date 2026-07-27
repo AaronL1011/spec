@@ -383,7 +383,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.splash.nextFrame()
 		if a.splash.done() {
 			a.booting = false
-			return a, nil
+			// The migration notice waits for the splash to clear: raised any
+			// earlier it would render behind it and be dismissed unseen, which
+			// is the same failure the stderr line already has.
+			return a, a.showAgentMigrationNotice()
 		}
 		return a, splashTick()
 
@@ -512,6 +515,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Live, non-persisted preview while editing the Theme field.
 		a.applyTheme(msg.Theme)
 		return a, nil
+
+	case agentCheckResultMsg:
+		// The result renders inline under the Settings agent row rather than in the
+		// status bar: a preflight is a diagnostic to read, not a notification.
+		var cmd tea.Cmd
+		a.settings, cmd = a.settings.update(msg)
+		return a, cmd
 
 	case settingsPersistedMsg:
 		var cmd tea.Cmd
