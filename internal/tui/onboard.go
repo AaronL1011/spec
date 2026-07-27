@@ -49,6 +49,16 @@ func RunOnboarding(ctx context.Context, hasUser bool) (OnboardResult, error) {
 			return res, err
 		}
 		res.WroteUserConfig = wrote
+
+		// The agent step follows identity because it amends the config that step
+		// just wrote. It is offered only to a new user: someone who already has a
+		// personal config has either configured an agent or declined to, and
+		// re-asking would be the nagging the skip option exists to avoid.
+		if wrote {
+			if err := runAgentStep(); err != nil {
+				return res, err
+			}
+		}
 	}
 
 	joined, err := runJoinStep(ctx)
@@ -74,7 +84,7 @@ func runIdentityStep() (bool, error) {
 		huh.NewGroup(
 			huh.NewNote().
 				Title("Welcome to spec").
-				Description("Step 1 of 2 — set up your identity."),
+				Description("Step 1 of 3 — set up your identity."),
 			huh.NewInput().
 				Title("Your name").
 				Placeholder("Ada Lovelace").
@@ -129,7 +139,7 @@ func runJoinStep(ctx context.Context) (bool, error) {
 		huh.NewGroup(
 			huh.NewNote().
 				Title("Join or create a team").
-				Description("Step 2 of 2 — connect to your team's specs repo."),
+				Description("Step 3 of 3 — connect to your team's specs repo."),
 			huh.NewSelect[string]().
 				Title("How do you want to start?").
 				Options(
