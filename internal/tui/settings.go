@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-
-	"github.com/aaronl1011/spec/internal/adapter/resolve"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/aaronl1011/spec/internal/adapter/resolve"
+	"github.com/aaronl1011/spec/internal/agentcheck"
 	"github.com/aaronl1011/spec/internal/config"
 )
 
@@ -25,6 +25,11 @@ const (
 	fieldRefresh
 	fieldMouse
 	fieldEditor
+	// fieldAgentCheck is an action row, not a value: focusing it and pressing
+	// enter runs the `spec agent check` preflight inline. It is focusable so the
+	// diagnostic is reachable from the surface where a user configures the agent,
+	// rather than only from a command they have to know exists.
+	fieldAgentCheck
 	fieldCount
 )
 
@@ -44,6 +49,31 @@ type settingsAppliedMsg struct {
 type settingsPersistedMsg struct {
 	Field settingsField
 	Err   error
+}
+
+// agentCheckResultMsg carries a finished preflight back to the settings panel.
+type agentCheckResultMsg struct {
+	Report agentcheck.Report
+	Err    error
+}
+
+// runAgentCheck runs the preflight off the update loop. It is the same function
+// the CLI's `spec agent check` calls, so the two surfaces cannot report
+// different results for one configuration.
+func runAgentCheck(rc *config.ResolvedConfig) tea.Cmd {
+	return func() tea.Msg {
+		if rc == nil {
+			return agentCheckResultMsg{Err: fmt.Errorf("no configuration loaded")}
+		}
+		agentCfg := rc.EffectiveAgentConfig()
+		if agentCfg.Provider == "" || agentCfg.Provider == "none" {
+			return agentCheckResultMsg{Err: fmt.Errorf(
+				"no agent configured — set 'agent:' in ~/.spec/config.yaml%s", agentcheck.DetectedHint())}
+		}
+		agent, _ := resolve.Agent(agentCfg)
+		report, err := agentcheck.Check(agentCfg, agent)
+		return agentCheckResultMsg{Report: report, Err: err}
+	}
 }
 
 // settingsThemePreviewMsg asks the app to apply a theme for live preview while
@@ -76,6 +106,12 @@ type settingsModel struct {
 	styles    Styles
 	keys      KeyMap
 	snapshots map[settingsField]string
+
+	// Agent preflight state. The report is retained so the result stays readable
+	// after the check finishes rather than flashing past in the status bar.
+	agentChecking bool
+	agentReport   *agentcheck.Report
+	agentCheckErr string
 }
 
 func newSettings(rc *config.ResolvedConfig, styles Styles, keys KeyMap) settingsModel {
@@ -107,6 +143,15 @@ func (m settingsModel) update(msg tea.Msg) (settingsModel, tea.Cmd) {
 		} else {
 			m.fieldErr = ""
 			m.snapshots[msg.Field] = m.savedValue(msg.Field)
+		}
+		return m, nil
+
+	case agentCheckResultMsg:
+		m.agentChecking = false
+		report := msg.Report
+		m.agentReport = &report
+		if msg.Err != nil {
+			m.agentCheckErr = msg.Err.Error()
 		}
 		return m, nil
 
@@ -142,6 +187,17 @@ func (m settingsModel) updateBrowse(msg tea.KeyPressMsg) (settingsModel, tea.Cmd
 		m.scrollBy(-1)
 		return m, nil
 	case key.Matches(msg, m.keys.Enter):
+		// The agent row is an action, not a value: it runs the preflight rather
+		// than opening an editor.
+		if m.focused == fieldAgentCheck {
+			if m.agentChecking {
+				return m, nil
+			}
+			m.agentChecking = true
+			m.agentReport = nil
+			m.agentCheckErr = ""
+			return m, runAgentCheck(m.rc)
+		}
 		return m.beginEdit()
 	}
 	return m, nil
@@ -605,8 +661,12 @@ func (m settingsModel) layoutLines() []settingsLine {
 	// The agent sits under Integrations for familiarity but is read from personal
 	// config, not the team's, and shows its capability set — so a user can see at
 	// a glance whether drafting and sessions are available rather than
-	// discovering it by pressing a key.
-	appendLine(m.renderAgentRow(), fieldCount, false)
+	// discovering it by pressing a key. It is focusable because enter runs the
+	// preflight: the diagnostic belongs where the configuration is read.
+	appendLine(m.renderAgentRow(), fieldAgentCheck, true)
+	if detail := m.renderAgentCheckDetail(); detail != "" {
+		appendLine(detail, fieldCount, false)
+	}
 	appendLine("\n", fieldCount, false)
 
 	appendLine(m.styles.SectionTitle.Render("  Config Paths")+"\n", fieldCount, false)
@@ -656,13 +716,17 @@ type settingsIntegration struct {
 	category string
 }
 
+// settingsIntegrations are the team-config integration categories. Agent is
+// absent deliberately: it moved to personal config and has its own row below,
+// which reports the resolved provider and its capability set. Listing it here
+// too would render a permanent "Agent —" above the real row, which reads as the
+// "my agent vanished" breakage the migration warning exists to prevent. The
+// removed `ai` category is gone for the same reason.
 var settingsIntegrations = []settingsIntegration{
 	{"Comms", "comms"},
 	{"PM", "pm"},
 	{"Docs", "docs"},
 	{"Repo", "repo"},
-	{"Agent", "agent"},
-	{"AI", "ai"},
 	{"Design", "design"},
 	{"Deploy", "deploy"},
 }
@@ -761,17 +825,29 @@ func (m settingsModel) renderIntegrationRow(name, category string) string {
 // renderAgentRow shows the resolved personal agent and what it can do.
 func (m settingsModel) renderAgentRow() string {
 	label := fmt.Sprintf("    %-10s", "Agent")
+	rowStyle := m.styles.RowNormal
+	if m.mode == settingsBrowse && m.focused == fieldAgentCheck {
+		rowStyle = m.styles.RowSelected
+	}
 
 	provider := ""
 	if m.rc != nil {
 		provider = m.rc.EffectiveAgentConfig().Provider
 	}
 	if provider == "" || provider == "none" {
-		return m.styles.RowNormal.Render(label) +
-			m.styles.Muted.Render("— (personal: set 'agent:' in ~/.spec/config.yaml)") + "\n"
+		row := rowStyle.Render(label) +
+			m.styles.Muted.Render("— (personal: set 'agent:' in ~/.spec/config.yaml)")
+		// The migration is flagged here as well as in the boot notice: a user who
+		// dismissed the notice and later wonders where their agent went looks at
+		// this row, and "—" alone would not explain it.
+		if m.rc != nil && config.HasRemovedAgentKeys(m.rc.Team) {
+			row += "\n" + m.styles.Error.Render(
+				"        ! team config's agent key is ignored — run 'spec config lint'")
+		}
+		return row + "\n"
 	}
 
-	row := m.styles.RowNormal.Render(label) + m.styles.Success.Render(provider)
+	row := rowStyle.Render(label) + m.styles.Success.Render(provider)
 
 	// Name the planes explicitly. "sessions + drafting" tells the user which
 	// keys will work; a bare provider name does not.
@@ -795,7 +871,84 @@ func (m settingsModel) renderAgentRow() string {
 	if m.rc.User != nil && !m.rc.User.Preferences.AgentDraftsEnabled() {
 		row += m.styles.Muted.Render("  · drafting off")
 	}
+	switch {
+	case m.agentChecking:
+		row += m.styles.Muted.Render("  · checking…")
+	case m.mode == settingsBrowse && m.focused == fieldAgentCheck && m.agentReport == nil:
+		// The hint renders only on focus, so the row stays quiet until the user
+		// is looking at it.
+		row += m.styles.Muted.Render("  · enter to check")
+	}
 	return row + "\n"
+}
+
+// renderAgentCheckDetail renders the inline preflight result under the agent
+// row: the same facts `spec agent check` prints, so a misconfiguration is
+// diagnosed without leaving the TUI.
+func (m settingsModel) renderAgentCheckDetail() string {
+	r := m.agentReport
+	if r == nil {
+		return ""
+	}
+
+	indent := "        "
+	var b strings.Builder
+
+	if m.agentCheckErr != "" {
+		step := r.FailedStep
+		if step == "" {
+			step = "check"
+		}
+		// Name the failing step, not just the error: "which part broke" is what
+		// turns a message into a fix.
+		b.WriteString(m.styles.Error.Render(fmt.Sprintf("%s✗ %s: %s", indent, step, firstLine(m.agentCheckErr))))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	var parts []string
+	if r.LatencyMS > 0 {
+		parts = append(parts, formatCheckLatency(r.LatencyMS))
+	}
+	if r.Model != "" {
+		parts = append(parts, r.Model)
+	}
+	if r.Tokens > 0 {
+		parts = append(parts, fmt.Sprintf("%d tokens", r.Tokens))
+	}
+	summary := "✓ reachable"
+	if len(parts) > 0 {
+		summary = "✓ " + strings.Join(parts, " · ")
+	}
+	b.WriteString(m.styles.Success.Render(indent + summary))
+	b.WriteString("\n")
+
+	// An inert setting looks effective until something says otherwise, which is
+	// worse than one that is absent.
+	for _, inert := range r.InertSettings {
+		b.WriteString(m.styles.Muted.Render(indent + "ignored: " + inert))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// formatCheckLatency renders a duration in the unit that reads best at its
+// magnitude, mirroring the CLI preflight.
+func formatCheckLatency(ms int64) string {
+	if ms >= 1000 {
+		return fmt.Sprintf("%.1fs", float64(ms)/1000)
+	}
+	return fmt.Sprintf("%dms", ms)
+}
+
+// firstLine trims a multi-line provider error to its first line for inline
+// display. Harness errors often carry several lines of remediation prose, which
+// would push the rest of the panel off screen.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return strings.TrimSpace(s)
 }
 
 func (m settingsModel) integrationProvider(category string) string {
