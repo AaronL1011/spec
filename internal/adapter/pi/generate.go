@@ -133,11 +133,15 @@ func parseGenerateStream(out string) *adapter.GenerateResult {
 			}
 		}
 
+		// Replace rather than accumulate: every event carries a cumulative
+		// snapshot of the same message's usage, so the last one seen is already
+		// the total. A contained completion is a single message, so there is
+		// nothing to sum across.
 		if ev.Usage != nil {
-			addUsage(&usage, ev.Usage)
+			setUsage(&usage, ev.Usage)
 		}
 		if ev.Message != nil && ev.Message.Usage != nil {
-			addUsage(&usage, ev.Message.Usage)
+			setUsage(&usage, ev.Message.Usage)
 		}
 	}
 

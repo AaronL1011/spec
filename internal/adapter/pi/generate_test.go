@@ -156,6 +156,39 @@ func TestParseGenerateStream_CapturesModelAndUsage(t *testing.T) {
 	}
 }
 
+// pi re-emits a cumulative usage snapshot on every event that touches a
+// message, so summing them multiplies the real cost by the number of events.
+// This is the shape a live `pi -p --mode json` run produces: four snapshots of
+// one message, three of them carrying the same final figures.
+func TestParseGenerateStream_CumulativeUsageIsNotSummed(t *testing.T) {
+	stream := `{"type":"message_start","message":{"usage":{"input":0,"output":0,"totalTokens":0}}}
+{"type":"message_update","message":{"usage":{"input":0,"output":0,"totalTokens":0}}}
+{"type":"message_update","message":{"usage":{"input":2,"output":4,"cacheRead":644,"totalTokens":650}}}
+{"type":"message_end","message":{"content":[{"type":"text","text":"OK"}],"usage":{"input":2,"output":4,"cacheRead":644,"totalTokens":650}}}
+{"type":"turn_end","message":{"usage":{"input":2,"output":4,"cacheRead":644,"totalTokens":650}}}`
+
+	res := parseGenerateStream(stream)
+	if res.Text != "OK" {
+		t.Fatalf("Text = %q, want %q", res.Text, "OK")
+	}
+	// 2/4/6, not 6/12/1950: the snapshot is a running total, not a delta, and
+	// cacheRead is harness overhead rather than work done for this request.
+	want := adapter.TokenUsage{Input: 2, Output: 4, Total: 6}
+	if res.Tokens != want {
+		t.Errorf("Tokens = %+v, want %+v", res.Tokens, want)
+	}
+}
+
+// An early snapshot is emitted before the provider reports usage. It must not
+// overwrite real figures with zeroes when it arrives last.
+func TestParseGenerateStream_ZeroUsageDoesNotClobber(t *testing.T) {
+	stream := `{"type":"message_end","content":"Body.","usage":{"input":100,"output":25}}
+{"type":"turn_end","message":{"usage":{"input":0,"output":0,"totalTokens":0}}}`
+	if got := parseGenerateStream(stream).Tokens.Output; got != 25 {
+		t.Errorf("Tokens.Output = %d, want 25 preserved", got)
+	}
+}
+
 // A later message replaces an earlier one rather than appending, so a multi-turn
 // stream yields the final answer instead of a concatenation of drafts.
 func TestParseGenerateStream_LastMessageWins(t *testing.T) {

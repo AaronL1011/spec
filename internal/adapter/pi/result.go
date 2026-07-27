@@ -31,6 +31,11 @@ func parseHeadlessStream(r io.Reader) adapter.InvokeResult {
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
 	sawAgentEnd := false
+	// Usage for the message currently in flight. A session spans many messages
+	// whose costs sum, but each message's usage arrives as a cumulative snapshot
+	// re-emitted on every event that touches it — so the snapshot is tracked
+	// separately and folded into the session total once, at the message boundary.
+	var msgUsage adapter.TokenUsage
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -42,6 +47,15 @@ func parseHeadlessStream(r io.Reader) adapter.InvokeResult {
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			// Not a JSON event line (e.g. interleaved log output) — skip it.
 			continue
+		}
+
+		setUsage(&msgUsage, ev.usage())
+		if ev.Type == "message_end" {
+			// Message complete: bank its final usage and reset for the next one.
+			res.Tokens.Input += msgUsage.Input
+			res.Tokens.Output += msgUsage.Output
+			res.Tokens.Total += msgUsage.Total
+			msgUsage = adapter.TokenUsage{}
 		}
 
 		switch ev.Type {
@@ -67,9 +81,13 @@ func parseHeadlessStream(r io.Reader) adapter.InvokeResult {
 				}
 			}
 		}
-
-		addUsage(&res.Tokens, ev.usage())
 	}
+
+	// A stream that ended mid-message (crash, cancellation) still reports what
+	// the unfinished message cost.
+	res.Tokens.Input += msgUsage.Input
+	res.Tokens.Output += msgUsage.Output
+	res.Tokens.Total += msgUsage.Total
 
 	if !sawAgentEnd && res.ExitReason == "" {
 		// The stream ended without a terminal event — surface the tail so the
@@ -113,6 +131,13 @@ type usageBlock struct {
 	OutputTokens     int `json:"outputTokens"`
 	CompletionTokens int `json:"completion_tokens"`
 
+	// Total and TotalTokens accept the spellings whose meaning is
+	// input+output. pi's own camelCase `totalTokens` is deliberately NOT
+	// aliased here: it also counts cache reads and writes, which are fixed
+	// harness overhead rather than work attributable to a request (a two-token
+	// prompt reports 650 because the cached system prompt dominates). Deriving
+	// input+output instead keeps one meaning of "tokens" across every provider,
+	// so the activity log's per-task figures stay comparable.
 	Total       int `json:"total"`
 	TotalTokens int `json:"total_tokens"`
 }
@@ -133,19 +158,31 @@ func (u *usageBlock) input() int  { return firstNonZero(u.Input, u.InputTokens, 
 func (u *usageBlock) output() int { return firstNonZero(u.Output, u.OutputTokens, u.CompletionTokens) }
 func (u *usageBlock) total() int  { return firstNonZero(u.Total, u.TotalTokens) }
 
-// addUsage accumulates a usage block into the running token totals. A reported
-// total wins; otherwise total is derived from input+output.
-func addUsage(dst *adapter.TokenUsage, u *usageBlock) {
+// setUsage replaces the running totals with a usage block's figures.
+//
+// Replace rather than accumulate: pi reports usage as a running snapshot of the
+// current message, re-emitted on every event that touches it (message_start,
+// each message_update, message_end, turn_end), so summing them multiplies the
+// real cost by the number of events. Since the snapshot is cumulative, the last
+// one seen for a message is already the total.
+//
+// A zero-valued block is ignored: early snapshots are emitted before the
+// provider reports usage, and letting one overwrite a real figure would
+// discard it.
+func setUsage(dst *adapter.TokenUsage, u *usageBlock) {
 	if u == nil {
 		return
 	}
-	in, out := u.input(), u.output()
-	dst.Input += in
-	dst.Output += out
-	if t := u.total(); t > 0 {
-		dst.Total += t
+	in, out, total := u.input(), u.output(), u.total()
+	if in == 0 && out == 0 && total == 0 {
+		return
+	}
+	dst.Input = in
+	dst.Output = out
+	if total > 0 {
+		dst.Total = total
 	} else {
-		dst.Total += in + out
+		dst.Total = in + out
 	}
 }
 
