@@ -1,17 +1,10 @@
 package cmd
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
-	"time"
 
-	"github.com/aaronl1011/spec/internal/adapter"
-	"github.com/aaronl1011/spec/internal/config"
-	"github.com/aaronl1011/spec/internal/llm"
-	"github.com/aaronl1011/spec/internal/llm/tasks"
+	"github.com/aaronl1011/spec/internal/agentcheck"
 	"github.com/spf13/cobra"
 )
 
@@ -33,25 +26,6 @@ func init() {
 	rootCmd.AddCommand(agentCmd)
 }
 
-// `spec agent check` exists because misconfiguration should surface in a
-// diagnostic with a named failing step, not as a confusing failure partway
-// through a draft. It mirrors `spec config check` for PM/Jira.
-//
-// The latency it reports is also the evidence decision 003 defers to: shipping
-// headless-only was justified on the assumption that subprocess spawn cost is
-// negligible next to model latency, and this is where that assumption becomes
-// measurable rather than asserted.
-
-// knownHarnesses are the coding agents spec can detect on PATH, with the binary
-// each provider expects.
-var knownHarnesses = []struct {
-	Provider string
-	Command  string
-}{
-	{Provider: "claude-code", Command: "claude"},
-	{Provider: "pi", Command: "pi"},
-}
-
 func runAgentCheck(cmd *cobra.Command, args []string) error {
 	p := newPrinter(cmd)
 
@@ -64,162 +38,22 @@ func runAgentCheck(cmd *cobra.Command, args []string) error {
 	provider := agentCfg.Provider
 	if provider == "" || provider == "none" {
 		return fmt.Errorf("no agent configured — add 'agent:' to ~/.spec/config.yaml, or run 'spec config init'%s",
-			detectedHarnessHint())
+			agentcheck.DetectedHint())
 	}
 
-	report := agentReport{Provider: provider}
-
-	// Step 1: the binary or endpoint must be reachable. A missing binary is the
-	// most common failure and the cheapest to diagnose.
-	if err := checkAgentReachable(agentCfg, &report); err != nil {
-		report.FailedStep = "reachability"
-		report.Err = err.Error()
-		renderAgentReport(p, report)
-		return fmt.Errorf("agent check failed at %s: %w", report.FailedStep, err)
-	}
-
-	// Step 2: capability detection, so the report says what will actually work.
-	agent := buildRegistry(rc).Agent()
-	caps := agent.Capabilities()
-	report.Capabilities = caps
-
-	// Step 3: a real contained round-trip. Capability flags are claims; this is
-	// the part that proves them.
-	if caps.Generate {
-		if err := checkAgentGenerate(agent, &report); err != nil {
-			report.FailedStep = "completion"
-			report.Err = err.Error()
-			renderAgentReport(p, report)
-			return fmt.Errorf("agent check failed at %s: %w", report.FailedStep, err)
-		}
-	}
-
-	report.InertSettings = inertGenerateSettings(provider, agentCfg)
-
+	report, err := agentcheck.Check(agentCfg, buildRegistry(rc).Agent())
 	renderAgentReport(p, report)
-	if !caps.Generate && !caps.MCP {
+	if err != nil {
+		return err
+	}
+	if !report.Capabilities.Generate && !report.Capabilities.MCP {
 		return fmt.Errorf("agent %q supports neither drafting nor sessions — check the provider name", provider)
 	}
 	return nil
 }
 
-// agentReport is the diagnostic result.
-type agentReport struct {
-	Provider      string               `json:"provider"`
-	Binary        string               `json:"binary,omitempty"`
-	Endpoint      string               `json:"endpoint,omitempty"`
-	Capabilities  adapter.Capabilities `json:"capabilities"`
-	Model         string               `json:"model,omitempty"`
-	LatencyMS     int64                `json:"latency_ms,omitempty"`
-	Tokens        int                  `json:"tokens,omitempty"`
-	InertSettings []string             `json:"inert_settings,omitempty"`
-	FailedStep    string               `json:"failed_step,omitempty"`
-	Err           string               `json:"error,omitempty"`
-}
-
-// checkAgentReachable verifies the harness binary is on PATH, or that a
-// completion endpoint is configured.
-func checkAgentReachable(agentCfg config.ProviderConfig, report *agentReport) error {
-	switch agentCfg.Provider {
-	case "claude-code", "pi":
-		command := agentCfg.Get("command")
-		if command == "" {
-			for _, h := range knownHarnesses {
-				if h.Provider == agentCfg.Provider {
-					command = h.Command
-				}
-			}
-		}
-		path, err := exec.LookPath(command)
-		if err != nil {
-			return fmt.Errorf("%q not found in PATH — install it, or set agent.command in ~/.spec/config.yaml", command)
-		}
-		report.Binary = path
-		return nil
-
-	case "anthropic":
-		if agentCfg.Generate.Token == "" && agentCfg.Get("token") == "" {
-			return errors.New("no token configured — set agent.generate.token to an env reference such as ${SPEC_LLM_TOKEN}")
-		}
-		report.Endpoint = "https://api.anthropic.com"
-		return nil
-
-	default:
-		// Completion endpoints: the adapter already refuses an empty base_url
-		// with an actionable message, so resolution is the check.
-		if url := agentCfg.Generate.BaseURL; url != "" {
-			report.Endpoint = url
-		} else if url := agentCfg.Get("base_url"); url != "" {
-			report.Endpoint = url
-		}
-		return nil
-	}
-}
-
-// checkAgentGenerate runs a minimal contained completion and records what it cost.
-//
-// The prompt is deliberately trivial: this measures the path, not the model, and
-// a cheap probe keeps the diagnostic usable on a metered provider.
-func checkAgentGenerate(agent adapter.AgentAdapter, report *agentReport) error {
-	svc := llm.NewService(agent, true).WithMaxTokens(32)
-
-	task, err := tasks.Get(tasks.DraftSection)
-	if err != nil {
-		return err
-	}
-	// Override the task's system prompt so the probe cannot be mistaken for real
-	// drafting work by a model that likes to elaborate.
-	task.System = "Reply with exactly the word: ok"
-	task.TokenBudget = 0
-	task.Build = func(llm.Input) (string, []llm.ContextPart) {
-		return "Reply with exactly the word: ok", nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 130*time.Second)
-	defer cancel()
-
-	start := time.Now()
-	res, err := svc.Run(ctx, task, llm.Input{})
-	elapsed := time.Since(start)
-	if err != nil {
-		return err
-	}
-	if res == nil || strings.TrimSpace(res.Text) == "" {
-		detail := ""
-		if res != nil && res.Raw != "" {
-			detail = fmt.Sprintf(" (provider output: %s)", res.Raw)
-		}
-		return fmt.Errorf("the provider returned no text%s", detail)
-	}
-
-	report.LatencyMS = elapsed.Milliseconds()
-	report.Model = res.Model
-	report.Tokens = res.Tokens.Total
-	return nil
-}
-
-// inertGenerateSettings names configured values that cannot take effect for the
-// resolved provider. A setting that looks effective but is not is worse than one
-// that is absent.
-func inertGenerateSettings(provider string, agentCfg config.ProviderConfig) []string {
-	var out []string
-	switch provider {
-	case "claude-code", "pi":
-		if agentCfg.Generate.MaxTokens != 0 {
-			out = append(out, "generate.max_tokens (the harness CLI exposes no token cap)")
-		}
-		if agentCfg.Generate.BaseURL != "" {
-			out = append(out, "generate.base_url (a harness uses its own auth and endpoint)")
-		}
-		if agentCfg.Generate.Token != "" {
-			out = append(out, "generate.token (a harness uses its own auth)")
-		}
-	}
-	return out
-}
-
 // renderAgentReport prints the diagnostic, or emits it as JSON.
-func renderAgentReport(p *printer, report agentReport) {
+func renderAgentReport(p *printer, report agentcheck.Report) {
 	if p.JSONEnabled() {
 		_ = p.JSON(report)
 		return
@@ -289,23 +123,10 @@ func formatLatency(ms int64) string {
 	return fmt.Sprintf("%dms", ms)
 }
 
-// detectedHarnesses returns the providers whose binary is on PATH, so setup can
-// offer what is installed first and make the common case a single keystroke.
+// detectedHarnesses is a thin shim so cmd/config.go's setup prompt can offer
+// installed agents first, without importing the preflight package's test
+// surface. The detection table lives in internal/agentcheck so the preflight and
+// the setup flow cannot disagree about what spec recognises.
 func detectedHarnesses() []string {
-	var found []string
-	for _, h := range knownHarnesses {
-		if _, err := exec.LookPath(h.Command); err == nil {
-			found = append(found, h.Provider)
-		}
-	}
-	return found
-}
-
-// detectedHarnessHint suggests installed harnesses in an error message.
-func detectedHarnessHint() string {
-	found := detectedHarnesses()
-	if len(found) == 0 {
-		return ""
-	}
-	return fmt.Sprintf(" (detected on PATH: %s)", strings.Join(found, ", "))
+	return agentcheck.Detected()
 }
