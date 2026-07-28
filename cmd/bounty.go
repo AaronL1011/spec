@@ -30,6 +30,7 @@ scarce, and every one carries a written reason.
 Claiming and finishing a bountied spec is recorded in the spec itself, so
 'spec bounty ledger' can tally earned bounties per person from git alone.`,
 	Example: "  spec bounty set SPEC-042 --reason \"unblocks the billing migration\"\n  spec bounty list\n  spec bounty clear SPEC-042",
+	Args:    cobra.NoArgs,
 	RunE:    runBountyList,
 }
 
@@ -221,8 +222,7 @@ func runBountyClear(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runBountyList(cmd *cobra.Command, args []string) error {
-	_ = args
+func runBountyList(cmd *cobra.Command, _ []string) error {
 	p := newPrinter(cmd)
 
 	rc, err := resolveConfig()
@@ -375,8 +375,7 @@ func stampBountyClaim(rc *config.ResolvedConfig, meta *markdown.SpecMeta, who st
 // runBountyLedger tallies earned bounties per person from the specs repo and
 // its archive. Git is the record: no local database is consulted, so the same
 // command on a fresh clone prints the same numbers.
-func runBountyLedger(cmd *cobra.Command, args []string) error {
-	_ = args
+func runBountyLedger(cmd *cobra.Command, _ []string) error {
 	p := newPrinter(cmd)
 	sinceArg, _ := cmd.Flags().GetString("since")
 	untilArg, _ := cmd.Flags().GetString("until")

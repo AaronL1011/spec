@@ -269,6 +269,10 @@ Node 1 is fully usable and testable on its own (bounties exist, are gated, cappe
 | D-8 | Which surfaces show the bounty treatment in v1? | (1) Dashboard only, (2) Dashboard + pipeline, (3) Everywhere a spec row appears in the TUI, (4) Everywhere including plain CLI colour | **DECIDED: (3) every TUI surface, plus a plain `✦` marker in non-TUI output** | Owner intent: the marker must be unmissable wherever the spec surfaces, otherwise an engineer can meet the spec without ever seeing the invitation. Achieved cheaply by one shared render helper; plain output gets the glyph but never animation | Owner | 2026-07-28 |
 | D-9 | Does a bounty affect sort order or gates? | (1) Sort bountied specs to the top, (2) No behavioural effect — presentation and record only | **DECIDED: (2) no behavioural effect** | Owner intent is a pull signal, not a queue override. Sorting would make the bounty a push mechanism and duplicate what assignment already does. The shine is the mechanism | Owner | 2026-07-28 |
 | D-10 | Does the bounty use the existing claim path or a new `spec claim` verb? | (1) New dedicated verb, (2) Hook the existing claim/auto-claim path | **Proposed: (2) hook the existing path** | `shouldAutoClaim`/`autoClaim` already claim on `spec do` and `spec build`; a second verb would create two ways to take the same spec and let the two disagree. Bounty stamping is additive to the claim that already happens | — | 2026-07-28 |
+| D-13 | May a granter claim their own bounty? | (1) Allow it, (2) Refuse the claim outright (blocking the assignment), (3) Let the assignment proceed but attach no award | **DECIDED: (3) assignment proceeds, no award attaches** | Implemented in `bounty.SelfClaim`. A self-granted, self-claimed award is an unreviewed self-award on the ledger, so it must not be recorded — but assignment and bounty-claiming are separate facts, and blocking a TL from picking up their own priority work would be absurd. The refusal is surfaced as a warning rather than swallowed | Owner | 2026-07-28 |
+| D-14 | Can a bounty be cleared after someone claimed it? | (1) Freely, (2) Never, (3) Only with an explicit `--force` | **DECIDED: (3) `--force` required, and only from the CLI** | Implemented in `bounty.Clear` / `ClaimedError`. Retracting an invitation an engineer has already accepted should cost a deliberate keystroke and name the claimant. The TUI has no force path, so the retraction cannot happen by muscle memory from a list view | Owner | 2026-07-28 |
+| D-15 | Ledger window default and visibility | (1) Current cycle by default, (2) All time by default with explicit windows, (3) Gate the ledger to granting roles | **DECIDED: (2) all time by default; `--since`/`--until`/`--cycle` to scope; no role gate** | Implemented in `cmd/bounty.go:runBountyLedger`. Cycles are team-labelled and do not map onto quarters, so guessing a default window would mislead; all-time is the only unambiguous default. The ledger is read-only over data already in the repo, so gating it would be theatre — anyone can read the frontmatter directly | Owner | 2026-07-28 |
+| D-16 | Per-theme gold, or one derived value? | (1) Hand-pick a gold for all 24 themes, (2) Derive from the theme's `Warning`, (3) Two fixed golds chosen by background polarity, with a per-theme override | **DECIDED: (3) polarity-chosen gold + override** | Implemented in `Theme.BountyColor`. Gold here is a brand colour (the boot-splash spark), so it should read the same across themes of the same polarity rather than drifting with each palette's accent. Deriving from `Warning` would re-collide with the urgency ramp. `graphite` overrides to its brightest neutral | Owner | 2026-07-28 |
 | D-12 | How is a bounty granted from the TUI? | (1) CLI only, (2) A bare hotkey, (3) `g b` on the existing g-prefix, (4) A settings/detail-view form | **DECIDED: (3) `g b` with a reason prompt** | Owner decision. The `g`-prefix state machine already hosts the deliberate, consequential verbs (`g a` archive, `g r` restore, `g c` assign/claim), which is exactly the register a bounty belongs in — and it keeps every bare letter free. The reason prompt reuses the same input modal as assign, pre-filled with the current reason, with `-` clearing, so no new modal vocabulary is introduced | Owner | 2026-07-28 |
 | D-11 | Delivery shape: single change package or stacked? | (1) Single package, (2) Three stacked nodes (core → rendering, ledger) | **Proposed: (2) three nodes** | Node 1 is independently observable via plain output; nodes 2 and 3 are a pure renderer and a pure reader over node 1's data, are independent of each other, and isolate the two riskiest areas (theme/animation, and ledger correctness) for focused review | — | 2026-07-28 |
 
@@ -276,18 +280,27 @@ Node 1 is fully usable and testable on its own (bounties exist, are gated, cappe
 
 ## 9. Open Questions
 
-1. ~~**Colour channel (D-1):**~~ **Resolved:** gold glyph + SPEC-ID; title and metadata keep the urgency ramp.
-2. ~~**Glyph (D-2):**~~ **Resolved:** reuse the boot-splash spark `✦`.
-3. ~~**Animation (D-3):**~~ **Resolved:** periodic eased sheen on the glyph+ID span, opt-out via config, never in non-TTY.
-4. ~~**Scarcity (D-4):**~~ **Resolved:** config-driven `max_active`, enforced at grant time.
-5. ~~**Payout (D-6, D-7):**~~ **Resolved:** durable git-derived record plus `spec bounty ledger`; reward policy lives outside the tool.
-6. **`g b` scope:** the binding is live wherever a spec row is selected (dashboard, pipeline, spec list, search results, spec detail). Should it also be available on the triage view for an item that has not been promoted yet? Recommendation: no — triage items carry no bounty (they are not specs), so the key should stay inert there rather than silently doing nothing surprising.
-7. **Bounty expiry:** should an active bounty expire (end of cycle, or a configurable `expires_after`) so an abandoned plan doesn't leave permanent gold and permanently consume a cap slot? Recommendation: not in v1 — `max_active` already forces the granter back to the list, and expiry adds a clock to reason about. Revisit if pilot shows stale bounties.
-8. **Focus vs bounty glyph precedence:** the focused spec already replaces the row glyph with `IconFocus` (`internal/tui/dashboard.go:434`). Recommendation: focus wins the glyph cell (it is the user's own transient pointer) while the SPEC-ID stays gold, so neither signal is lost. Confirm.
-9. **Self-dealing:** may a granter claim a bounty they granted? Recommendation: reject with an actionable error, since a self-granted, self-claimed bounty is an unreviewed self-award on the ledger. Alternative: allow it and rely on the ledger exposing granter and claimant side by side.
-10. **Reassignment before earn:** if a bountied spec passes between engineers, does the last claimant earn it (recommended: yes, simplest and matches "who finished it"), the first claimant, or nobody? Should a reassignment after substantial progress split or void the award?
-11. **Revert after earn:** if an earned spec is reverted out of a terminal stage and later re-completed by someone else, `earned_by` is immutable by AC-9 — is that the right call, or should a revert clear the award and let it be re-earned?
-12. **Ledger window semantics:** should `spec bounty ledger` default to the current cycle, the current quarter, or all time? Cycles are team-labelled (`cycle_label`), so a quarter may not map cleanly onto them.
-13. **Ledger visibility:** the ledger is TL-run in v1 (D-8 keeps it off the dashboard). Should any role be able to run it, or is it gated to `grantable_by` roles? A visible-to-all leaderboard is a culture decision, not a technical one.
-14. **Cleared-after-claim:** if a granter clears a bounty on a spec someone already claimed for it, does the claimant keep a pending award? Recommendation: clearing after a claim is refused with a message pointing at the claimant, so leadership cannot retract an accepted invitation.
-15. **Gold token per theme:** does every shipped theme need a hand-picked `Bounty` value, or is a single derived gold (e.g. blended toward the theme's `Warning` with fixed luminance targeting) acceptable for the long tail of themes?
+**Resolved before implementation:**
+
+1. ~~**Colour channel (D-1):**~~ gold glyph + SPEC-ID; title and metadata keep the urgency ramp.
+2. ~~**Glyph (D-2):**~~ reuse the boot-splash spark `✦`.
+3. ~~**Animation (D-3):**~~ periodic eased sheen on the glyph+ID span, opt-out via config, never in non-TTY.
+4. ~~**Scarcity (D-4):**~~ config-driven `max_active`, enforced at grant time.
+5. ~~**Payout (D-6, D-7):**~~ durable git-derived record plus `spec bounty ledger`; reward policy lives outside the tool.
+
+**Resolved during implementation** (the recommendation was adopted; the implementing symbol is named so the code and the record cannot drift):
+
+6. ~~**`g b` on the triage view:**~~ inert. `armBountyModal` is only reached for IDs passing `isSpecID`, and `bountyContext` refuses a triage ID with "bounties apply to specs, not triage items".
+7. ~~**Focus vs bounty glyph precedence:**~~ focus wins the glyph cell; the SPEC-ID stays gold (`dashboardModel.renderRow`, covered by `TestDashboard_FocusWinsGlyphKeepsGold`).
+8. ~~**Self-dealing:**~~ see **D-13** — assignment proceeds, no award attaches.
+9. ~~**Reassignment before earn:**~~ the last claimant before completion earns it (`bounty.Claim` overwrites while unearned; `bounty.Earn` freezes). No splitting: a split award is a judgement the tool cannot make.
+10. ~~**Revert after earn:**~~ `earned_at` is immutable (AC-9). A completed award is a historical fact; re-opening the work does not un-earn it.
+11. ~~**Ledger window and visibility:**~~ see **D-15**.
+12. ~~**Cleared-after-claim:**~~ see **D-14**.
+13. ~~**Gold token per theme:**~~ see **D-16**.
+
+**Still open:**
+
+14. **Bounty expiry:** should an active bounty expire (end of cycle, or a configurable `expires_after`) so an abandoned plan doesn't hold a cap slot forever? Not implemented: `max_active` already forces the granter back to the list, and expiry adds a clock to reason about. Revisit if the pilot shows stale gold.
+15. **Search-result rows:** deferred with a recorded reason (§8). Fold `bountied` into the next `spec_search` schema migration that happens for a substantive reason.
+16. **Pilot question — does the marker land on the right work?** The one risk the tool cannot enforce (§7.2): bounties belong on unglamorous critical work, not on the appealing greenfield spec. Grant/clear churn is in the activity log; review it after a cycle and decide whether the usage principle needs teeth (e.g. a warning when a bountied spec is also the newest spec in the pipeline).
