@@ -100,6 +100,11 @@ type specDetailModel struct {
 	// lands. Empty for normal opens.
 	pendingSectionSlug string
 
+	// agentCanDraft mirrors the resolved agent's completion capability, so empty
+	// sections advertise the draft key only when pressing it would work. Set by
+	// the App, which owns agent resolution.
+	agentCanDraft bool
+
 	// Reader
 	readerMode     bool
 	sectionIdx     int
@@ -164,6 +169,10 @@ type pendingRenderRequest struct {
 	Total      int
 	Width      int
 	Styles     Styles
+	// DraftHint shows "press d to draft" on an empty owner section. Decided by
+	// the caller (which knows the agent's capabilities) rather than read from
+	// global state here, so the renderer stays a pure function of its inputs.
+	DraftHint bool
 }
 
 // ── Constructor ───────────────────────────────────────────────────────────────
@@ -644,6 +653,7 @@ func (m specDetailModel) requestCurrentSectionRender() (specDetailModel, tea.Cmd
 		Total:      len(sections),
 		Width:      effWidth,
 		Styles:     m.styles,
+		DraftHint:  m.draftHintFor(sec),
 	}
 
 	if m.renderInFlight {
@@ -672,7 +682,7 @@ func (m specDetailModel) startRender(req pendingRenderRequest) (specDetailModel,
 		content, err := renderSectionContent(
 			context.Background(), renderer,
 			req.Heading, req.Owner, req.Body,
-			req.SectionIdx, req.Total, req.Width, req.Styles,
+			req.SectionIdx, req.Total, req.Width, req.Styles, req.DraftHint,
 		)
 		return sectionRenderedMsg{
 			CacheKey:     req.CacheKey,
@@ -699,9 +709,32 @@ func (m *specDetailModel) cancelRender() {
 	m.pendingRequest = nil
 }
 
+// draftHintFor reports whether a section should advertise the draft key.
+//
+// Only empty sections a human is expected to author qualify: auto-maintained
+// sections (§8 escape hatch, §11 retrospective) are filled by commands, and §6
+// follows the QA policy of being drafted only when targeted explicitly, so
+// offering to draft them would be offering to write something the tool owns.
+func (m specDetailModel) draftHintFor(sec markdown.Section) bool {
+	if !m.agentCanDraft {
+		return false
+	}
+	if strings.TrimSpace(sec.Content) != "" {
+		return false
+	}
+	if sec.Owner == "auto" {
+		return false
+	}
+	switch sec.Slug {
+	case "escape_hatch_log", "retrospective", "decision_log", "acceptance_criteria":
+		return false
+	}
+	return true
+}
+
 // ── Content Rendering ─────────────────────────────────────────────────────────
 
-func renderSectionContent(ctx context.Context, renderer Renderer, heading, owner, body string, sectionIdx, total, width int, styles Styles) (string, error) {
+func renderSectionContent(ctx context.Context, renderer Renderer, heading, owner, body string, sectionIdx, total, width int, styles Styles, draftHint bool) (string, error) {
 	var b strings.Builder
 
 	b.WriteString("\n")
@@ -720,7 +753,15 @@ func renderSectionContent(ctx context.Context, renderer Renderer, heading, owner
 
 	trimmed := strings.TrimSpace(body)
 	if trimmed == "" {
-		b.WriteString(styles.Muted.Render(Indent(1) + "(empty section)"))
+		// The hint is the discovery path for drafting: an empty section is
+		// exactly where an agent helps, and a user who never reads release
+		// notes will still see it here. Suppressed on auto sections, whose
+		// content is written by commands rather than drafted.
+		label := "(empty section)"
+		if draftHint {
+			label += " · press d to draft"
+		}
+		b.WriteString(styles.Muted.Render(Indent(1) + label))
 		b.WriteString("\n")
 	} else {
 		rendered, err := renderer.Render(ctx, trimmed, width-2)
@@ -1074,12 +1115,18 @@ func (m specDetailModel) overviewLines() []string {
 	// Breathing room so the controls read as a distinct footer, not another
 	// Sections row.
 	b.WriteString("\n")
-	archiveHint := Hint("d", "archive")
+	// Archive and restore live behind the g-prefix; the bare keys the footer
+	// used to advertise were stale, and `d` now drafts.
+	archiveHint := Hint("g a", "archive")
 	if m.isArchived {
-		archiveHint = Hint("r", "restore")
+		archiveHint = Hint("g r", "restore")
 	}
-	hints := HintStrip(m.styles, archiveHint,
-		Hint("o", "read sections"), Hint("e", "edit"), Hint("w", "browser preview"), Hint("esc", "back"))
+	pairs := []HintPair{Hint("o", "read sections"), Hint("e", "edit")}
+	if m.agentCanDraft {
+		pairs = append(pairs, Hint("d", "draft"))
+	}
+	pairs = append(pairs, Hint("w", "browser preview"), archiveHint, Hint("esc", "back"))
+	hints := HintStrip(m.styles, pairs...)
 	b.WriteString(hints + "\n")
 
 	return splitLines(b.String())

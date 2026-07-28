@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spec.dev/schemas/authoring.v1.json",
+  "title": "spec authoring-port/v1",
+  "description": "Versioned contract for the MCP tools an agent session uses to author specs through spec's own engines. Tools are tiered by authority: the authoring tier is available in any agent session, while the transition tier is opt-in via preferences.agent_authoring.transitions and is absent from tools/list when disabled. Evolution is additive-only within this major version: new optional fields and new tools may appear, existing field meanings and required sets may not change. Unknown optional fields are tolerated by both sides.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "const": "authoring-port/v1"
+    },
+    "tiers": {
+      "type": "object",
+      "properties": {
+        "authoring": {
+          "description": "Always available in an agent session. Every write is recoverable from the specs-repo diff, which is what makes on-by-default defensible.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/tool" }
+        },
+        "transition": {
+          "description": "Opt-in. Stage transitions fire the pipeline's configured effects (PM status sync, comms posts) exactly as the CLI does, so an agent moving a spec would notify a team on the user's behalf. Gating the tool answers the authority question without weakening the transition.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/tool" }
+        }
+      },
+      "required": ["authoring", "transition"]
+    }
+  },
+  "required": ["version", "tiers"],
+  "$defs": {
+    "tool": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "arguments": { "type": "object" },
+        "result": { "$ref": "#/$defs/toolResult" }
+      },
+      "required": ["name", "arguments"]
+    },
+    "toolResult": {
+      "type": "object",
+      "description": "Every tool returns success plus a human- and model-readable message. Expected negative outcomes (a stale hash, an unmet gate, a disabled tier) are reported as success:false with a message naming the next action, not as protocol errors.",
+      "properties": {
+        "success": { "type": "boolean" },
+        "message": { "type": "string" }
+      },
+      "required": ["success", "message"]
+    },
+    "contentHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "SHA-256 of a section body after canonical formatting, prefixed with its algorithm. Hashing the formatted body rather than submitted bytes is load-bearing: a write reformats what it is given, so hashing the input would make the hash a writer receives disagree with the hash a later reader computes, and every second write in a session would raise a spurious conflict."
+    }
+  },
+  "tools": {
+    "spec_section_read": {
+      "tier": "authoring",
+      "description": "Read one section's body plus its content_hash.",
+      "arguments": {
+        "id": { "type": "string", "required": true, "description": "Spec ID, e.g. SPEC-042" },
+        "slug": { "type": "string", "required": true, "description": "Section slug, e.g. problem_statement" }
+      },
+      "returns": "content_hash line followed by the section body"
+    },
+    "spec_section_write": {
+      "tier": "authoring",
+      "description": "Replace a section body through the markdown engine: validated, formatted, and logged with agent attribution.",
+      "arguments": {
+        "id": { "type": "string", "required": true },
+        "slug": { "type": "string", "required": true },
+        "content": { "type": "string", "required": true, "description": "Section body in markdown, without the heading" },
+        "base_hash": {
+          "type": "string",
+          "required": false,
+          "description": "content_hash from spec_section_read. When present and stale, the call fails with a structured conflict and the file is left byte-identical. When absent, the write is unchecked — intended for callers where a human is the lock, not for agent sessions."
+        }
+      },
+      "returns": "the new content_hash, so consecutive writes need no intervening read",
+      "errors": ["CONFLICT: the section changed since base_hash was read"]
+    },
+    "spec_acceptance_add": {
+      "tier": "authoring",
+      "description": "Append one acceptance criterion to §6. Idempotent: an identical criterion already present is a no-op success, compared ignoring checkbox state so a criterion the user has already ticked is not duplicated.",
+      "arguments": {
+        "id": { "type": "string", "required": true },
+        "criterion": { "type": "string", "required": true, "description": "A single testable criterion, without the checkbox prefix" }
+      }
+    },
+    "spec_meta_update": {
+      "tier": "authoring",
+      "description": "Update a fixed set of frontmatter fields. The allowed set is an explicit list rather than a passthrough map, so a frontmatter field added later is not silently writable by an agent the day it appears.",
+      "arguments": {
+        "id": { "type": "string", "required": true },
+        "title": { "type": "string", "required": false },
+        "assignees": { "type": "string", "required": false, "description": "Comma-separated handles" },
+        "repos": { "type": "string", "required": false, "description": "Comma-separated repo names" }
+      },
+      "errors": ["stage/status cannot be set here — use the transition tools, which run the gates"]
+    },
+    "spec_advance": {
+      "tier": "transition",
+      "description": "Advance a spec to the next stage. Runs the same gates as the CLI and fires the pipeline's configured transition effects.",
+      "arguments": {
+        "id": { "type": "string", "required": true }
+      },
+      "errors": [
+        "GATE NOT MET: <gate> (<reason>) — the stage is unchanged",
+        "stage transitions are disabled for agent sessions — set preferences.agent_authoring.transitions"
+      ]
+    },
+    "spec_revert": {
+      "tier": "transition",
+      "description": "Revert a spec to an earlier stage with a reason.",
+      "arguments": {
+        "id": { "type": "string", "required": true },
+        "reason": { "type": "string", "required": true }
+      }
+    }
+  }
+}

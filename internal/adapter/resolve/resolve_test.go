@@ -20,9 +20,8 @@ func TestAll_EmptyConfig_AllNoop(t *testing.T) {
 		{"PM", isNoop[noop.PM](reg.PM())},
 		{"Docs", isNoop[noop.Docs](reg.Docs())},
 		{"Repo", isNoop[noop.Repo](reg.Repo())},
-		{"Agent", isNoop[noop.Agent](reg.Agent())},
+		{"Agent", isNoop[noop.Agent](reg.Agent())}, // agent is personal config; All() always installs noop
 		{"Deploy", isNoop[noop.Deploy](reg.Deploy())},
-		{"AI", isNoop[noop.AI](reg.AI())},
 	}
 	for _, c := range checks {
 		if !c.ok {
@@ -68,41 +67,13 @@ func TestAll_GitHubRepo_Resolves(t *testing.T) {
 	}
 }
 
-func TestAll_AnthropicAI_Resolves(t *testing.T) {
-	cfg := &config.TeamConfig{}
-	cfg.Integrations.AI = makeProvider("anthropic", map[string]string{
-		"token": "sk-ant-test",
-	})
-	reg, warnings := All(cfg)
-
-	if _, ok := reg.AI().(noop.AI); ok {
-		t.Error("expected Anthropic AI, got noop")
-	}
-	if len(warnings) != 0 {
-		t.Errorf("unexpected warnings: %v", warnings)
-	}
-}
-
-func TestAll_OllamaAI_Resolves(t *testing.T) {
-	cfg := &config.TeamConfig{}
-	cfg.Integrations.AI = makeProvider("ollama", nil)
-	reg, warnings := All(cfg)
-
-	if _, ok := reg.AI().(noop.AI); ok {
-		t.Error("expected Ollama AI, got noop")
-	}
-	if len(warnings) != 0 {
-		t.Errorf("unexpected warnings: %v", warnings)
-	}
-}
-
 func TestAll_UnknownProvider_Warning(t *testing.T) {
 	cfg := &config.TeamConfig{}
-	cfg.Integrations.AI = makeProvider("deepseek", nil)
+	cfg.Integrations.Comms = makeProvider("deepseek", nil)
 	reg, warnings := All(cfg)
 
-	if _, ok := reg.AI().(noop.AI); !ok {
-		t.Error("expected noop AI for unknown provider")
+	if _, ok := reg.Comms().(noop.Comms); !ok {
+		t.Error("expected noop comms for unknown provider")
 	}
 	if len(warnings) != 1 {
 		t.Fatalf("expected 1 warning, got %d", len(warnings))
@@ -193,22 +164,6 @@ func TestAll_Teams_Resolves(t *testing.T) {
 	}
 }
 
-func TestAll_ClaudeCode_Resolves(t *testing.T) {
-	cfg := &config.TeamConfig{}
-	cfg.Integrations.Agent = makeProvider("claude-code", nil)
-	reg, warnings := All(cfg)
-
-	if _, ok := reg.Agent().(noop.Agent); ok {
-		t.Error("expected Claude Agent, got noop")
-	}
-	if !reg.Agent().Capabilities().MCP {
-		t.Error("Claude agent should support MCP")
-	}
-	if len(warnings) != 0 {
-		t.Errorf("unexpected warnings: %v", warnings)
-	}
-}
-
 func TestAgent_ResolvesProviders(t *testing.T) {
 	tests := []struct {
 		provider string
@@ -232,23 +187,6 @@ func TestAgent_ResolvesProviders(t *testing.T) {
 				t.Errorf("provider %q: MCP = %v, want %v", tt.provider, agent.Capabilities().MCP, tt.wantMCP)
 			}
 		})
-	}
-}
-
-func TestAll_Pi_Resolves(t *testing.T) {
-	cfg := &config.TeamConfig{}
-	cfg.Integrations.Agent = makeProvider("pi", nil)
-	reg, warnings := All(cfg)
-
-	if _, ok := reg.Agent().(noop.Agent); ok {
-		t.Error("expected pi Agent, got noop")
-	}
-	caps := reg.Agent().Capabilities()
-	if !caps.MCP || !caps.Headless || !caps.Skills || !caps.SystemPrompt {
-		t.Errorf("pi agent should support MCP, headless, skills, and system prompt; got %+v", caps)
-	}
-	if len(warnings) != 0 {
-		t.Errorf("unexpected warnings: %v", warnings)
 	}
 }
 
@@ -276,4 +214,18 @@ func makeProvider(provider string, extra map[string]string) config.ProviderConfi
 		p.Extra[k] = v
 	}
 	return p
+}
+
+// The agent is personal config, so All() must install the noop regardless of
+// what a team config says. cmd.buildRegistry overlays the user's agent.
+func TestAll_IgnoresTeamAgentConfig(t *testing.T) {
+	cfg := &config.TeamConfig{}
+	reg, warnings := All(cfg)
+
+	if _, ok := reg.Agent().(noop.Agent); !ok {
+		t.Errorf("All() agent = %T, want noop (agent is personal config)", reg.Agent())
+	}
+	if len(warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", warnings)
+	}
 }

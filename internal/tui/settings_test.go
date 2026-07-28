@@ -1,10 +1,14 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/aaronl1011/spec/internal/agentcheck"
+	"github.com/aaronl1011/spec/internal/config"
 )
 
 func TestSettings_RendersIdentity(t *testing.T) {
@@ -108,15 +112,15 @@ func TestSettings_FocusWraps(t *testing.T) {
 	rc := testResolvedConfig()
 	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
 
-	m.focused = fieldEditor
+	m.focused = fieldAgentCheck
 	m, _ = m.update(keyMsg("j"))
 	if m.focused != fieldName {
 		t.Errorf("focus after j from last = %v, want fieldName", m.focused)
 	}
 
 	m, _ = m.update(keyMsg("k"))
-	if m.focused != fieldEditor {
-		t.Errorf("focus after k from first = %v, want fieldEditor", m.focused)
+	if m.focused != fieldAgentCheck {
+		t.Errorf("focus after k from first = %v, want fieldAgentCheck", m.focused)
 	}
 }
 
@@ -439,10 +443,80 @@ func TestSettings_MouseToggleCyclesAndPersists(t *testing.T) {
 	}
 }
 
-func TestSettings_FieldEditorRemainsLast(t *testing.T) {
-	// Inserting fieldMouse must not disturb the wrap-around invariant the
-	// navigation tests rely on: fieldEditor stays the final editable field.
-	if fieldEditor != fieldCount-1 {
-		t.Errorf("fieldEditor (%d) should be the last field before fieldCount (%d)", fieldEditor, fieldCount)
+func TestSettings_AgentCheckRemainsLast(t *testing.T) {
+	// The wrap-around invariant the navigation tests rely on depends on knowing
+	// which row is final. Adding a field means updating this and TestSettings_
+	// FocusWraps together, which is the point of asserting it separately.
+	if fieldAgentCheck != fieldCount-1 {
+		t.Errorf("fieldAgentCheck (%d) should be the last field before fieldCount (%d)", fieldAgentCheck, fieldCount)
+	}
+}
+
+// The agent row is an action, not a value: enter must run the preflight rather
+// than putting the panel into an edit mode with no field to edit.
+func TestSettings_AgentRowEnterRunsPreflightNotEdit(t *testing.T) {
+	rc := testResolvedConfig()
+	rc.User.Agent = &config.ProviderConfig{Provider: "pi"}
+	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
+	m.focused = fieldAgentCheck
+
+	m, cmd := m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.isEditing() {
+		t.Error("enter on the agent row should not open an editor")
+	}
+	if !m.agentChecking {
+		t.Error("enter on the agent row should start the preflight")
+	}
+	if cmd == nil {
+		t.Fatal("enter on the agent row should dispatch the preflight command")
+	}
+}
+
+// A failed preflight must name the step that failed, and must not render a
+// provider's multi-line remediation prose inline where it would push the panel
+// off screen.
+func TestSettings_AgentCheckFailureNamesStep(t *testing.T) {
+	rc := testResolvedConfig()
+	rc.User.Agent = &config.ProviderConfig{Provider: "pi"}
+	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
+	m.focused = fieldAgentCheck
+
+	m, _ = m.update(agentCheckResultMsg{
+		Report: agentcheck.Report{Provider: "pi", FailedStep: "completion"},
+		Err:    errors.New("no API key found\nUse /login to log into a provider"),
+	})
+
+	if m.agentChecking {
+		t.Error("a finished check should clear the in-flight flag")
+	}
+	detail := stripANSI(m.renderAgentCheckDetail())
+	if !strings.Contains(detail, "completion") {
+		t.Errorf("detail = %q, want the failing step named", detail)
+	}
+	if strings.Contains(detail, "/login") {
+		t.Errorf("detail = %q, want only the first line of a multi-line error", detail)
+	}
+}
+
+// A successful preflight reports the round-trip evidence, and flags settings
+// that cannot take effect for the resolved provider.
+func TestSettings_AgentCheckSuccessShowsEvidenceAndInertKeys(t *testing.T) {
+	rc := testResolvedConfig()
+	rc.User.Agent = &config.ProviderConfig{Provider: "pi"}
+	m := newSettings(rc, NewStyles(ResolveTheme("auto")), DefaultKeyMap())
+
+	m, _ = m.update(agentCheckResultMsg{Report: agentcheck.Report{
+		Provider:      "pi",
+		LatencyMS:     3000,
+		Model:         "claude-sonnet-4-5",
+		Tokens:        18,
+		InertSettings: []string{"generate.max_tokens (the harness CLI exposes no token cap)"},
+	}})
+
+	detail := stripANSI(m.renderAgentCheckDetail())
+	for _, want := range []string{"3.0s", "claude-sonnet-4-5", "18 tokens", "generate.max_tokens"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("detail = %q, want it to contain %q", detail, want)
+		}
 	}
 }

@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/store"
 	"github.com/aaronl1011/spec/internal/thread"
 )
 
@@ -28,6 +30,13 @@ type GenericHandler struct {
 	// the background so a tool call never blocks on the network. nil when
 	// auto-push is disabled; its methods are nil-safe.
 	publisher *gitpkg.Publisher
+	// db records authoring-port writes with agent attribution. Optional
+	// throughout: the MCP server must still serve reads in a bare checkout with
+	// no config and no database, so every logging call site tolerates nil.
+	db *store.DB
+	// registry supplies the adapters transition effects need. Optional: the
+	// transition tier reports a clear error without it rather than panicking.
+	registry *adapter.Registry
 }
 
 // NewGenericHandler creates a handler that serves generic spec resources.
@@ -37,6 +46,36 @@ func NewGenericHandler(cfg *config.ResolvedConfig, specsDir string) *GenericHand
 		specsDir:  specsDir,
 		publisher: newMCPPublisher(cfg),
 	}
+}
+
+// WithDB attaches a database for activity attribution. Optional by design — a
+// handler without one serves every read and write, silently skipping only the
+// log entry.
+func (h *GenericHandler) WithDB(db *store.DB) *GenericHandler {
+	h.db = db
+	return h
+}
+
+// WithRegistry attaches the adapter registry that transition effects use.
+func (h *GenericHandler) WithRegistry(reg *adapter.Registry) *GenericHandler {
+	h.registry = reg
+	return h
+}
+
+// logAgentWrite records an authoring-port write against the agent actor kind, so
+// the activity log distinguishes an agent's tool call from a human's CLI action.
+//
+// Best-effort by design: attribution is valuable but never worth failing a write
+// the agent already performed, and the server must work with no database at all.
+func (h *GenericHandler) logAgentWrite(specID, eventType, summary string) {
+	if h.db == nil {
+		return
+	}
+	user := ""
+	if h.config != nil {
+		user = h.config.UserName()
+	}
+	_ = h.db.ActivityLogAs(specID, eventType, summary, "", user, store.ActorAgent)
 }
 
 // newMCPPublisher builds the background auto-push publisher for the MCP server,
@@ -103,7 +142,23 @@ func (h *GenericHandler) GetResource(uri string) (*Resource, error) {
 }
 
 // ListTools returns available tools.
+//
+// The authoring tier is always present; the transition tier is appended only
+// when enabled, so a disabled capability is missing from the list rather than
+// failing at call time. That makes the authority boundary discoverable by
+// looking instead of by trying.
 func (h *GenericHandler) ListTools() []Tool {
+	tools := h.baseTools()
+	tools = append(tools, authoringTools()...)
+	if h.transitionsEnabled() {
+		tools = append(tools, transitionTools()...)
+	}
+	return tools
+}
+
+// baseTools returns the read and discussion tools that predate the authoring
+// port.
+func (h *GenericHandler) baseTools() []Tool {
 	return []Tool{
 		{
 			Name:        "spec_list",
@@ -273,6 +328,25 @@ func (h *GenericHandler) CallTool(name string, args json.RawMessage) (*ToolResul
 		return h.toolListThreads(args)
 	case "spec_reply_thread":
 		return h.toolReplyThread(args)
+
+	// authoring-port/v1, authoring tier: always available.
+	case "spec_section_read":
+		return h.toolSectionRead(args)
+	case "spec_section_write":
+		return h.toolSectionWrite(args)
+	case "spec_acceptance_add":
+		return h.toolAcceptanceAdd(args)
+	case "spec_meta_update":
+		return h.toolMetaUpdate(args)
+
+	// authoring-port/v1, transition tier: opt-in. These stay reachable so a
+	// client that calls a tool tools/list omitted gets an explanation naming the
+	// preference, rather than "unknown tool".
+	case "spec_advance":
+		return h.toolAdvance(args)
+	case "spec_revert":
+		return h.toolRevert(args)
+
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}

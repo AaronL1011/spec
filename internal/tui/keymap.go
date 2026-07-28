@@ -37,9 +37,15 @@ type KeyMap struct {
 	ExpandError key.Binding // E — open the full text of the current error in a modal
 
 	// Spec actions
-	Advance       key.Binding
-	Edit          key.Binding
-	Build         key.Binding
+	Advance key.Binding
+	Edit    key.Binding
+	Build   key.Binding
+	// Draft (d) requests a one-shot agent draft of the section under the
+	// cursor; DraftSession (D) skips the one-shot and opens an interactive
+	// authoring session. The lowercase/uppercase pairing matches the
+	// established e/E and x conventions: same concept, deeper form.
+	Draft         key.Binding
+	DraftSession  key.Binding
 	Block         key.Binding // x — toggle block (confirm modal)
 	Unblock       key.Binding // u — explicit unblock (kept for dispatch)
 	ToggleArchive key.Binding // ` — toggle archive list in spec tab
@@ -175,6 +181,14 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("b"),
 			key.WithHelp("b", "start/resume build (MCP agent)"),
 		),
+		Draft: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "draft section with agent"),
+		),
+		DraftSession: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "interactive drafting session"),
+		),
 		Block: key.NewBinding(
 			key.WithKeys("x"),
 			key.WithHelp("x", "toggle block"),
@@ -268,7 +282,7 @@ func (k KeyMap) ViewBindings() []key.Binding {
 // ActionBindings returns the spec action bindings for help display.
 func (k KeyMap) ActionBindings() []key.Binding {
 	return []key.Binding{
-		k.Advance, k.Revert, k.Edit, k.Build, k.Block, k.Unblock,
+		k.Advance, k.Revert, k.Edit, k.Build, k.Draft, k.DraftSession, k.Block, k.Unblock,
 		k.Assign, k.Focus, k.Open, k.Preview, k.Yank, k.Decide, k.Push, k.Sync,
 		k.Archive, k.Restore, k.ToggleArchive,
 	}

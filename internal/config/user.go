@@ -30,10 +30,10 @@ type UserConfig struct {
 
 	Preferences PreferencesConfig `yaml:"preferences"`
 
-	// Agent is an OPTIONAL per-user coding-agent override. A coding harness is
-	// a personal tool, so each engineer may pick their own (e.g. claude-code or
-	// pi) regardless of the team default. When set (provider non-empty), it
-	// takes precedence over integrations.agent in the team config.
+	// Agent configures the coding harness and its completion plane. A harness
+	// and its auth are personal tools — teammates on one spec legitimately run
+	// different agents — so this is the ONLY place an agent is configured;
+	// integrations.agent was removed from team config.
 	Agent *ProviderConfig `yaml:"agent,omitempty"`
 
 	// Workspaces maps repo names to local filesystem paths.
@@ -42,12 +42,34 @@ type UserConfig struct {
 	Workspaces map[string]string `yaml:"workspaces,omitempty"`
 }
 
+// AgentAuthoringConfig tiers agent authority over spec content. The authoring
+// tier (section reads and writes) is always available in an agent session and
+// needs no preference: it is what makes the port useful, and every write is
+// recoverable from the specs-repo diff. Stage transitions are separate because
+// they are not symmetric with writes — they fire the pipeline's configured
+// effects (Jira status sync, Slack posts) and move work through a human review
+// pipeline.
+type AgentAuthoringConfig struct {
+	// Transitions allows spec_advance / spec_revert in agent sessions. When
+	// false (default) those tools are absent from tools/list entirely, which is
+	// self-documenting: a missing tool beats one that fails at call time.
+	Transitions bool `yaml:"transitions,omitempty"`
+}
+
 // PreferencesConfig holds personal preferences.
 type PreferencesConfig struct {
 	Editor            string   `yaml:"editor"`
 	DashboardSections []string `yaml:"dashboard_sections"`
 	StandupAutoPost   bool     `yaml:"standup_auto_post"`
-	AIDrafts          *bool    `yaml:"ai_drafts,omitempty"`
+	// AgentDrafts gates agent-assisted drafting. Renamed from ai_drafts, which
+	// gated on an integration this release deletes; lint reports the old
+	// spelling with its replacement.
+	AgentDrafts *bool `yaml:"agent_drafts,omitempty"`
+
+	// AgentAuthoring tiers what an agent session may do through the MCP
+	// authoring port. Reads and section writes are always available; stage
+	// transitions are opt-in because they fire team-visible pipeline effects.
+	AgentAuthoring AgentAuthoringConfig `yaml:"agent_authoring,omitempty"`
 
 	// Theme sets the TUI colour theme.
 	// Valid values: auto (default), catppuccin-mocha, catppuccin-latte,
@@ -110,13 +132,15 @@ const (
 	MultiplexerNone    = "none"
 )
 
-// AIDraftsEnabled returns whether AI drafts are enabled.
-// Defaults to true if not explicitly set.
-func (p PreferencesConfig) AIDraftsEnabled() bool {
-	if p.AIDrafts == nil {
+// AgentDraftsEnabled returns whether agent-assisted drafting is enabled.
+// Defaults to true if not explicitly set: an agent that is configured should
+// work without a second opt-in, and skipping agent setup leaves the provider
+// unset so nothing is offered anyway.
+func (p PreferencesConfig) AgentDraftsEnabled() bool {
+	if p.AgentDrafts == nil {
 		return true
 	}
-	return *p.AIDrafts
+	return *p.AgentDrafts
 }
 
 // AutoNavigateEnabled returns whether auto-navigation to new repos is enabled.
@@ -172,11 +196,19 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading user config %s: %w", path, err)
 	}
+	// Capture the token's literal spelling before interpolation so a later
+	// marshal (e.g. a TUI settings save) re-emits ${VAR} rather than the
+	// resolved secret.
+	tokenSource := agentTokenSource(data)
+
 	data = interpolateEnvVars(data)
 
 	var cfg UserConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing user config %s: %w", path, err)
+	}
+	if cfg.Agent != nil && tokenSource != "" {
+		cfg.Agent.SetTokenSource(tokenSource)
 	}
 
 	// Defaults

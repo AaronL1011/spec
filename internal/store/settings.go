@@ -88,6 +88,43 @@ func (db *DB) ReaderPositionSet(specID, section string, offset int) error {
 	return nil
 }
 
+// noticeAckSettingPrefix namespaces one-time notices the user has dismissed, so
+// a migration warning can be loud once rather than nagging on every launch.
+const noticeAckSettingPrefix = "notice_ack:"
+
+// NoticeAcknowledged reports whether the user has already dismissed a one-time
+// notice.
+//
+// A store error counts as "not acknowledged": showing a notice twice is a much
+// cheaper mistake than silently swallowing a migration warning, which is the
+// failure this whole path exists to prevent.
+func (db *DB) NoticeAcknowledged(id string) bool {
+	if db == nil {
+		return false
+	}
+	var seen int
+	err := db.conn.QueryRow(
+		"SELECT 1 FROM settings WHERE key = ?", noticeAckSettingPrefix+id,
+	).Scan(&seen)
+	return err == nil
+}
+
+// NoticeAcknowledge records that the user has dismissed a one-time notice.
+func (db *DB) NoticeAcknowledge(id string) error {
+	if db == nil {
+		return nil
+	}
+	_, err := db.conn.Exec(
+		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+		noticeAckSettingPrefix+id, "1", time.Now().Unix(),
+	)
+	if err != nil {
+		return fmt.Errorf("notice acknowledge %q: %w", id, err)
+	}
+	return nil
+}
+
 const lastFetchSettingPrefix = "last_fetch:"
 
 // LastFetchGet returns the timestamp of the last successful fetch for a specs

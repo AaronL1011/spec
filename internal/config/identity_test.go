@@ -14,8 +14,6 @@ func teamWith(providers map[string]string) *TeamConfig {
 	tc.Integrations.PM.Provider = providers["pm"]
 	tc.Integrations.Docs.Provider = providers["docs"]
 	tc.Integrations.Repo.Provider = providers["repo"]
-	tc.Integrations.Agent.Provider = providers["agent"]
-	tc.Integrations.AI.Provider = providers["ai"]
 	tc.Integrations.Design.Provider = providers["design"]
 	tc.Integrations.Deploy.Provider = providers["deploy"]
 	return tc

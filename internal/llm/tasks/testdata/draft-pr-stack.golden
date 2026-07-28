@@ -1,0 +1,21 @@
+TASK: draft-pr-stack
+SYSTEM: You are a tech lead decomposing a specification into a stack of pull requests. Each node must be independently reviewable and leave the system working when merged. Order strictly by dependency, and only declare a dependency that genuinely exists — nodes with no unmet dependency run in parallel, so spurious edges serialise work needlessly.
+---
+Propose a PR stack plan for SPEC-034 ("Checkout timeout handling").
+
+Output one node per line, numbered, in exactly this format:
+    N. [repo:layer] Description (after: A, B)
+
+Rules: ':layer' is optional and routes skills; '(after: ...)' lists dependency edges to earlier node numbers and is omitted for root nodes. Do not author draft-PR URLs. Output the list only, with no commentary.
+
+## Target repos (use only these)
+
+payments-api, checkout-web
+
+## Proposed Solution
+
+Queue the capture step and reconcile asynchronously.
+
+## Problem Statement
+
+Checkout requests exceeding 30s time out silently for ~4% of paid conversions.

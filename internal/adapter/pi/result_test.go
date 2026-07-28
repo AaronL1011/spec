@@ -103,6 +103,40 @@ func TestParseHeadlessStream_TokenAliasesAndTotal(t *testing.T) {
 	}
 }
 
+// A session's messages sum, but each message's usage arrives as a cumulative
+// snapshot re-emitted on every event that touches it. Two messages of 2/4 each
+// must total 4/8 — not the 12/24 that summing every snapshot would produce.
+func TestParseHeadlessStream_CumulativeSnapshotsCountOncePerMessage(t *testing.T) {
+	stream := strings.Join([]string{
+		`{"type":"message_start","message":{"usage":{"input":0,"output":0}}}`,
+		`{"type":"message_update","message":{"usage":{"input":2,"output":4}}}`,
+		`{"type":"message_end","message":{"usage":{"input":2,"output":4}}}`,
+		`{"type":"turn_end","message":{"usage":{"input":2,"output":4}}}`,
+		`{"type":"message_update","message":{"usage":{"input":2,"output":4}}}`,
+		`{"type":"message_end","message":{"usage":{"input":2,"output":4}}}`,
+		`{"type":"agent_end","messages":[]}`,
+	}, "\n")
+
+	res := parseHeadlessStream(strings.NewReader(stream))
+	if res.Tokens.Input != 4 || res.Tokens.Output != 8 || res.Tokens.Total != 12 {
+		t.Errorf("Tokens = %+v, want in4/out8/total12 (two messages, counted once each)", res.Tokens)
+	}
+}
+
+// A run cancelled or crashed mid-message still reports what it cost, so a
+// failed session is not silently free in the activity log.
+func TestParseHeadlessStream_UnfinishedMessageStillCounted(t *testing.T) {
+	stream := strings.Join([]string{
+		`{"type":"message_start","message":{"usage":{"input":0,"output":0}}}`,
+		`{"type":"message_update","message":{"usage":{"input":9,"output":3}}}`,
+	}, "\n")
+
+	res := parseHeadlessStream(strings.NewReader(stream))
+	if res.Tokens.Input != 9 || res.Tokens.Output != 3 {
+		t.Errorf("Tokens = %+v, want the in-flight message's usage retained", res.Tokens)
+	}
+}
+
 func TestAppendTail_BoundsLength(t *testing.T) {
 	var b strings.Builder
 	for i := 0; i < 5000; i++ {

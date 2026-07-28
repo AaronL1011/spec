@@ -78,6 +78,16 @@ func resolveConfig() (*config.ResolvedConfig, error) {
 	}
 	cachedConfig, cachedConfigEr = config.Resolve()
 	cachedConfigSet = true
+
+	// Warn about ignored team-config keys here rather than at adapter
+	// resolution: every command resolves config, but only some build a
+	// registry, so warning there would let a user who only runs `spec list`
+	// never learn their agent silently vanished. Deduped per process.
+	if cachedConfig != nil {
+		for _, warn := range config.AgentConfigWarnings(cachedConfig.Team) {
+			fmt.Fprintf(os.Stderr, "spec: %s\n", warn)
+		}
+	}
 	return cachedConfig, cachedConfigEr
 }
 
@@ -286,14 +296,13 @@ func buildRegistry(rc *config.ResolvedConfig) *adapter.Registry {
 			WithDocs(noop.Docs{}).
 			WithRepo(noop.Repo{}).
 			WithAgent(noop.Agent{}).
-			WithDeploy(noop.Deploy{}).
-			WithAI(noop.AI{})
+			WithDeploy(noop.Deploy{})
 	}
 
-	// Per-user coding-agent override: a harness is a personal tool, so the
-	// user's ~/.spec/config.yaml `agent:` wins over the team default.
-	if rc.User != nil && rc.User.Agent != nil && rc.User.Agent.Provider != "" {
-		agent, warn := resolve.Agent(*rc.User.Agent)
+	// The agent comes solely from personal config: a harness and its auth are
+	// individual tools, so there is no team default to fall back to.
+	if agentCfg := rc.EffectiveAgentConfig(); agentCfg.Provider != "" {
+		agent, warn := resolve.Agent(agentCfg)
 		if warn != "" {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", warn)
 		}

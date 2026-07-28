@@ -29,6 +29,7 @@ func init() {
 	reviewCmd.Flags().Bool("approve", false, "approve the plan review (use with --plan)")
 	reviewCmd.Flags().Bool("request-changes", false, "request changes to the plan (use with --plan)")
 	reviewCmd.Flags().String("feedback", "", "feedback message when requesting changes")
+	reviewCmd.Flags().Bool("assist", false, "print advisory agent notes on the plan (use with --plan); the verdict stays yours")
 	rootCmd.AddCommand(reviewCmd)
 }
 
@@ -41,6 +42,12 @@ func runReview(cmd *cobra.Command, args []string) error {
 	isPlanReview, _ := cmd.Flags().GetBool("plan")
 	if isPlanReview {
 		return runPlanReview(cmd, specID)
+	}
+
+	// --assist reviews a plan, so it needs --plan. Silently ignoring it would
+	// leave a user believing they had asked for notes they never received.
+	if assist, _ := cmd.Flags().GetBool("assist"); assist {
+		return fmt.Errorf("--assist reviews a build plan — rerun as 'spec review %s --plan --assist'", specID)
 	}
 
 	rc, err := resolveConfig()
@@ -128,6 +135,14 @@ func runPlanReview(cmd *cobra.Command, specID string) error {
 	plan := planning.FromMeta(meta)
 	if plan == nil || !plan.HasSteps() {
 		return fmt.Errorf("no build plan defined for %s", specID)
+	}
+
+	// Advisory notes are dispatched before any verdict handling and leave the
+	// review status untouched: they are a reading aid for the human reviewer, not
+	// a vote. This also runs for a plan with no pending review, because reading a
+	// plan critically is useful whether or not a verdict is owed.
+	if assist, _ := cmd.Flags().GetBool("assist"); assist {
+		return runPlanAssist(cmd, rc, specID)
 	}
 
 	if plan.Review == nil || plan.Review.Status != planning.ReviewPending {

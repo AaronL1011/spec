@@ -49,7 +49,7 @@ func testRegistry() *adapter.Registry {
 		WithDocs(noop.Docs{}).
 		WithRepo(noop.Repo{}).
 		WithAgent(noop.Agent{}).
-		WithDeploy(noop.Deploy{}).
-		WithAI(noop.AI{})
+		WithDeploy(noop.Deploy{})
+
 	return reg
 }

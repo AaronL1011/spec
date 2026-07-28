@@ -10,15 +10,21 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/adapter/harness"
 )
 
 // Agent implements adapter.AgentAdapter for Claude Code.
 type Agent struct {
 	// Command is the CLI executable name. Defaults to "claude".
 	Command string
+	// Model overrides the harness default for completions, in Claude Code's own
+	// spelling. Empty uses whatever the harness is configured for.
+	Model string
+	// Timeout bounds one contained completion. Zero uses harness.DefaultTimeout.
+	Timeout time.Duration
 }
 
 // NewAgent creates a Claude Code AgentAdapter.
@@ -39,7 +45,7 @@ func (a *Agent) Invoke(ctx context.Context, req adapter.InvokeRequest) (*adapter
 	}
 
 	if req.MCPConfigPath != "" && req.WorkDir != "" {
-		restore, err := installMCPConfig(req.MCPConfigPath, req.WorkDir)
+		restore, err := harness.InstallMCPConfig(req.MCPConfigPath, req.WorkDir)
 		if err != nil {
 			return nil, err
 		}
@@ -75,37 +81,4 @@ func (a *Agent) Invoke(ctx context.Context, req adapter.InvokeRequest) (*adapter
 		return nil, fmt.Errorf("claude exited with error: %w", err)
 	}
 	return &adapter.InvokeResult{}, nil
-}
-
-// Capabilities reports Claude Code's supported features. Claude Code is
-// MCP-native and accepts an appended system prompt; skill-dir mapping is not
-// handled here, so skill bodies are folded into the system prompt by the engine.
-func (a *Agent) Capabilities() adapter.Capabilities {
-	return adapter.Capabilities{MCP: true, SystemPrompt: true}
-}
-
-// installMCPConfig writes the engine-generated MCP config to <workDir>/.mcp.json
-// and returns a restore function that puts back any pre-existing file (or
-// removes the one we created) when the session ends.
-func installMCPConfig(mcpConfigPath, workDir string) (func(), error) {
-	src, err := os.ReadFile(mcpConfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("reading mcp config: %w", err)
-	}
-
-	dest := filepath.Join(workDir, ".mcp.json")
-	prev, prevErr := os.ReadFile(dest)
-	hadPrev := prevErr == nil
-
-	if err := os.WriteFile(dest, src, 0o644); err != nil {
-		return nil, fmt.Errorf("writing %s: %w", dest, err)
-	}
-
-	return func() {
-		if hadPrev {
-			_ = os.WriteFile(dest, prev, 0o644)
-		} else {
-			_ = os.Remove(dest)
-		}
-	}, nil
 }

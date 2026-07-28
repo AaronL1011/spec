@@ -8,31 +8,26 @@ import (
 	"github.com/aaronl1011/spec/internal/config"
 )
 
-func TestBuildRegistry_PerUserAgentOverride(t *testing.T) {
-	team := &config.TeamConfig{}
-	team.Integrations.Agent = config.ProviderConfig{Provider: "claude-code"}
-
-	// User overrides the team's claude-code with pi.
+// The agent comes from personal config alone. A team config cannot supply one,
+// so the presence of a team config must not change the resolved agent.
+func TestBuildRegistry_AgentComesFromPersonalConfig(t *testing.T) {
 	rc := &config.ResolvedConfig{
-		Team: team,
+		Team: &config.TeamConfig{},
 		User: &config.UserConfig{Agent: &config.ProviderConfig{Provider: "pi"}},
 	}
 
 	reg := buildRegistry(rc)
 	if _, ok := reg.Agent().(*pi.Agent); !ok {
-		t.Errorf("expected pi agent from per-user override, got %T", reg.Agent())
+		t.Errorf("expected pi agent from personal config, got %T", reg.Agent())
 	}
 }
 
-func TestBuildRegistry_TeamDefaultWhenNoUserOverride(t *testing.T) {
-	team := &config.TeamConfig{}
-	team.Integrations.Agent = config.ProviderConfig{Provider: "pi"}
-
-	rc := &config.ResolvedConfig{Team: team}
+func TestBuildRegistry_TeamConfigAloneYieldsNoAgent(t *testing.T) {
+	rc := &config.ResolvedConfig{Team: &config.TeamConfig{}}
 
 	reg := buildRegistry(rc)
-	if _, ok := reg.Agent().(*pi.Agent); !ok {
-		t.Errorf("expected pi agent from team default, got %T", reg.Agent())
+	if _, ok := reg.Agent().(noop.Agent); !ok {
+		t.Errorf("team config cannot configure an agent; want noop, got %T", reg.Agent())
 	}
 }
 

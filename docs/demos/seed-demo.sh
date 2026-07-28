@@ -29,7 +29,7 @@ preferences:
   theme: ayu-mirage
   refresh_interval: 30s
   mouse: false
-  ai_drafts: true
+  agent_drafts: true
 YAML
 
 # Deliberately omit specs_repo. config.Resolve discovers this managed clone by

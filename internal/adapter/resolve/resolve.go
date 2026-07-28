@@ -5,6 +5,7 @@ package resolve
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aaronl1011/spec/internal/adapter"
@@ -14,7 +15,6 @@ import (
 	gh "github.com/aaronl1011/spec/internal/adapter/github"
 	"github.com/aaronl1011/spec/internal/adapter/jira"
 	"github.com/aaronl1011/spec/internal/adapter/noop"
-	"github.com/aaronl1011/spec/internal/adapter/ollama"
 	"github.com/aaronl1011/spec/internal/adapter/pi"
 	"github.com/aaronl1011/spec/internal/adapter/slack"
 	"github.com/aaronl1011/spec/internal/adapter/teams"
@@ -56,12 +56,10 @@ func All(cfg *config.TeamConfig) (*adapter.Registry, []string) {
 	}
 	reg.WithRepo(repo)
 
-	// Agent
-	agent, warn := resolveAgent(cfg)
-	if warn != "" {
-		warnings = append(warnings, warn)
-	}
-	reg.WithAgent(agent)
+	// Agent: personal config only, so All() installs the noop and the caller
+	// overlays the user's agent (see cmd.buildRegistry). A team config can no
+	// longer configure a harness for the whole team.
+	reg.WithAgent(noop.Agent{})
 
 	// Deploy
 	deploy, warn := resolveDeploy(cfg)
@@ -69,13 +67,6 @@ func All(cfg *config.TeamConfig) (*adapter.Registry, []string) {
 		warnings = append(warnings, warn)
 	}
 	reg.WithDeploy(deploy)
-
-	// AI
-	ai, warn := resolveAI(cfg)
-	if warn != "" {
-		warnings = append(warnings, warn)
-	}
-	reg.WithAI(ai)
 
 	return reg, warnings
 }
@@ -221,26 +212,42 @@ func resolveRepo(cfg *config.TeamConfig) (adapter.RepoAdapter, string) {
 	}
 }
 
-func resolveAgent(cfg *config.TeamConfig) (adapter.AgentAdapter, string) {
-	return Agent(cfg.Integrations.Agent)
-}
-
-// Agent resolves a coding-agent adapter from a single provider config. It is
-// exported so callers can resolve a per-user agent override independently of
-// the team registry (see ResolvedConfig.EffectiveAgentConfig).
+// Agent resolves a coding-agent adapter from a single provider config. The
+// agent is personal config, so callers pass ResolvedConfig.EffectiveAgentConfig
+// rather than anything from the team registry.
 func Agent(agentCfg config.ProviderConfig) (adapter.AgentAdapter, string) {
 	provider := agentCfg.Provider
 	switch provider {
 	case "", "none":
 		return noop.Agent{}, ""
 	case "claude-code":
-		return claude.NewAgent(agentCfg.Get("command")), ""
+		agent := claude.NewAgent(agentCfg.Get("command"))
+		agent.Model = agentCfg.Generate.Model
+		agent.Timeout = generateTimeout(agentCfg)
+		return agent, ""
 	case "pi":
-		return pi.NewAgent(agentCfg.Get("command")), ""
+		agent := pi.NewAgent(agentCfg.Get("command"))
+		agent.Model = agentCfg.Generate.Model
+		agent.Timeout = generateTimeout(agentCfg)
+		return agent, ""
+	case "anthropic":
+		token := agentCfg.Get("token")
+		if token == "" {
+			return noop.Agent{}, "anthropic agent: token not configured — drafting disabled"
+		}
+		return anthropic.NewClient(token, agentCfg.Get("model")), ""
 	case "cursor", "copilot":
 		return noop.Agent{}, fmt.Sprintf("%s agent adapter not yet implemented — agent disabled", provider)
 	default:
-		return noop.Agent{}, fmt.Sprintf("unknown agent provider %q — agent disabled", provider)
+		if preset, ok := completionPresets[provider]; ok {
+			return completionAgent(preset, agentCfg)
+		}
+		// Teach the general mechanism, not just the enumeration: an unanticipated
+		// server is reachable through openai-compatible + base_url with no spec
+		// release, so the error names that escape hatch alongside the valid names.
+		return noop.Agent{}, fmt.Sprintf(
+			"unknown agent provider %q — agent disabled; valid providers: claude-code, pi, anthropic, %s; for any other OpenAI-compatible server use provider 'openai-compatible' with generate.base_url",
+			provider, strings.Join(completionPresetNames(), ", "))
 	}
 }
 
@@ -267,28 +274,5 @@ func resolveDeploy(cfg *config.TeamConfig) (adapter.DeployAdapter, string) {
 		return noop.Deploy{}, fmt.Sprintf("%s deploy adapter not yet implemented — deploy disabled", provider)
 	default:
 		return noop.Deploy{}, fmt.Sprintf("unknown deploy provider %q — deploy disabled", provider)
-	}
-}
-
-func resolveAI(cfg *config.TeamConfig) (adapter.AIAdapter, string) {
-	provider := cfg.Integrations.AI.Provider
-	switch provider {
-	case "", "none":
-		return noop.AI{}, ""
-	case "anthropic":
-		token := cfg.Integrations.AI.Get("token")
-		if token == "" {
-			return noop.AI{}, "anthropic: token not configured — AI disabled"
-		}
-		model := cfg.Integrations.AI.Get("model")
-		return anthropic.NewClient(token, model), ""
-	case "ollama":
-		model := cfg.Integrations.AI.Get("model")
-		baseURL := cfg.Integrations.AI.Get("base_url")
-		return ollama.NewClient(model, baseURL), ""
-	case "openai":
-		return noop.AI{}, "openai adapter not yet implemented — AI disabled"
-	default:
-		return noop.AI{}, fmt.Sprintf("unknown AI provider %q — AI disabled", provider)
 	}
 }

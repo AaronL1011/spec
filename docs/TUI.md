@@ -135,6 +135,8 @@ These keys work in top-level spec lists and the detail overview where relevant.
 | `v` | Revert to an earlier stage with a reason |
 | `e` | Edit in the configured editor, or show docs URL for external roles |
 | `b` | Validate and start/resume the configured coding agent |
+| `d` | Draft the next empty section and review it before anything is written |
+| `D` | Open an interactive authoring session — prompts for what the session should work on (blank Enter opens a general session) |
 | `x` | Block with a reason |
 | `u` | Resume a blocked spec |
 | `g c` | Claim, assign handles, or type `-` to unassign |
@@ -149,6 +151,44 @@ These keys work in top-level spec lists and the detail overview where relevant.
 
 Actions that move or remove work use confirmation modals. In confirmation
 modals press `y` or `n`; Esc cancels.
+
+`d` and `D` appear only when the configured agent supports the plane they need.
+Run `spec agent check` if either is missing.
+
+---
+
+## Drafting a section
+
+Empty sections show `· press d to draft` in the reader. In the reader, `d`
+drafts the section under the cursor (falling forward to the next empty owner
+section if the current one already has content); from a list or the overview it
+drafts the first empty owner section. The draft opens the review modal; nothing
+is written to the spec until you accept.
+
+While generating, the modal shows the task name and a live elapsed counter — a
+local model can take tens of seconds, so this distinguishes slow from stuck. Esc
+cancels the generation itself, not just the modal.
+
+| Key | Action |
+| --- | --- |
+| `a` | Accept and write the attempt shown |
+| `e` | Open the draft in `$EDITOR`, then accept the edited text |
+| `r` | Retry from scratch |
+| `R` | Retry with a note ("shorter", "weigh the queue option") |
+| `[` `]` | Move between attempts |
+| `i` | Escalate to an interactive session, carrying the draft and your notes |
+| `s` | Skip; writes nothing |
+
+Every attempt is kept, so `[` returns to an earlier draft and `a` accepts the one
+on screen rather than the newest. Retries and edits are recorded in the activity
+log, attributed to the agent.
+
+`i` appears only with a session-capable provider. It hands the rejected draft and
+every note to the session, so it starts knowing what was already tried.
+
+After accepting, spec offers the next empty section, so a spec can be drafted
+end to end without leaving the modal. Auto-maintained sections (escape hatch log,
+retrospective, decision log) are never offered.
 
 ---
 

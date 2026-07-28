@@ -14,7 +14,6 @@ type Registry struct {
 	repo   RepoAdapter
 	agent  AgentAdapter
 	deploy DeployAdapter
-	ai     AIAdapter
 }
 
 // NewRegistry creates a new adapter registry from team configuration.
@@ -42,9 +41,6 @@ func (r *Registry) WithAgent(a AgentAdapter) *Registry { r.agent = a; return r }
 // WithDeploy sets the deploy adapter.
 func (r *Registry) WithDeploy(a DeployAdapter) *Registry { r.deploy = a; return r }
 
-// WithAI sets the AI adapter.
-func (r *Registry) WithAI(a AIAdapter) *Registry { r.ai = a; return r }
-
 // Comms returns the comms adapter.
 func (r *Registry) Comms() CommsAdapter { return r.comms }
 
@@ -62,9 +58,6 @@ func (r *Registry) Agent() AgentAdapter { return r.agent }
 
 // Deploy returns the deploy adapter.
 func (r *Registry) Deploy() DeployAdapter { return r.deploy }
-
-// AI returns the AI adapter.
-func (r *Registry) AI() AIAdapter { return r.ai }
 
 // Config returns the team configuration.
 func (r *Registry) Config() *config.TeamConfig { return r.cfg }

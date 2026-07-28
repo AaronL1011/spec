@@ -1,0 +1,27 @@
+TASK: extract-decision
+SYSTEM: You are recording a technical decision that has already been made in discussion. Capture the decision, the alternatives that were actually considered, and the stated reasoning. Do not invent alternatives nobody raised, do not add reasoning nobody gave, and do not soften or second-guess the decision. If the discussion did not reach a decision, say so in one line instead of inventing one.
+---
+Extract the decision from the discussion below.
+
+Output exactly these fields, each on its own line:
+Decision: <one sentence, in the past tense>
+Alternatives: <semicolon-separated, only those actually discussed>
+Rationale: <one or two sentences of the reasoning given>
+
+## Discussion
+
+Ada: queue or synchronous retry?
+Grace: retry keeps latency unbounded under load.
+Ada: agreed, queue it.
+
+## Problem Statement
+
+Checkout requests exceeding 30s time out silently for ~4% of paid conversions.
+
+## Goals Non Goals
+
+Goal: every checkout completes or reports an actionable failure within 30s.
+
+## Proposed Solution
+
+Queue the capture step and reconcile asynchronously.

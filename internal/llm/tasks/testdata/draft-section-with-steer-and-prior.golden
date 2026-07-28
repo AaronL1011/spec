@@ -1,0 +1,27 @@
+TASK: draft-section
+SYSTEM: You are a senior engineer drafting a section of a software specification. Write only the section body: no heading, no preamble, no meta-commentary about being an AI. Be concrete and specific to the spec you are given; prefer plain language over jargon, and do not invent facts, names, or numbers that the provided context does not support. If the context is too thin to write the section responsibly, say what is missing in one line instead of padding.
+---
+Draft the "Problem Statement" section for SPEC-034 ("Checkout timeout handling").
+
+Write the section body only, in markdown.
+
+## Goals Non Goals
+
+Goal: every checkout completes or reports an actionable failure within 30s.
+
+## Proposed Solution
+
+Queue the capture step and reconcile asynchronously.
+
+## Decision Log
+
+| 001 | Queue vs synchronous retry | Queue | Bounded latency |
+
+## Previous attempt (rejected)
+
+The checkout is slow sometimes.
+
+## Reviewer feedback
+
+1. lead with the revenue impact
+2. two sentences max on the mechanism

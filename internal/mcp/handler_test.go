@@ -14,6 +14,9 @@ func TestGenericHandler_ListTools(t *testing.T) {
 	handler := NewGenericHandler(nil, ".")
 	tools := handler.ListTools()
 
+	// Read and discussion tools, plus the always-available authoring tier. The
+	// count is derived rather than hard-coded so adding a tool does not require
+	// editing a magic number, while a *missing* tool still fails.
 	expected := []string{
 		"spec_list",
 		"spec_read",
@@ -25,10 +28,11 @@ func TestGenericHandler_ListTools(t *testing.T) {
 		"spec_validate",
 		"spec_list_threads",
 		"spec_reply_thread",
-	}
-
-	if len(tools) != len(expected) {
-		t.Errorf("expected %d tools, got %d", len(expected), len(tools))
+		// authoring-port/v1, authoring tier
+		"spec_section_read",
+		"spec_section_write",
+		"spec_acceptance_add",
+		"spec_meta_update",
 	}
 
 	toolNames := make(map[string]bool)
@@ -39,6 +43,14 @@ func TestGenericHandler_ListTools(t *testing.T) {
 	for _, name := range expected {
 		if !toolNames[name] {
 			t.Errorf("expected tool %q not found", name)
+		}
+	}
+
+	// Transitions are opt-in and must not appear without config, so a handler
+	// with no config at all cannot advance a spec.
+	for _, name := range []string{"spec_advance", "spec_revert"} {
+		if toolNames[name] {
+			t.Errorf("transition tool %q must be absent unless explicitly enabled", name)
 		}
 	}
 }

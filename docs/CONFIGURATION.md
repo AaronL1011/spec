@@ -487,40 +487,169 @@ Reviews view and PR status/gates.
 
 ### Coding agent
 
+The agent is configured **once, in personal config** (`~/.spec/config.yaml`) and
+serves two planes:
+
+| Plane | Powers | Requires |
+| --- | --- | --- |
+| Completions | `spec draft`, TUI `d` | `Generate` capability |
+| Sessions | `spec build`, `spec draft --interactive`, TUI `b`/`D` | `MCP` capability |
+
+A harness serves both. A completion endpoint serves the first only. Nothing in
+team config selects an agent: it depends on what each person has installed and
+pays for, and a shared default would break for everyone who chose differently.
+
 ```yaml
-integrations:
-  agent:
-    provider: pi            # or claude-code
-    command: pi             # optional override
+# ~/.spec/config.yaml
+agent:
+  provider: pi              # pi | claude-code | openai-compatible | anthropic | none
+  command: pi               # optional binary override
 ```
 
-The executable must be on PATH. Users may override the team default in personal
-config. Run `spec build --check` to see the effective provider and capabilities.
+Verify any configuration end to end:
 
-### AI
-
-#### Anthropic
-
-```yaml
-integrations:
-  ai:
-    provider: anthropic
-    token: ${ANTHROPIC_API_KEY}
-    model: claude-opus-4-5
+```bash
+spec agent check
 ```
 
-#### Ollama
+This reports the reachable binary or endpoint, which planes are available, and
+the latency of a real contained round-trip. Use it before relying on an agent
+mid-draft.
+
+#### Harnesses
 
 ```yaml
+agent:
+  provider: claude-code     # or: pi
+```
+
+The binary must be on PATH. Harnesses reuse their own authentication, so no token
+belongs in spec's config. Both planes are available.
+
+Headless completions are contained: no tools, no MCP servers, no session
+persistence, an empty working directory, and closed stdin. A drafting call cannot
+touch the repository.
+
+#### Completion endpoints
+
+```yaml
+agent:
+  provider: openai-compatible
+  generate:
+    base_url: http://localhost:11434/v1
+    model: qwen2.5-coder:14b
+```
+
+Any server speaking the OpenAI `/chat/completions` shape works. Presets fill in
+`base_url` when omitted:
+
+| Provider | Default `base_url` |
+| --- | --- |
+| `ollama` | `http://localhost:11434/v1` |
+| `llama-server` | `http://localhost:8080/v1` |
+| `lmstudio` | `http://localhost:1234/v1` |
+| `openai` | `https://api.openai.com/v1` |
+| `openai-compatible` | none — set it explicitly |
+
+Hosted providers need a token, given as an environment reference:
+
+```yaml
+agent:
+  provider: openai
+  generate:
+    model: gpt-4o
+    token: ${SPEC_LLM_TOKEN}
+```
+
+Anthropic's native API is also supported:
+
+```yaml
+agent:
+  provider: anthropic
+  generate:
+    model: claude-sonnet-4-5
+    token: ${SPEC_LLM_TOKEN}
+```
+
+Endpoint providers serve completions only, so `spec build` degrades to its solo
+fallback and `spec draft --interactive` falls back to one-shot drafting.
+
+#### Generation settings
+
+```yaml
+agent:
+  provider: openai-compatible
+  generate:
+    base_url: http://localhost:1234/v1
+    model: qwen2.5-coder:14b
+    max_tokens: 4096
+    token: ${SPEC_LLM_TOKEN}
+    timeout: 120s
+```
+
+| Key | Applies to | Notes |
+| --- | --- | --- |
+| `model` | all | Passed through verbatim; spec does not translate names |
+| `base_url` | endpoints | Ignored by harnesses |
+| `token` | endpoints | Must be `${VAR}`; a literal is refused |
+| `max_tokens` | endpoints | Harness CLIs expose no cap |
+| `timeout` | all | Default `120s`; local models on cold cache are slow |
+
+`spec agent check` names any setting that cannot take effect for the resolved
+provider, so a value that looks effective but is not gets reported rather than
+silently ignored.
+
+#### Turning drafting off
+
+```yaml
+preferences:
+  agent_drafts: false
+```
+
+This hides draft affordances while leaving sessions working — the planes are
+independent. Defaults to enabled, so drafting works as soon as an agent exists.
+
+#### Letting a session move stages
+
+Section writes are always available in a session. Stage transitions are not,
+because they fire the pipeline's team-visible effects (Jira sync, Slack posts):
+
+```yaml
+preferences:
+  agent_authoring:
+    transitions: true
+```
+
+While disabled, `spec_advance` and `spec_revert` are absent from `tools/list`
+entirely rather than failing when called.
+
+#### Migrating from `integrations.ai` / `integrations.agent`
+
+Both keys were removed. Move the agent into personal config and rename `ai` to
+`agent.generate`:
+
+```yaml
+# before — team config
 integrations:
-  ai:
-    provider: ollama
+  agent: {provider: pi}
+  ai: {provider: ollama, model: llama3, base_url: http://localhost:11434}
+
+# after — personal config (~/.spec/config.yaml)
+agent:
+  provider: pi                      # keep the harness for both planes
+  generate:                         # or, for a completion endpoint:
+    base_url: http://localhost:11434/v1
     model: llama3
-    base_url: http://localhost:11434
 ```
 
-AI is optional. Draft commands produce content for review; core lifecycle and
-reader functionality do not depend on AI.
+Note the `/v1` suffix: the completion adapter speaks the OpenAI-compatible API
+rather than Ollama's native one, so an existing `base_url` needs it appended.
+
+`preferences.ai_drafts` is now `preferences.agent_drafts`.
+
+`spec config lint` flags every removed and renamed key with the replacement.
+Removed keys warn rather than hard-fail, so a stale team config does not break
+commands for anyone still on an older binary.
 
 ### Deploy: GitHub Actions
 
@@ -755,7 +884,7 @@ preferences:
   editor: code
   dashboard_sections: [do, review, incoming, blocked]
   standup_auto_post: false
-  ai_drafts: true
+  agent_drafts: true
   theme: catppuccin-mocha
   refresh_interval: 30s
   mouse: true
@@ -773,7 +902,7 @@ Themes include `auto`, Catppuccin variants, Gruvbox, Dracula, Tokyo Night,
 Nord, Solarized, Rose Pine, Kanagawa, Everforest, GitHub, Ayu, Modus, and
 Graphite. The Settings selector is the authoritative list.
 
-### Personal agent override
+### Personal agent
 
 ```yaml
 agent:
@@ -783,9 +912,13 @@ agent:
   skill: ~/skills/spec-build
   router: registry
   strategy: stacked-draft-pr
+  generate:
+    model: qwen2.5-coder:14b
 ```
 
-A non-empty personal agent overrides `integrations.agent` for that user.
+This is the only place an agent is configured; team config has no agent key. See
+[Coding agent](#coding-agent) for the full reference and `spec agent check` to
+verify it.
 
 ### Workspaces
 
@@ -818,6 +951,17 @@ variables. `spec config test` is not a network test.
 
 **Jira status mapping is wrong:** run `spec config check` and use its printed
 workflow statuses.
+
+**Drafting says no completion plane:** the provider serves sessions only. Run
+`spec agent check` to see which planes are available, and configure a completion
+endpoint under `agent.generate` if you want `spec draft`.
+
+**`spec draft` reports a removed key:** `integrations.ai` and
+`integrations.agent` no longer exist. See
+[Migrating](#migrating-from-integrationsai--integrationsagent).
+
+**Draft keys are missing in the TUI:** either no agent is configured or
+`preferences.agent_drafts` is false. `spec agent check` distinguishes the two.
 
 **Build repository is unresolved:** add it under personal `workspaces`, then
 run `spec build --check`.

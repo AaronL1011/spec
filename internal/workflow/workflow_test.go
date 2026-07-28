@@ -32,7 +32,7 @@ func testConfig(role string) *config.ResolvedConfig {
 func testRegistry() *adapter.Registry {
 	reg := adapter.NewRegistry(nil)
 	reg.WithComms(noop.Comms{}).WithPM(noop.PM{}).WithDocs(noop.Docs{}).
-		WithRepo(noop.Repo{}).WithAgent(noop.Agent{}).WithDeploy(noop.Deploy{}).WithAI(noop.AI{})
+		WithRepo(noop.Repo{}).WithAgent(noop.Agent{}).WithDeploy(noop.Deploy{})
 	return reg
 }
 

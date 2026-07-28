@@ -68,9 +68,6 @@ pipeline:
 	if cfg.Integrations.PM.Provider != "jira" {
 		t.Errorf("integrations.pm.provider = %q, want %q", cfg.Integrations.PM.Provider, "jira")
 	}
-	if cfg.Integrations.AI.Provider != "anthropic" {
-		t.Errorf("integrations.ai.provider = %q, want %q", cfg.Integrations.AI.Provider, "anthropic")
-	}
 	if len(cfg.Pipeline.Stages) != 4 {
 		t.Fatalf("pipeline.stages length = %d, want 4", len(cfg.Pipeline.Stages))
 	}
@@ -199,19 +196,19 @@ user:
 		t.Fatalf("LoadUserConfig: %v", err)
 	}
 
-	// When ai_drafts is not set, defaults to true
-	if !cfg.Preferences.AIDraftsEnabled() {
-		t.Error("AIDraftsEnabled() should default to true when not set")
+	// When agent_drafts is not set, defaults to true
+	if !cfg.Preferences.AgentDraftsEnabled() {
+		t.Error("AgentDraftsEnabled() should default to true when not set")
 	}
 }
 
-func TestUserConfig_AIDrafts_ExplicitFalse(t *testing.T) {
+func TestUserConfig_AgentDrafts_ExplicitFalse(t *testing.T) {
 	content := `
 user:
   owner_role: engineer
   name: Test
 preferences:
-  ai_drafts: false
+  agent_drafts: false
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -224,18 +221,18 @@ preferences:
 		t.Fatalf("LoadUserConfig: %v", err)
 	}
 
-	// When ai_drafts is explicitly false, should be false
-	if cfg.Preferences.AIDraftsEnabled() {
-		t.Error("AIDraftsEnabled() should be false when explicitly set to false")
+	// When agent_drafts is explicitly false, should be false
+	if cfg.Preferences.AgentDraftsEnabled() {
+		t.Error("AgentDraftsEnabled() should be false when explicitly set to false")
 	}
 }
 
-func TestUserConfig_AIDrafts_ExplicitTrue(t *testing.T) {
+func TestUserConfig_AgentDrafts_ExplicitTrue(t *testing.T) {
 	content := `
 user:
   owner_role: engineer
 preferences:
-  ai_drafts: true
+  agent_drafts: true
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -248,8 +245,8 @@ preferences:
 		t.Fatalf("LoadUserConfig: %v", err)
 	}
 
-	if !cfg.Preferences.AIDraftsEnabled() {
-		t.Error("AIDraftsEnabled() should be true when explicitly set")
+	if !cfg.Preferences.AgentDraftsEnabled() {
+		t.Error("AgentDraftsEnabled() should be true when explicitly set")
 	}
 }
 
@@ -581,41 +578,31 @@ workspaces:
 	}
 }
 
+// The agent is personal config only: there is no team fallback, because a
+// harness and its auth are individual tools.
 func TestEffectiveAgentConfig(t *testing.T) {
-	teamAgent := ProviderConfig{Provider: "claude-code", Extra: map[string]string{"command": "claude"}}
-	team := &TeamConfig{}
-	team.Integrations.Agent = teamAgent
-
 	tests := []struct {
 		name string
 		rc   ResolvedConfig
 		want string
 	}{
 		{
-			name: "team default when no user override",
-			rc:   ResolvedConfig{Team: team},
-			want: "claude-code",
-		},
-		{
-			name: "user override wins over team",
-			rc: ResolvedConfig{
-				Team: team,
-				User: &UserConfig{Agent: &ProviderConfig{Provider: "pi"}},
-			},
-			want: "pi",
-		},
-		{
-			name: "empty user provider falls back to team",
-			rc: ResolvedConfig{
-				Team: team,
-				User: &UserConfig{Agent: &ProviderConfig{Provider: ""}},
-			},
-			want: "claude-code",
-		},
-		{
-			name: "user override with no team config",
+			name: "personal config supplies the agent",
 			rc:   ResolvedConfig{User: &UserConfig{Agent: &ProviderConfig{Provider: "pi"}}},
 			want: "pi",
+		},
+		{
+			name: "team config cannot supply an agent",
+			rc:   ResolvedConfig{Team: &TeamConfig{}},
+			want: "",
+		},
+		{
+			name: "personal config wins with a team config present",
+			rc: ResolvedConfig{
+				Team: &TeamConfig{},
+				User: &UserConfig{Agent: &ProviderConfig{Provider: "claude-code"}},
+			},
+			want: "claude-code",
 		},
 		{
 			name: "nothing configured yields empty",
