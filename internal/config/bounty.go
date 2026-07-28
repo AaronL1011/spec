@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // Default bounty settings. A bounty is deliberately scarce: an uncapped
 // marker debases to a second priority field, so the cap is a first-class
 // default rather than an opt-in.
@@ -37,8 +39,54 @@ type BountyConfig struct {
 	RequireReason *bool `yaml:"require_reason,omitempty"`
 
 	// Shimmer animates the bounty marker in the TUI. Defaults to true; set
-	// false for a static gold marker.
+	// false for a static (but still shaded) marker.
 	Shimmer *bool `yaml:"shimmer,omitempty"`
+
+	// Finish selects the marker's metal: "gold" (default), "platinum", or
+	// "prismatic". It changes only the three tones the marker is shaded with.
+	Finish string `yaml:"finish,omitempty"`
+}
+
+// BountyFinish names the metal the bounty marker is shaded with. The value is
+// resolved and validated in config so the TUI only ever maps a known finish to
+// a palette.
+type BountyFinish string
+
+// Supported bounty finishes.
+const (
+	// BountyFinishGold is warm and legible on every palette — the default.
+	BountyFinishGold BountyFinish = "gold"
+
+	// BountyFinishPlatinum is a cool, understated white metal. Deliberately
+	// quiet; on most themes it reads close to bright primary text.
+	BountyFinishPlatinum BountyFinish = "platinum"
+
+	// BountyFinishPrismatic is a near-white body whose travelling highlight
+	// rotates through hue, mimicking the dispersion ("fire") of a cut stone.
+	BountyFinishPrismatic BountyFinish = "prismatic"
+)
+
+// BountyFinishNames lists the accepted finishes, for lint suggestions and docs.
+func BountyFinishNames() []string {
+	return []string{string(BountyFinishGold), string(BountyFinishPlatinum), string(BountyFinishPrismatic)}
+}
+
+// ParseBountyFinish resolves a configured finish name, reporting whether it is
+// recognised. An empty value resolves to the default rather than an error, so an
+// omitted key is not a failure.
+func ParseBountyFinish(name string) (BountyFinish, bool) {
+	switch BountyFinish(strings.ToLower(strings.TrimSpace(name))) {
+	case "":
+		return BountyFinishGold, true
+	case BountyFinishGold:
+		return BountyFinishGold, true
+	case BountyFinishPlatinum:
+		return BountyFinishPlatinum, true
+	case BountyFinishPrismatic:
+		return BountyFinishPrismatic, true
+	default:
+		return BountyFinishGold, false
+	}
 }
 
 // IsEnabled reports whether bounties are configured and turned on.
@@ -73,6 +121,16 @@ func (b *BountyConfig) ReasonRequired() bool {
 		return true
 	}
 	return *b.RequireReason
+}
+
+// MetalFinish returns the configured finish, falling back to gold for an unset
+// or unrecognised value (lint reports the latter; rendering must never fail).
+func (b *BountyConfig) MetalFinish() BountyFinish {
+	if b == nil {
+		return BountyFinishGold
+	}
+	finish, _ := ParseBountyFinish(b.Finish)
+	return finish
 }
 
 // ShimmerEnabled reports whether the TUI marker animates (default true).

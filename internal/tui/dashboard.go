@@ -494,9 +494,8 @@ func (m dashboardModel) paintRow(row dashboardRow, selected bool, mark, rest str
 	if !row.bountied {
 		return base.Render(indent + mark + rest)
 	}
-	shimmer := m.rc.Bounties().ShimmerEnabled()
 	return base.Render(indent) +
-		renderBountyMark(base, mark, m.bountyFrame, shimmer, m.styles.Theme) +
+		newBountyPainter(m.rc, m.styles.Theme, m.bountyFrame).paint(base, row.specID, mark) +
 		base.Render(rest)
 }
 

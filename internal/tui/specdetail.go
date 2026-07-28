@@ -1022,8 +1022,8 @@ func (m specDetailModel) overviewLines() []string {
 	if m.meta.HasBounty() {
 		// The bounty owns the glyph + ID span here too, so the detail view
 		// reads as the same object the list row did.
-		b.WriteString(renderBountyMark(m.styles.Title, "  "+IconBounty+" "+m.meta.ID, m.bountyFrame,
-			m.rc.Bounties().ShimmerEnabled(), m.styles.Theme))
+		b.WriteString(newBountyPainter(m.rc, m.styles.Theme, m.bountyFrame).
+			paint(m.styles.Title, m.meta.ID, "  "+IconBounty+" "+m.meta.ID))
 		b.WriteString(m.styles.Title.Render(" — " + m.meta.Title))
 	} else {
 		b.WriteString(m.styles.Title.Render(fmt.Sprintf("  %s — %s", m.meta.ID, m.meta.Title)))
@@ -1060,7 +1060,7 @@ func (m specDetailModel) overviewLines() []string {
 			detail += " · claimed by " + m.meta.Bounty.ClaimedBy
 		}
 		b.WriteString(m.styles.Subtitle.Render(Indent(1)+"Bounty    ") +
-			bountyDetailStyle(m.styles.Theme).Render(truncate(detail, contentWidth-12)))
+			bountyDetailStyle(m.rc, m.styles.Theme).Render(truncate(detail, contentWidth-12)))
 		b.WriteString("\n")
 	}
 

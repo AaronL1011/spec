@@ -210,3 +210,76 @@ bounty:
 		t.Errorf("severity = %s, want error", d.Severity)
 	}
 }
+
+func TestParseBountyFinish(t *testing.T) {
+	tests := []struct {
+		in    string
+		want  BountyFinish
+		valid bool
+	}{
+		{in: "", want: BountyFinishGold, valid: true},
+		{in: "gold", want: BountyFinishGold, valid: true},
+		{in: "GOLD", want: BountyFinishGold, valid: true},
+		{in: "  platinum  ", want: BountyFinishPlatinum, valid: true},
+		{in: "prismatic", want: BountyFinishPrismatic, valid: true},
+		{in: "titanium", want: BountyFinishGold, valid: false},
+	}
+	for _, tt := range tests {
+		got, ok := ParseBountyFinish(tt.in)
+		if got != tt.want || ok != tt.valid {
+			t.Errorf("ParseBountyFinish(%q) = (%v, %v), want (%v, %v)", tt.in, got, ok, tt.want, tt.valid)
+		}
+	}
+}
+
+// TestBountyConfig_MetalFinish keeps rendering safe: an unrecognised finish
+// falls back to gold rather than failing, because lint already reports it and a
+// bad config must never blank the marker.
+func TestBountyConfig_MetalFinish(t *testing.T) {
+	var absent *BountyConfig
+	if got := absent.MetalFinish(); got != BountyFinishGold {
+		t.Errorf("absent config finish = %v, want gold", got)
+	}
+	if got := (&BountyConfig{Finish: "prismatic"}).MetalFinish(); got != BountyFinishPrismatic {
+		t.Errorf("finish = %v, want prismatic", got)
+	}
+	if got := (&BountyConfig{Finish: "unobtainium"}).MetalFinish(); got != BountyFinishGold {
+		t.Errorf("unknown finish = %v, want a gold fallback", got)
+	}
+}
+
+// TestLint_BountyFinish reports an unknown finish with the valid list, since
+// there is no close spelling to suggest for an invented metal.
+func TestLint_BountyFinish(t *testing.T) {
+	res, err := LintTeamConfigFile(writeLintConfig(t, `version: "1"
+pipeline:
+  preset: default
+bounty:
+  enabled: true
+  finish: titanium
+`))
+	if err != nil {
+		t.Fatalf("LintTeamConfigFile: %v", err)
+	}
+	d := findDiag(res.Diagnostics, "bounty.finish")
+	if d == nil {
+		t.Fatal("expected a bounty.finish diagnostic")
+	}
+	if !stringContains(d.Suggestion, "prismatic") {
+		t.Errorf("suggestion = %q, want the valid finishes listed", d.Suggestion)
+	}
+	for _, valid := range []string{"gold", "platinum", "prismatic"} {
+		clean, err := LintTeamConfigFile(writeLintConfig(t, `version: "1"
+pipeline:
+  preset: default
+bounty:
+  enabled: true
+  finish: `+valid+"\n"))
+		if err != nil {
+			t.Fatalf("LintTeamConfigFile(%s): %v", valid, err)
+		}
+		if d := findDiag(clean.Diagnostics, "bounty.finish"); d != nil {
+			t.Errorf("finish %q reported: %+v", valid, *d)
+		}
+	}
+}

@@ -158,8 +158,7 @@ func (m specListModel) view() string {
 			base = m.styles.RowSelected
 		}
 		if spec.bountied {
-			shimmer := m.rc.Bounties().ShimmerEnabled()
-			b.WriteString(renderBountyMark(base, mark, m.bountyFrame, shimmer, m.styles.Theme))
+			b.WriteString(newBountyPainter(m.rc, m.styles.Theme, m.bountyFrame).paint(base, spec.ID, mark))
 			b.WriteString(base.Render(rest))
 		} else {
 			b.WriteString(base.Render(mark + rest))

@@ -337,9 +337,8 @@ func (m pipelineModel) renderPipelineRow(spec pipelineSpec, selected bool) strin
 	if !spec.bountied {
 		return base.Render(Indent(2) + mark + rest)
 	}
-	shimmer := m.rc.Bounties().ShimmerEnabled()
 	return base.Render(Indent(2)) +
-		renderBountyMark(base, mark, m.bountyFrame, shimmer, m.styles.Theme) +
+		newBountyPainter(m.rc, m.styles.Theme, m.bountyFrame).paint(base, spec.ID, mark) +
 		base.Render(rest)
 }
 

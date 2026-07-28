@@ -169,6 +169,17 @@ func lintBountyNode(path string, bountyNode, pipelineNode *yaml.Node) []Diagnost
 		}
 	}
 
+	if finishNode := mapValue(bountyNode, "finish"); finishNode != nil && finishNode.Value != "" {
+		if _, ok := ParseBountyFinish(finishNode.Value); !ok {
+			diags = append(diags, Diagnostic{
+				File: path, Line: lineOf(finishNode), Column: finishNode.Column,
+				Severity: SeverityError, Field: "bounty.finish",
+				Message:    fmt.Sprintf("unknown finish %q", finishNode.Value),
+				Suggestion: suggestFrom(finishNode.Value, BountyFinishNames()),
+			})
+		}
+	}
+
 	if maxNode := mapValue(bountyNode, "max_active"); maxNode != nil && maxNode.Value != "" {
 		n, err := strconv.Atoi(maxNode.Value)
 		if err != nil || n < 1 {

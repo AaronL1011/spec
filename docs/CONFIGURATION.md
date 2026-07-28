@@ -857,6 +857,7 @@ bounty:
   max_active: 3               # concurrently bountied specs
   require_reason: true        # a grant must say why
   shimmer: true               # animate the TUI marker
+  finish: gold                # gold | platinum | prismatic
 ```
 
 A bounty marks a spec as **worth claiming**. It is a pull signal, not an
@@ -873,6 +874,24 @@ spec bounty clear SPEC-042            # --force if already claimed
 
 In the TUI, `g b` on a selected spec opens the same prompt; submitting `-`
 clears the bounty.
+
+#### Marker finish
+
+The marker is shaded like a lit surface rather than filled with a flat colour:
+the tone falls away from the glyph toward the end of the ID, and a narrow
+highlight crosses it about every six seconds. Each spec's pass is offset by a
+hash of its ID, so several bountied rows twinkle independently instead of
+blinking together.
+
+| `finish` | reads as |
+| --- | --- |
+| `gold` (default) | warm and legible on every palette |
+| `platinum` | cool white metal — understated to the point of blending into primary text on most themes |
+| `prismatic` | near-white stone whose highlight rotates through hue as it crosses, like dispersion in a cut gem |
+
+`shimmer: false` keeps the shading but parks the highlight. Monochrome themes
+(`graphite`) override all three finishes with a luminance ramp, and `NO_COLOR`
+or a low-colour terminal falls back to the glyph plus bold weight.
 
 Three rules are worth knowing before you turn this on:
 

@@ -17,6 +17,7 @@ import (
 
 	catppuccin "github.com/catppuccin/go"
 
+	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/tui/components"
 )
 
@@ -33,12 +34,16 @@ type Theme struct {
 	Error   color.Color // critical, failed
 	Muted   color.Color // disabled, inactive
 
-	// Bounty is the gold used for the bounty marker (gem glyph + SPEC-ID).
-	// When nil, BountyColor derives a gold from the background's lightness. It is
-	// deliberately its own token rather than a reuse of Warning, which the
-	// urgency ramp already owns — a bountied row and a warm row must not read
-	// the same.
-	Bounty color.Color
+	// BountyRamp overrides the bounty marker's three metal tones, ordered
+	// shadow → body → specular. When nil, Metal derives them from the configured
+	// finish and the background's lightness. A theme sets it to force its own
+	// treatment — graphite uses a luminance ramp because it conveys everything by
+	// brightness.
+	//
+	// The tones are deliberately their own token rather than a reuse of Warning,
+	// which the urgency ramp already owns: a bountied row and a warm row must not
+	// read the same.
+	BountyRamp []color.Color
 
 	// UrgencyRamp is the ordered cold→hot colour ramp for the time-urgency
 	// gradient (SPEC time-urgency). When nil, RampColor derives a ramp from the
@@ -59,27 +64,68 @@ func (t Theme) urgencyStops() []color.Color {
 	return []color.Color{t.Text, t.Warning, blendColor(t.Warning, t.Error, 0.5), t.Error}
 }
 
-// Gold values for the bounty marker. Two fixed values rather than a derived
-// blend: gold is a brand colour here, matching the boot splash's mark, so it
-// should read identically across themes of the same polarity instead of
-// drifting with each palette's accent. Themes that need a bespoke value set
-// Theme.Bounty.
+// Metal is a bounty marker's finish: three tones that let a short span of text
+// read as a lit surface rather than coloured text. Shadow falls at the edges,
+// Body carries the metal's hue, and Specular is the travelling highlight.
+//
+// Dispersive marks a finish whose highlight rotates through hue as it travels,
+// mimicking the dispersion ("fire") of a cut stone rather than the single-hue
+// reflection of a metal.
+type Metal struct {
+	Shadow   color.Color
+	Body     color.Color
+	Specular color.Color
+
+	Dispersive bool
+}
+
+// Bounty finish palettes, one pair per finish: the first for light backgrounds,
+// the second for dark. Fixed values rather than blends derived from the theme's
+// accent, because a finish is a material — it should read the same across themes
+// of the same polarity instead of drifting with each palette's hue.
+//
+// On light backgrounds the specular stays chromatic instead of going white:
+// white-on-white is invisible, so the highlight brightens within the metal's own
+// hue.
 var (
-	bountyGoldOnDark  = lipgloss.Color("#f2c14e")
-	bountyGoldOnLight = lipgloss.Color("#8a5f00")
+	metalGoldOnDark   = Metal{lipgloss.Color("#8a5f00"), lipgloss.Color("#f2c14e"), lipgloss.Color("#fff6d5"), false}
+	metalGoldOnLight  = Metal{lipgloss.Color("#4a3200"), lipgloss.Color("#a97400"), lipgloss.Color("#ffcf5c"), false}
+	metalPlatOnDark   = Metal{lipgloss.Color("#5c636b"), lipgloss.Color("#d7dce2"), lipgloss.Color("#ffffff"), false}
+	metalPlatOnLight  = Metal{lipgloss.Color("#3d444b"), lipgloss.Color("#7b858f"), lipgloss.Color("#c9d1d9"), false}
+	metalPrismOnDark  = Metal{lipgloss.Color("#6b7d8f"), lipgloss.Color("#e8f0f7"), lipgloss.Color("#ffffff"), true}
+	metalPrismOnLight = Metal{lipgloss.Color("#3f4a55"), lipgloss.Color("#788591"), lipgloss.Color("#b9c4cf"), true}
 )
 
-// BountyColor returns the gold for the bounty marker, honouring an explicit
-// per-theme override and otherwise picking the value with usable contrast
-// against the theme's background.
-func (t Theme) BountyColor() color.Color {
-	if t.Bounty != nil {
-		return t.Bounty
+// Metal resolves the marker's finish for this theme. A theme-provided BountyRamp
+// wins over the configured finish: a palette that cannot express a metal (a
+// monochrome one) must be able to force its own treatment.
+func (t Theme) Metal(finish config.BountyFinish) Metal {
+	if len(t.BountyRamp) >= 3 {
+		return Metal{Shadow: t.BountyRamp[0], Body: t.BountyRamp[1], Specular: t.BountyRamp[2]}
 	}
-	if isLightColour(t.Base) {
-		return bountyGoldOnLight
+	light := isLightColour(t.Base)
+	switch finish {
+	case config.BountyFinishPlatinum:
+		return pickMetal(light, metalPlatOnLight, metalPlatOnDark)
+	case config.BountyFinishPrismatic:
+		return pickMetal(light, metalPrismOnLight, metalPrismOnDark)
+	default:
+		return pickMetal(light, metalGoldOnLight, metalGoldOnDark)
 	}
-	return bountyGoldOnDark
+}
+
+// pickMetal returns the light-background variant when light, else the dark one.
+func pickMetal(light bool, onLight, onDark Metal) Metal {
+	if light {
+		return onLight
+	}
+	return onDark
+}
+
+// BountyColor returns the marker's body tone, for one-off labels that carry no
+// gradient (the spec detail header's reason line).
+func (t Theme) BountyColor(finish config.BountyFinish) color.Color {
+	return t.Metal(finish).Body
 }
 
 // RampColor returns the urgency colour for f∈[0,1] by piecewise-linear RGB
@@ -771,10 +817,14 @@ func graphite() Theme {
 		Success: lipgloss.Color("#c8c8c8"),
 		Warning: lipgloss.Color("#868686"),
 		Error:   lipgloss.Color("#ececec"),
-		// graphite carries meaning by brightness alone, so the bounty marker is
-		// the brightest neutral in the palette; the bounty glyph and bold weight
-		// do the rest of the work.
-		Bounty: lipgloss.Color("#ffffff"),
+		// graphite carries meaning by brightness alone, so the bounty marker is a
+		// luminance ramp: a dim edge, a bright body, and a white highlight. The
+		// glyph and bold weight do the rest of the work.
+		BountyRamp: []color.Color{
+			lipgloss.Color("#6f6f6f"),
+			lipgloss.Color("#d8d8d8"),
+			lipgloss.Color("#ffffff"),
+		},
 		// Monochrome urgency ramp: fresh = primary text, intensifying by
 		// luminance toward the brightest (most alert) neutral. graphite conveys
 		// status by brightness alone, so the gradient is luminance-only.
