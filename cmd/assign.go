@@ -8,6 +8,7 @@ import (
 	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -68,6 +69,7 @@ func runAssign(cmd *cobra.Command, args []string) error {
 	}
 
 	var commitMsg string
+	var bountyClaimed, bountySelfClaim bool
 	gitErr := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
@@ -78,6 +80,11 @@ func runAssign(cmd *cobra.Command, args []string) error {
 			return "", err
 		}
 		meta.Assignees = assignees
+		// The first assignee is the claimant: taking a bountied spec is what
+		// puts a name against the award.
+		if len(assignees) > 0 {
+			bountyClaimed, bountySelfClaim = stampBountyClaim(rc, meta, assignees[0])
+		}
 		if err := markdown.WriteMeta(path, meta); err != nil {
 			return "", err
 		}
@@ -93,14 +100,27 @@ func runAssign(cmd *cobra.Command, args []string) error {
 	}
 
 	if p.JSONEnabled() {
-		return p.JSON(map[string]interface{}{"spec_id": specID, "assignees": assignees})
+		return p.JSON(map[string]interface{}{"spec_id": specID, "assignees": assignees, "bounty_claimed": bountyClaimed})
 	}
 	if clearAll {
 		p.Line("✓ %s unassigned", specID)
 	} else {
 		p.Line("✓ %s assigned to %s", specID, strings.Join(assignees, ", "))
 	}
+	renderBountyClaim(p, specID, bountyClaimed, bountySelfClaim)
 	return nil
+}
+
+// renderBountyClaim reports the bounty side-effect of an assignment. A refused
+// self-claim is surfaced rather than silently dropped: the assignment still
+// happened, and the granter should know the award did not attach.
+func renderBountyClaim(p *printer, specID string, claimed, selfClaim bool) {
+	switch {
+	case claimed:
+		p.Line("  %s bounty on %s claimed — finishing it records the award", tui.IconSpark, specID)
+	case selfClaim:
+		p.Warn("bounty on %s not claimed: you granted it, and a self-granted award would be unreviewed", specID)
+	}
 }
 
 // shouldAutoClaim reports whether starting work on a spec should claim it: the
@@ -120,14 +140,13 @@ func shouldAutoClaim(rc *config.ResolvedConfig, meta *markdown.SpecMeta) bool {
 // authoritatively inside the specs-repo commit (the local copy may be stale)
 // and is best-effort: the caller surfaces any error as a warning, never a
 // build blocker.
-func autoClaim(cmd *cobra.Command, rc *config.ResolvedConfig, specID string) (bool, error) {
+func autoClaim(cmd *cobra.Command, rc *config.ResolvedConfig, specID string) (claimed, bountyClaimed bool, err error) {
 	self := selfIdentity(rc)
 	if self == "" {
-		return false, nil
+		return false, false, nil
 	}
 	pl := rc.Pipeline()
-	claimed := false
-	err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
+	err = gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
 		path, err := specPathIn(repoPath, rc, specID)
 		if err != nil {
 			return "", err
@@ -141,13 +160,14 @@ func autoClaim(cmd *cobra.Command, rc *config.ResolvedConfig, specID string) (bo
 			return "", nil // not claimable or already claimed — no-op, no commit
 		}
 		meta.Assignees = []string{self}
+		bountyClaimed, _ = stampBountyClaim(rc, meta, self)
 		if err := markdown.WriteMeta(path, meta); err != nil {
 			return "", err
 		}
 		claimed = true
 		return fmt.Sprintf("chore: claim %s for %s", specID, self), nil
 	})
-	return claimed, err
+	return claimed, bountyClaimed, err
 }
 
 // maybeAutoClaim performs a best-effort auto-claim and prints the outcome,
@@ -157,12 +177,15 @@ func maybeAutoClaim(cmd *cobra.Command, rc *config.ResolvedConfig, specID string
 	if !shouldAutoClaim(rc, meta) {
 		return
 	}
-	claimed, err := autoClaim(cmd, rc, specID)
+	claimed, bountyClaimed, err := autoClaim(cmd, rc, specID)
 	switch {
 	case err != nil:
 		warnf("could not claim %s: %v", specID, err)
 	case claimed:
 		fmt.Printf("Claimed %s — you're now the assignee.\n", specID)
+		if bountyClaimed {
+			fmt.Printf("%s You took a bountied spec — finishing it records the award.\n", tui.IconSpark)
+		}
 	}
 }
 

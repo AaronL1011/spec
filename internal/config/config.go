@@ -39,6 +39,10 @@ type TeamConfig struct {
 	// FastTrack configures engineer self-service for small bug fixes.
 	FastTrack *FastTrackConfig `yaml:"fast_track,omitempty"`
 
+	// Bounty configures spec bounties: a scarce, role-gated pull signal on
+	// claimable work. Absent means bounties are off.
+	Bounty *BountyConfig `yaml:"bounty,omitempty"`
+
 	// Build configures the agentic build orchestration (DAG fan-out).
 	Build BuildConfig `yaml:"build,omitempty"`
 

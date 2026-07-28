@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/urgency"
@@ -132,7 +133,78 @@ func lintTeamConfigNode(path string, doc *yaml.Node) []Diagnostic {
 		diags = append(diags, lintDashboardNode(path, dashNode)...)
 	}
 
+	if bountyNode := mapValue(root, "bounty"); bountyNode != nil {
+		diags = append(diags, lintBountyNode(path, bountyNode, pipelineNode)...)
+	}
+
 	return diags
+}
+
+// lintBountyNode validates the bounty block: the grantable role list against
+// the roles the pipeline actually declares, and the scarcity cap.
+func lintBountyNode(path string, bountyNode, pipelineNode *yaml.Node) []Diagnostic {
+	var diags []Diagnostic
+
+	if rolesNode := mapValue(bountyNode, "grantable_by"); rolesNode != nil {
+		if rolesNode.Kind != yaml.SequenceNode {
+			diags = append(diags, Diagnostic{
+				File: path, Line: lineOf(rolesNode), Column: rolesNode.Column,
+				Severity: SeverityError, Field: "bounty.grantable_by",
+				Message:    "grantable_by must be a list of roles",
+				Suggestion: "use 'grantable_by: [tl, pm]'",
+			})
+		} else {
+			known := pipelineRoles(pipelineNode)
+			for _, roleNode := range rolesNode.Content {
+				if roleNode.Value == "" || len(known) == 0 || contains(known, roleNode.Value) {
+					continue
+				}
+				diags = append(diags, Diagnostic{
+					File: path, Line: lineOf(roleNode), Column: roleNode.Column,
+					Severity: SeverityError, Field: "bounty.grantable_by",
+					Message:    fmt.Sprintf("role %q owns no pipeline stage", roleNode.Value),
+					Suggestion: suggestFrom(roleNode.Value, known),
+				})
+			}
+		}
+	}
+
+	if maxNode := mapValue(bountyNode, "max_active"); maxNode != nil && maxNode.Value != "" {
+		n, err := strconv.Atoi(maxNode.Value)
+		if err != nil || n < 1 {
+			diags = append(diags, Diagnostic{
+				File: path, Line: lineOf(maxNode), Column: maxNode.Column,
+				Severity: SeverityError, Field: "bounty.max_active",
+				Message:    fmt.Sprintf("invalid max_active %q: must be a positive integer", maxNode.Value),
+				Suggestion: "use a small number like 3 — bounties only mean something while they are scarce",
+			})
+		}
+	}
+
+	return diags
+}
+
+// pipelineRoles collects the owner roles declared by the pipeline's stages, so
+// bounty.grantable_by can be validated against roles that actually exist.
+// Returns nil when no pipeline block is present (a preset is in use), in which
+// case role names are not checked.
+func pipelineRoles(pipelineNode *yaml.Node) []string {
+	if pipelineNode == nil {
+		return nil
+	}
+	stagesNode := mapValue(pipelineNode, "stages")
+	if stagesNode == nil || stagesNode.Kind != yaml.SequenceNode {
+		return nil
+	}
+	var roles []string
+	for _, stage := range stagesNode.Content {
+		if roleNode := mapValue(stage, "owner_role"); roleNode != nil && roleNode.Value != "" {
+			if !contains(roles, roleNode.Value) {
+				roles = append(roles, roleNode.Value)
+			}
+		}
+	}
+	return roles
 }
 
 // lintDashboardNode validates the dashboard block: currently the urgency
@@ -395,6 +467,19 @@ func suggest(got string, candidates []string) string {
 		return ""
 	}
 	return fmt.Sprintf("did you mean %q?", best)
+}
+
+// suggestFrom is suggest with a guaranteed-actionable fallback: when nothing is
+// close enough to be a typo, it lists the valid values instead of leaving the
+// user with only "that's wrong".
+func suggestFrom(got string, candidates []string) string {
+	if s := suggest(got, candidates); s != "" {
+		return s
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	return "valid values: " + strings.Join(candidates, ", ")
 }
 
 // levenshtein computes the edit distance between two strings.

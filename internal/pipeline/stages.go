@@ -128,6 +128,18 @@ func TerminalStages(pipeline config.PipelineConfig) []string {
 	return terminal
 }
 
+// IsTerminalStage reports whether stage represents completion for this
+// pipeline. It is the single question callers ask when a transition should
+// settle something permanently (an earned bounty, an archive).
+func IsTerminalStage(pipeline config.PipelineConfig, stage string) bool {
+	for _, s := range TerminalStages(pipeline) {
+		if s == stage {
+			return true
+		}
+	}
+	return false
+}
+
 // SkippedStages returns the stages that would be skipped in a fast-track.
 func SkippedStages(pipeline config.PipelineConfig, from, to string) []string {
 	fromIdx := pipeline.StageIndex(from)

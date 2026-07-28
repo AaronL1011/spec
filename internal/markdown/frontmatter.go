@@ -53,6 +53,11 @@ type SpecMeta struct {
 
 	// FastTrack marks this as a fast-track bug fix (skips ceremony stages).
 	FastTrack bool `yaml:"fast_track,omitempty"`
+
+	// Bounty records a leadership bounty on this spec: the invitation to claim
+	// it, who claimed it, and who earned it. Nil means never bountied, which is
+	// the state of every spec written before the feature existed.
+	Bounty *BountyState `yaml:"bounty,omitempty"`
 }
 
 // BuildStep represents a single step in the build plan.
@@ -168,12 +173,12 @@ func (m *SpecMeta) IsReviewChangesRequested() bool {
 // spec's assignees. Matching is case-insensitive and tolerates a leading '@'
 // on either side, mirroring how reviewers are matched elsewhere.
 func (m *SpecMeta) HasAssignee(identity string) bool {
-	target := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(identity)), "@")
+	target := NormalizeHandle(identity)
 	if target == "" {
 		return false
 	}
 	for _, a := range m.Assignees {
-		if strings.TrimPrefix(strings.ToLower(strings.TrimSpace(a)), "@") == target {
+		if NormalizeHandle(a) == target {
 			return true
 		}
 	}

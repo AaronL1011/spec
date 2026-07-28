@@ -848,6 +848,48 @@ fast_track:
 
 This enables `spec fix` for approved roles and labels.
 
+### Bounties
+
+```yaml
+bounty:
+  enabled: true               # default false — no bounty surface at all
+  grantable_by: [tl, pm]      # roles allowed to grant and clear
+  max_active: 3               # concurrently bountied specs
+  require_reason: true        # a grant must say why
+  shimmer: true               # animate the TUI marker
+```
+
+A bounty marks a spec as **worth claiming**. It is a pull signal, not an
+instruction: it never assigns anyone, reorders a queue, changes a gate, or sends
+a notification. A bountied spec renders its spark glyph and SPEC-ID in gold
+wherever it appears, while the rest of the row keeps its time-urgency colour, so
+"worth taking" and "has been sitting too long" stay separately readable.
+
+```bash
+spec bounty set SPEC-042 --reason "unblocks the billing migration"
+spec bounty list
+spec bounty clear SPEC-042            # --force if already claimed
+```
+
+In the TUI, `g b` on a selected spec opens the same prompt; submitting `-`
+clears the bounty.
+
+Three rules are worth knowing before you turn this on:
+
+- **The cap is the feature.** Past `max_active`, granting fails and lists the
+  specs you must choose between. An uncapped marker debases into a second
+  priority field.
+- **A granter cannot claim their own bounty.** The assignment still happens;
+  the award simply does not attach, so no one self-awards.
+- **Bounties belong on unglamorous, critical work.** The specs that need a nudge
+  are the ones with no intrinsic appeal. Gold-starring the fun greenfield spec
+  inverts the mechanism and starves the boring queue further.
+
+The record lives in the spec's own frontmatter (`bounty.granted_by`,
+`claimed_by`, `earned_by`, `earned_at`) and travels with it into `archive/`, so
+awards survive clones and machine loss. Advancing a claimed, bountied spec into
+a terminal stage freezes the award; it is immutable from then on.
+
 ---
 
 ## Personal configuration

@@ -74,3 +74,25 @@ func TestTerminalStages_Empty(t *testing.T) {
 		t.Errorf("expected no terminal stages for empty pipeline, got %v", terminal)
 	}
 }
+
+// TestIsTerminalStage is the single question the bounty earn hook asks: has
+// this transition landed the spec somewhere that settles a permanent record?
+func TestIsTerminalStage(t *testing.T) {
+	pipe := config.DefaultPipeline()
+	tests := []struct {
+		stage string
+		want  bool
+	}{
+		{stage: "done", want: true},
+		{stage: "closed", want: true},
+		{stage: "build", want: false},
+		{stage: "draft", want: false},
+		{stage: "", want: false},
+		{stage: "not-a-stage", want: false},
+	}
+	for _, tt := range tests {
+		if got := IsTerminalStage(pipe, tt.stage); got != tt.want {
+			t.Errorf("IsTerminalStage(%q) = %v, want %v", tt.stage, got, tt.want)
+		}
+	}
+}
