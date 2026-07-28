@@ -33,6 +33,13 @@ type Theme struct {
 	Error   color.Color // critical, failed
 	Muted   color.Color // disabled, inactive
 
+	// Bounty is the gold used for the bounty marker (spark glyph + SPEC-ID).
+	// When nil, BountyColor derives a gold from the background's lightness. It is
+	// deliberately its own token rather than a reuse of Warning, which the
+	// urgency ramp already owns — a bountied row and a warm row must not read
+	// the same.
+	Bounty color.Color
+
 	// UrgencyRamp is the ordered cold→hot colour ramp for the time-urgency
 	// gradient (SPEC time-urgency). When nil, RampColor derives a ramp from the
 	// semantic tokens (Text → Warning → blend → Error). Monochrome themes set it
@@ -50,6 +57,29 @@ func (t Theme) urgencyStops() []color.Color {
 		return t.UrgencyRamp
 	}
 	return []color.Color{t.Text, t.Warning, blendColor(t.Warning, t.Error, 0.5), t.Error}
+}
+
+// Gold values for the bounty marker. Two fixed values rather than a derived
+// blend: gold is a brand colour here (the same spark as the boot splash), so it
+// should read identically across themes of the same polarity instead of
+// drifting with each palette's accent. Themes that need a bespoke value set
+// Theme.Bounty.
+var (
+	bountyGoldOnDark  = lipgloss.Color("#f2c14e")
+	bountyGoldOnLight = lipgloss.Color("#8a5f00")
+)
+
+// BountyColor returns the gold for the bounty marker, honouring an explicit
+// per-theme override and otherwise picking the value with usable contrast
+// against the theme's background.
+func (t Theme) BountyColor() color.Color {
+	if t.Bounty != nil {
+		return t.Bounty
+	}
+	if isLightColour(t.Base) {
+		return bountyGoldOnLight
+	}
+	return bountyGoldOnDark
 }
 
 // RampColor returns the urgency colour for f∈[0,1] by piecewise-linear RGB
@@ -741,6 +771,10 @@ func graphite() Theme {
 		Success: lipgloss.Color("#c8c8c8"),
 		Warning: lipgloss.Color("#868686"),
 		Error:   lipgloss.Color("#ececec"),
+		// graphite carries meaning by brightness alone, so the bounty marker is
+		// the brightest neutral in the palette; the spark glyph and bold weight
+		// do the rest of the work.
+		Bounty: lipgloss.Color("#ffffff"),
 		// Monochrome urgency ramp: fresh = primary text, intensifying by
 		// luminance toward the brightest (most alert) neutral. graphite conveys
 		// status by brightness alone, so the gradient is luminance-only.

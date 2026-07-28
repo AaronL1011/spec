@@ -40,6 +40,10 @@ type dashboardModel struct {
 	height        int
 	styles        Styles
 	keys          KeyMap
+
+	// bountyFrame is the shared animation clock for the bounty marker, pushed
+	// in from the app on each repaint tick.
+	bountyFrame int
 }
 
 type dashboardRow struct {
@@ -52,6 +56,7 @@ type dashboardRow struct {
 	url           string    // non-empty for REVIEW rows (PR URL)
 	sortTime      time.Time // when the item entered its current state; drives oldest-first ordering
 	staleFraction float64   // eased time-urgency intensity (0..1); 0 = fresh / no window
+	bountied      bool      // spec carries a bounty; marks the glyph + ID in gold
 }
 
 // newDashboard creates a new dashboard view.
@@ -286,6 +291,7 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			title:    item.Title,
 			detail:   item.Detail,
 			urgency:  "critical",
+			bountied: item.Bounty != nil,
 			sortTime: item.SortTime,
 		})
 	}
@@ -308,6 +314,7 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			title:         item.Title,
 			detail:        detail,
 			urgency:       item.Urgency,
+			bountied:      item.Bounty != nil,
 			sortTime:      item.SortTime,
 			staleFraction: item.StaleFraction,
 		})
@@ -330,6 +337,7 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			title:         item.Title,
 			detail:        detail,
 			urgency:       item.Urgency,
+			bountied:      item.Bounty != nil,
 			sortTime:      item.SortTime,
 			staleFraction: item.StaleFraction,
 		})
@@ -346,6 +354,7 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			detail:        item.Detail,
 			urgency:       item.Urgency,
 			url:           item.URL,
+			bountied:      item.Bounty != nil,
 			sortTime:      item.SortTime,
 			staleFraction: item.StaleFraction,
 		})
@@ -432,21 +441,26 @@ func (m dashboardModel) sectionHeader(section string, count, width int) string {
 func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) string {
 	compact := width < 60
 
-	// Focused spec indicator.
+	// Focused spec indicator. Focus wins the glyph cell even on a bountied row:
+	// it is the user's own transient pointer, and the gold SPEC-ID still carries
+	// the bounty, so neither signal is lost.
 	icon := row.icon
+	if row.bountied {
+		icon = IconSpark
+	}
 	if m.focusedSpecID != "" && row.specID == m.focusedSpecID {
 		icon = IconFocus
 	}
 
-	var line string
+	var mark, rest string
 	if compact {
 		idStr := row.specID
 		titleMax := width - len(idStr) - 6 // indent + 1-cell icon + spaces
 		if titleMax < 5 {
 			titleMax = 5
 		}
-		title := truncate(row.title, titleMax)
-		line = fmt.Sprintf("%s%s %s %s", Indent(1), icon, idStr, title)
+		mark = icon + " " + idStr
+		rest = " " + truncate(row.title, titleMax)
 	} else {
 		// Wide: columnar layout — icon | id (fixed) | title (flex) | detail (right).
 		idStr := fmt.Sprintf("%-11s", row.specID)
@@ -455,35 +469,57 @@ func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) st
 		if titleMax < 10 {
 			titleMax = 10
 		}
-		title := truncate(row.title, titleMax)
-		title = fmt.Sprintf("%-*s", titleMax, title)
+		title := fmt.Sprintf("%-*s", titleMax, truncate(row.title, titleMax))
 
+		mark = icon + " " + idStr
+		rest = " " + title
 		if detailLen > 0 {
-			line = fmt.Sprintf("%s%s %s %s  %s", Indent(1), icon, idStr, title, row.detail)
-		} else {
-			line = fmt.Sprintf("%s%s %s %s", Indent(1), icon, idStr, title)
+			rest += "  " + row.detail
 		}
 	}
 
-	// Apply urgency-aware styling. The continuous time-urgency gradient (whole
-	// row, eased) takes precedence over the legacy discrete stale/critical
-	// styling; the ramp foreground is composed over the selection background so
-	// urgency stays visible while a row is selected.
+	return m.paintRow(row, selected, mark, rest)
+}
+
+// paintRow applies the row's colour treatment to its two spans: the leading
+// glyph+ID marker and the remainder (title and detail).
+//
+// The urgency gradient owns the remainder; a bounty owns only the marker. That
+// split is the whole point — a bountied, badly-stale row shows a gold spark and
+// ID against a red title, so "worth taking" and "has sat too long" are legible
+// at the same time.
+func (m dashboardModel) paintRow(row dashboardRow, selected bool, mark, rest string) string {
+	base := m.rowStyle(row, selected)
+	indent := Indent(1)
+	if !row.bountied {
+		return base.Render(indent + mark + rest)
+	}
+	shimmer := m.rc.Bounties().ShimmerEnabled()
+	return base.Render(indent) +
+		renderBountyMark(base, mark, m.bountyFrame, shimmer, m.styles.Theme) +
+		base.Render(rest)
+}
+
+// rowStyle resolves a row's base style. The continuous time-urgency gradient
+// (whole row, eased) takes precedence over the legacy discrete stale/critical
+// styling; the ramp foreground is composed over the selection background so
+// urgency stays visible while a row is selected.
+func (m dashboardModel) rowStyle(row dashboardRow, selected bool) lipgloss.Style {
 	switch {
 	case selected:
 		style := m.styles.RowSelected
 		if row.staleFraction > 0 {
 			style = style.Foreground(m.styles.Theme.RampColor(row.staleFraction))
 		}
-		return style.Render(line)
+		return style
 	case row.urgency == "critical":
-		return m.styles.Error.Render(line)
+		return m.styles.Error
 	case row.staleFraction > 0:
-		return m.styles.RowNormal.Foreground(m.styles.Theme.RampColor(row.staleFraction)).Render(line)
+		return m.styles.RowNormal.Foreground(m.styles.Theme.RampColor(row.staleFraction))
 	case row.urgency == "stale":
-		return m.styles.Warning.Render(line)
+		return m.styles.Warning
 	default:
-		return m.styles.RowNormal.Render(line)
+		return m.styles.RowNormal
 	}
 }
 

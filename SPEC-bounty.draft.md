@@ -145,7 +145,7 @@ with a **periodic shimmer sweep** across those ~13 cells: one eased pass, then a
 - **AC-3 (scarcity cap):** With `bounty.max_active: N` and N bounties already active, a further grant fails, lists the currently bountied spec IDs, and tells the user to clear one. The cap counts specs with an active, unearned bounty; earned and cleared bounties do not count.
 - **AC-4 (glyph + ID only):** A bountied row renders its leading glyph as `✦` and its SPEC-ID in the theme's `Bounty` colour. The title, stage, assignee, and detail spans are **unchanged** from the non-bountied case, including their time-urgency ramp colour. A bountied, fully-stale row shows a gold spark and ID with a red title.
 - **AC-5 (shimmer):** With `bounty.shimmer: true` (default) in an interactive TTY, a sheen sweeps across the glyph+ID span periodically: one eased pass, then a pause, repeating. Consecutive animation frames produce different rendered strings; a non-bountied row's rendering is byte-identical across frames. With `shimmer: false`, the span is static gold.
-- **AC-6 (all TUI surfaces):** The same treatment appears on the dashboard rows, the pipeline screen, the spec list, the spec detail header, and search results, produced by a single shared render helper. A given spec reads identically on every surface.
+- **AC-6 (all TUI surfaces):** The same treatment appears on the dashboard rows, the pipeline screen, the spec list, and the spec detail header, produced by a single shared render helper. A given spec reads identically on every surface. **Search-result rows are deferred** — see the Escape Hatch Log: the search index would need a schema migration and full rebuild to carry the flag, which is not a trade worth making for a marker.
 - **AC-7 (reason is discoverable):** The spec detail view displays the bounty's reason, granter, and grant date, and — once claimed/earned — the claimant and earn date.
 - **AC-8 (claim stamping):** Claiming a bountied spec through any existing path (`spec assign`, auto-claim on `spec do` / `spec build`) stamps `claimed_by` / `claimed_at` when the bounty is active and unclaimed. Claiming a non-bountied spec behaves exactly as today. A reassignment before earn overwrites `claimed_by` and logs the change.
 - **AC-9 (earn stamping, immutable):** Advancing a bountied, claimed spec into a `pipeline.TerminalStages` stage stamps `earned_by` (frozen from `claimed_by`) and `earned_at`. Re-advancing, reverting, or re-archiving never changes an existing `earned_at`. An unclaimed bountied spec reaching terminal records no award.
@@ -248,9 +248,8 @@ Node 1 is fully usable and testable on its own (bounties exist, are gated, cappe
 
 ## 8. Escape Hatch Log
 
-<!-- Populated during implementation when reality diverges from this design. -->
-
-- —
+- **2026-07-28 (node 2, search results):** §4.2 and AC-6 listed search-result rows among the surfaces carrying the gold marker. Search hits come from the FTS5 index (`spec_search`, `internal/store/db.go`), not from spec files, so the flag would need a new indexed column plus a migration that **rebuilds the whole index** (the precedent is `migrateV6`) — a forced reindex for every user, to tint a transient overlay row. **Resolution:** the marker ships on the dashboard, pipeline, spec list, and spec detail header; search rows are unchanged. `bountied` should be folded into the next index-schema migration that happens for a substantive reason. AC-6 amended to record the deferral rather than leave it as a silent gap.
+- **2026-07-28 (node 2, spec-list gutter):** The spec list had no glyph column at all, so a marker there either shifts every column or has nowhere to live. **Resolution:** the row reserves a two-cell bounty gutter **only when the team has bounties enabled** (`specListModel.bountyGutter`). A team with the feature off sees byte-identical layout to before; a team with it on gets a stable gutter that is blank on unbountied rows, so columns never move between rows (AC-12).
 
 ---
 

@@ -17,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/aaronl1011/spec/internal/bounty"
 	"github.com/aaronl1011/spec/internal/build"
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
@@ -90,6 +91,10 @@ type specDetailModel struct {
 	contentHash string
 	threadsHash string
 	isArchived  bool // true if spec is in archive/
+
+	// bountyFrame is the shared animation clock for the bounty marker, pushed
+	// in from the app on each repaint tick.
+	bountyFrame int
 
 	// Overview scroll
 	scroll       int
@@ -1014,7 +1019,15 @@ func (m specDetailModel) overviewLines() []string {
 
 	// ── Identity block ────────────────────────────────────────────────────────
 	b.WriteString("\n")
-	b.WriteString(m.styles.Title.Render(fmt.Sprintf("  %s — %s", m.meta.ID, m.meta.Title)))
+	if m.meta.HasBounty() {
+		// The bounty owns the spark + ID span here too, so the detail view
+		// reads as the same object the list row did.
+		b.WriteString(renderBountyMark(m.styles.Title, "  "+IconSpark+" "+m.meta.ID, m.bountyFrame,
+			m.rc.Bounties().ShimmerEnabled(), m.styles.Theme))
+		b.WriteString(m.styles.Title.Render(" — " + m.meta.Title))
+	} else {
+		b.WriteString(m.styles.Title.Render(fmt.Sprintf("  %s — %s", m.meta.ID, m.meta.Title)))
+	}
 	b.WriteString("\n")
 	var metaParts []string
 	if m.meta.Author != "" {
@@ -1035,6 +1048,21 @@ func (m specDetailModel) overviewLines() []string {
 	metaLine := truncate(strings.Join(metaParts, " · "), contentWidth)
 	b.WriteString(m.styles.Muted.Render(Indent(1) + metaLine))
 	b.WriteString("\n")
+
+	// ── Bounty line ── the reason is the prioritisation message, so it is shown
+	// wherever the bounty is inspected rather than left implied by the gold.
+	if m.meta.HasBounty() {
+		detail := bountyReasonLine(m.meta.Bounty.Reason, m.meta.Bounty.GrantedBy)
+		switch {
+		case m.meta.BountyEarned():
+			detail += " · earned by " + m.meta.Bounty.EarnedBy
+		case m.meta.BountyClaimed():
+			detail += " · claimed by " + m.meta.Bounty.ClaimedBy
+		}
+		b.WriteString(m.styles.Subtitle.Render(Indent(1)+"Bounty    ") +
+			bountyDetailStyle(m.styles.Theme).Render(truncate(detail, contentWidth-12)))
+		b.WriteString("\n")
+	}
 
 	// ── Assignees line ──
 	if len(m.meta.Assignees) > 0 {
@@ -1124,6 +1152,11 @@ func (m specDetailModel) overviewLines() []string {
 	pairs := []HintPair{Hint("o", "read sections"), Hint("e", "edit")}
 	if m.agentCanDraft {
 		pairs = append(pairs, Hint("d", "draft"))
+	}
+	// The bounty hint appears only for roles that may grant one, so the footer
+	// never advertises a key that would just refuse.
+	if bounty.Authorize(m.rc.OwnerRole(""), m.rc.Bounties()) == nil {
+		pairs = append(pairs, Hint("g b", "bounty"))
 	}
 	pairs = append(pairs, Hint("w", "browser preview"), archiveHint, Hint("esc", "back"))
 	hints := HintStrip(m.styles, pairs...)

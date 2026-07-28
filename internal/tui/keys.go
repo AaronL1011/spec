@@ -120,7 +120,8 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// g-prefix state machine: g alone arms the prefix.
-	// A subsequent a / r / s dispatches Archive / Restore / Standup.
+	// A subsequent a / b / c / r / s dispatches Archive / Bounty / Assign /
+	// Restore / Standup.
 	if a.gPrefixArmed {
 		a.gPrefixArmed = false
 		switch msg.Text {
@@ -138,6 +139,11 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				a.pendingSpecID = specID
 				a.modal.ShowConfirm("Restore "+specID, "Return this spec to the active list?")
 				a.modal.SetSize(a.width, a.contentHeight())
+			}
+			return a, nil
+		case "b":
+			if specID := a.selectedSpecID(); isSpecID(specID) {
+				a.armBountyModal(specID)
 			}
 			return a, nil
 		case "c":
