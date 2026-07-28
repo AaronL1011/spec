@@ -55,6 +55,22 @@ accepted invitation should be a deliberate act.`,
 	RunE: runBountyClear,
 }
 
+var bountyLedgerCmd = &cobra.Command{
+	Use:   "ledger",
+	Short: "Tally earned bounties per person",
+	Long: `Show who has earned bounties, and for which specs.
+
+The tally is derived from the specs repo and its archive — the award lives in
+each spec's own frontmatter — so it survives clones and machine loss, and does
+not depend on any local database.
+
+With no window flags, all recorded awards are counted. Use --since for a date
+window (e.g. a quarter) or --cycle to scope to one delivery cycle.`,
+	Example: "  spec bounty ledger\n  spec bounty ledger --since 2026-07-01\n  spec bounty ledger --cycle \"Cycle 7\"",
+	Args:    cobra.NoArgs,
+	RunE:    runBountyLedger,
+}
+
 var bountyListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List specs currently carrying a bounty",
@@ -68,6 +84,10 @@ func init() {
 	bountyCmd.AddCommand(bountySetCmd)
 	bountyCmd.AddCommand(bountyClearCmd)
 	bountyCmd.AddCommand(bountyListCmd)
+	bountyLedgerCmd.Flags().String("since", "", "only count awards earned on or after this date (YYYY-MM-DD)")
+	bountyLedgerCmd.Flags().String("until", "", "only count awards earned on or before this date (YYYY-MM-DD)")
+	bountyLedgerCmd.Flags().String("cycle", "", "only count specs in this delivery cycle")
+	bountyCmd.AddCommand(bountyLedgerCmd)
 	rootCmd.AddCommand(bountyCmd)
 }
 
@@ -350,4 +370,149 @@ func stampBountyClaim(rc *config.ResolvedConfig, meta *markdown.SpecMeta, who st
 		return false, true
 	}
 	return bounty.Claim(meta, who, time.Now()), false
+}
+
+// runBountyLedger tallies earned bounties per person from the specs repo and
+// its archive. Git is the record: no local database is consulted, so the same
+// command on a fresh clone prints the same numbers.
+func runBountyLedger(cmd *cobra.Command, args []string) error {
+	_ = args
+	p := newPrinter(cmd)
+	sinceArg, _ := cmd.Flags().GetString("since")
+	untilArg, _ := cmd.Flags().GetString("until")
+	cycle, _ := cmd.Flags().GetString("cycle")
+
+	rc, err := resolveConfig()
+	if err != nil {
+		return err
+	}
+	if err := requireTeamConfig(rc); err != nil {
+		return err
+	}
+	if !rc.BountyEnabled() {
+		return bounty.ErrDisabled
+	}
+	from, err := parseLedgerDate(sinceArg, "since", false)
+	if err != nil {
+		return err
+	}
+	to, err := parseLedgerDate(untilArg, "until", true)
+	if err != nil {
+		return err
+	}
+	if _, err := gitpkg.EnsureSpecsRepo(ctx(), &rc.Team.SpecsRepo); err != nil {
+		return fmt.Errorf("syncing specs repo: %w", err)
+	}
+
+	metas, err := allSpecMetas(rc)
+	if err != nil {
+		return err
+	}
+	if cycle != "" {
+		metas = filterByCycle(metas, cycle)
+	}
+	awards := bounty.Tally(metas, from, to)
+
+	if p.JSONEnabled() {
+		return p.JSON(awards)
+	}
+	renderLedger(p, awards, ledgerWindowLabel(sinceArg, untilArg, cycle))
+	return nil
+}
+
+// renderLedger prints the tally, widest-first, with the contributing specs so a
+// number can always be traced back to real work.
+func renderLedger(p *printer, awards []bounty.Award, window string) {
+	if len(awards) == 0 {
+		p.Line("No bounties earned %s.", window)
+		p.Line("  An award is recorded when a claimed, bountied spec reaches a terminal stage.")
+		return
+	}
+	total := 0
+	for _, a := range awards {
+		total += a.Count
+	}
+	p.Line("Bounties earned %s — %d across %d people:\n", window, total, len(awards))
+	for i, a := range awards {
+		p.Line("  %d. %s %-16s  %d", i+1, tui.IconSpark, a.Handle, a.Count)
+		p.Line("      %s", strings.Join(a.SpecIDs, ", "))
+	}
+}
+
+// ledgerWindowLabel describes the active window for the human output.
+func ledgerWindowLabel(since, until, cycle string) string {
+	var parts []string
+	if cycle != "" {
+		parts = append(parts, "in "+cycle)
+	}
+	switch {
+	case since != "" && until != "":
+		parts = append(parts, "between "+since+" and "+until)
+	case since != "":
+		parts = append(parts, "since "+since)
+	case until != "":
+		parts = append(parts, "up to "+until)
+	}
+	if len(parts) == 0 {
+		return "all time"
+	}
+	return strings.Join(parts, " ")
+}
+
+// parseLedgerDate parses a YYYY-MM-DD window bound. endOfDay extends an
+// inclusive upper bound to the last instant of that day, so --until 2026-09-30
+// includes awards earned during it.
+func parseLedgerDate(value, flag string, endOfDay bool) (time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse("2006-01-02", strings.TrimSpace(value))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid --%s %q — use a date like 2026-07-01", flag, value)
+	}
+	if endOfDay {
+		t = t.Add(24*time.Hour - time.Second)
+	}
+	return t, nil
+}
+
+// filterByCycle keeps specs belonging to one delivery cycle, matched
+// case-insensitively so "cycle 7" and "Cycle 7" agree.
+func filterByCycle(metas []markdown.SpecMeta, cycle string) []markdown.SpecMeta {
+	want := strings.ToLower(strings.TrimSpace(cycle))
+	out := make([]markdown.SpecMeta, 0, len(metas))
+	for _, meta := range metas {
+		if strings.ToLower(strings.TrimSpace(meta.Cycle)) == want {
+			out = append(out, meta)
+		}
+	}
+	return out
+}
+
+// allSpecMetas reads every spec in the repo and its archive. Awards are earned
+// at terminal stages, and terminal stages auto-archive, so the archive holds
+// most of the ledger — reading only the active directory would report almost
+// nothing.
+func allSpecMetas(rc *config.ResolvedConfig) ([]markdown.SpecMeta, error) {
+	metas, err := readSpecMetas(rc.SpecsRepoDir)
+	if err != nil {
+		return nil, err
+	}
+	// A team with nothing archived yet has no archive directory. That is an empty
+	// half of the corpus, not a failure.
+	archiveDir := filepath.Join(rc.SpecsRepoDir, config.ArchiveDir(rc.Team))
+	if !dirExists(archiveDir) {
+		return metas, nil
+	}
+	archived, err := readSpecMetas(archiveDir)
+	if err != nil {
+		return nil, err
+	}
+	return append(metas, archived...), nil
+}
+
+// dirExists reports whether path is an existing directory.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }

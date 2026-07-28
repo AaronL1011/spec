@@ -369,3 +369,99 @@ func earnedMeta(t *testing.T) *markdown.SpecMeta {
 	}
 	return meta
 }
+
+// earnedSpec builds a spec whose bounty was earned by who at earnedAt.
+func earnedSpec(id, who, earnedAt string) markdown.SpecMeta {
+	return markdown.SpecMeta{ID: id, Bounty: &markdown.BountyState{
+		GrantedBy: "aaron", GrantedAt: "2026-07-01T09:00:00Z",
+		ClaimedBy: who, EarnedBy: who, EarnedAt: earnedAt,
+	}}
+}
+
+// TestTally_GroupsAndOrders is AC-10: the ledger groups by person, orders by
+// count then handle, and carries the contributing spec IDs.
+func TestTally_GroupsAndOrders(t *testing.T) {
+	metas := []markdown.SpecMeta{
+		earnedSpec("SPEC-003", "priya", "2026-08-04T03:15:00Z"),
+		earnedSpec("SPEC-001", "@Priya", "2026-08-01T03:15:00Z"),
+		earnedSpec("SPEC-002", "sam", "2026-08-02T03:15:00Z"),
+		earnedSpec("SPEC-004", "ana", "2026-08-03T03:15:00Z"),
+		{ID: "SPEC-005"}, // no bounty
+		{ID: "SPEC-006", Bounty: &markdown.BountyState{ // granted, never earned
+			GrantedBy: "aaron", GrantedAt: "2026-07-01T09:00:00Z", ClaimedBy: "sam",
+		}},
+	}
+
+	awards := Tally(metas, time.Time{}, time.Time{})
+	if len(awards) != 3 {
+		t.Fatalf("awards = %+v, want three earners", awards)
+	}
+	if awards[0].Handle != "priya" || awards[0].Count != 2 {
+		t.Errorf("top award = %+v, want priya with 2 (both spellings counted as one person)", awards[0])
+	}
+	if got := awards[0].SpecIDs; len(got) != 2 || got[0] != "SPEC-001" || got[1] != "SPEC-003" {
+		t.Errorf("spec IDs = %v, want [SPEC-001 SPEC-003] in ID order", got)
+	}
+	// Ties break on handle, ascending.
+	if awards[1].Handle != "ana" || awards[2].Handle != "sam" {
+		t.Errorf("tie order = %q then %q, want ana then sam", awards[1].Handle, awards[2].Handle)
+	}
+}
+
+// TestTally_WindowBounds covers the inclusive window and unbounded sides.
+func TestTally_WindowBounds(t *testing.T) {
+	metas := []markdown.SpecMeta{
+		earnedSpec("SPEC-001", "ana", "2026-06-30T23:59:59Z"),
+		earnedSpec("SPEC-002", "ana", "2026-07-01T00:00:00Z"),
+		earnedSpec("SPEC-003", "ana", "2026-09-30T00:00:00Z"),
+		earnedSpec("SPEC-004", "ana", "2026-10-01T00:00:01Z"),
+	}
+	q3start := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	q3end := time.Date(2026, 9, 30, 23, 59, 59, 0, time.UTC)
+
+	tests := []struct {
+		name      string
+		from, to  time.Time
+		wantCount int
+	}{
+		{name: "all time", wantCount: 4},
+		{name: "quarter", from: q3start, to: q3end, wantCount: 2},
+		{name: "since only", from: q3start, wantCount: 3},
+		{name: "until only", to: q3end, wantCount: 3},
+		{name: "empty window", from: q3end, to: q3start, wantCount: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			awards := Tally(metas, tt.from, tt.to)
+			got := 0
+			if len(awards) > 0 {
+				got = awards[0].Count
+			}
+			if got != tt.wantCount {
+				t.Errorf("count = %d, want %d", got, tt.wantCount)
+			}
+		})
+	}
+}
+
+// TestTally_SkipsUnusableStamps keeps a hand-edited spec from distorting the
+// ledger instead of being counted at the zero time.
+func TestTally_SkipsUnusableStamps(t *testing.T) {
+	metas := []markdown.SpecMeta{
+		earnedSpec("SPEC-001", "ana", "yesterday"),
+		earnedSpec("SPEC-002", "ana", ""),
+		{ID: "SPEC-003", Bounty: &markdown.BountyState{
+			GrantedAt: "2026-07-01T09:00:00Z", EarnedAt: "2026-08-01T09:00:00Z", // earned_by missing
+		}},
+	}
+	if awards := Tally(metas, time.Time{}, time.Time{}); len(awards) != 0 {
+		t.Errorf("awards = %+v, want none from unusable records", awards)
+	}
+}
+
+// TestTally_Empty is the "no awards yet" path every new team starts in.
+func TestTally_Empty(t *testing.T) {
+	if awards := Tally(nil, time.Time{}, time.Time{}); len(awards) != 0 {
+		t.Errorf("Tally(nil) = %+v, want empty", awards)
+	}
+}

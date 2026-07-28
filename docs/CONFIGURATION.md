@@ -890,6 +890,18 @@ The record lives in the spec's own frontmatter (`bounty.granted_by`,
 awards survive clones and machine loss. Advancing a claimed, bountied spec into
 a terminal stage freezes the award; it is immutable from then on.
 
+```bash
+spec bounty ledger                       # all recorded awards
+spec bounty ledger --since 2026-07-01    # a quarter
+spec bounty ledger --cycle "Cycle 7"     # one delivery cycle
+spec bounty ledger --json                # for a spreadsheet or a script
+```
+
+The ledger is derived from the specs repo and its archive on every run — no
+local database is consulted, so a fresh clone reports the same numbers. What an
+earned bounty is worth is deliberately outside the tool: `spec` records who
+claimed and finished the work, and the reward is a decision you make with it.
+
 ---
 
 ## Personal configuration

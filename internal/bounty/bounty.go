@@ -10,6 +10,7 @@ package bounty
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -187,4 +188,70 @@ func ParseStamp(s string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return t, true
+}
+
+// Award is one person's earned-bounty tally over a window, with the specs that
+// produced it so a leaderboard can always be traced back to real work.
+type Award struct {
+	// Handle is the earner as first spelled in the specs (display form).
+	Handle string `json:"handle"`
+
+	// Count is how many bounties they earned in the window.
+	Count int `json:"count"`
+
+	// SpecIDs are the contributing specs, in ascending ID order.
+	SpecIDs []string `json:"spec_ids"`
+}
+
+// Tally aggregates earned bounties per person from already-parsed spec
+// frontmatter, restricted to awards earned within [from, to]. A zero from or to
+// means unbounded on that side.
+//
+// Grouping is case- and '@'-insensitive so "@Ana" and "ana" are one person; the
+// first spelling encountered is kept for display. Results are ordered by count
+// descending then handle ascending, so a leaderboard is stable across runs.
+//
+// Specs with an unparseable earned_at are skipped rather than counted at the
+// zero time: a hand-edited stamp should not silently distort the ledger.
+func Tally(metas []markdown.SpecMeta, from, to time.Time) []Award {
+	byHandle := make(map[string]*Award)
+	for _, meta := range metas {
+		if !meta.BountyEarned() || meta.Bounty.EarnedBy == "" {
+			continue
+		}
+		earned, ok := ParseStamp(meta.Bounty.EarnedAt)
+		if !ok || !withinWindow(earned, from, to) {
+			continue
+		}
+		key := markdown.NormalizeHandle(meta.Bounty.EarnedBy)
+		award, seen := byHandle[key]
+		if !seen {
+			award = &Award{Handle: meta.Bounty.EarnedBy}
+			byHandle[key] = award
+		}
+		award.Count++
+		award.SpecIDs = append(award.SpecIDs, meta.ID)
+	}
+
+	awards := make([]Award, 0, len(byHandle))
+	for _, a := range byHandle {
+		sort.Strings(a.SpecIDs)
+		awards = append(awards, *a)
+	}
+	sort.Slice(awards, func(i, j int) bool {
+		if awards[i].Count != awards[j].Count {
+			return awards[i].Count > awards[j].Count
+		}
+		return markdown.NormalizeHandle(awards[i].Handle) < markdown.NormalizeHandle(awards[j].Handle)
+	})
+	return awards
+}
+
+// withinWindow reports whether t falls inside [from, to], treating a zero bound
+// as unbounded.
+func withinWindow(t, from, to time.Time) bool {
+	if !from.IsZero() && t.Before(from) {
+		return false
+	}
+	return to.IsZero() || !t.After(to)
 }

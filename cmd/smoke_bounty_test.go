@@ -391,3 +391,158 @@ func TestSmoke_BountyRejectsTriageID(t *testing.T) {
 		t.Errorf("error = %q, want it to explain that bounties apply to specs", err)
 	}
 }
+
+// writeArchivedSpec writes a spec into the sandboxed archive directory with an
+// earned bounty, standing in for work already completed.
+func (e *smokeEnv) writeArchivedSpec(id, title, cycle, earnedBy, earnedAt string) {
+	e.t.Helper()
+	dir := filepath.Join(e.specsDirPath(), "archive")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		e.t.Fatalf("mkdir archive: %v", err)
+	}
+	fm := "---\n" +
+		"id: " + id + "\n" +
+		"title: " + title + "\n" +
+		"status: done\n" +
+		"version: 0.1.0\n" +
+		"author: Dev\n" +
+		"cycle: " + cycle + "\n" +
+		"revert_count: 0\n" +
+		"created: \"2026-01-01\"\n" +
+		"updated: \"2026-01-01\"\n" +
+		"bounty:\n" +
+		"  granted_by: dev\n" +
+		"  granted_at: \"2026-07-01T09:00:00Z\"\n" +
+		"  reason: worth taking\n" +
+		"  claimed_by: " + earnedBy + "\n" +
+		"  earned_by: " + earnedBy + "\n" +
+		"  earned_at: \"" + earnedAt + "\"\n" +
+		"---\n\n## TL;DR\nx\n"
+	if err := os.WriteFile(filepath.Join(dir, id+".md"), []byte(fm), 0o644); err != nil {
+		e.t.Fatalf("write archived spec %s: %v", id, err)
+	}
+}
+
+// TestSmoke_BountyLedger is AC-10: the tally is derived from the specs repo and
+// its archive, ordered by count, and traceable to the contributing specs.
+func TestSmoke_BountyLedger(t *testing.T) {
+	e := newSmokeEnv(t)
+	e.writeUserConfig("tl")
+	e.writeBountyTeamConfig(2, "tl")
+	e.writeArchivedSpec("SPEC-001", "A", "Cycle 6", "priya", "2026-07-10T09:00:00Z")
+	e.writeArchivedSpec("SPEC-002", "B", "Cycle 7", "priya", "2026-08-10T09:00:00Z")
+	e.writeArchivedSpec("SPEC-003", "C", "Cycle 7", "sam", "2026-08-11T09:00:00Z")
+	e.initSpecsGit()
+
+	out, err := e.runSpec("bounty", "ledger")
+	if err != nil {
+		t.Fatalf("bounty ledger: %v", err)
+	}
+	for _, want := range []string{"priya", "sam", "SPEC-001, SPEC-002", "all time"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ledger output = %q, want it to mention %q", out, want)
+		}
+	}
+	if strings.Index(out, "priya") > strings.Index(out, "sam") {
+		t.Errorf("ledger should lead with the highest count:\n%s", out)
+	}
+}
+
+// TestSmoke_BountyLedgerWindows covers --since and --cycle scoping.
+func TestSmoke_BountyLedgerWindows(t *testing.T) {
+	e := newSmokeEnv(t)
+	e.writeUserConfig("tl")
+	e.writeBountyTeamConfig(2, "tl")
+	e.writeArchivedSpec("SPEC-001", "A", "Cycle 6", "priya", "2026-07-10T09:00:00Z")
+	e.writeArchivedSpec("SPEC-002", "B", "Cycle 7", "sam", "2026-08-10T09:00:00Z")
+	e.initSpecsGit()
+
+	out, err := e.runSpec("bounty", "ledger", "--since", "2026-08-01")
+	if err != nil {
+		t.Fatalf("ledger --since: %v", err)
+	}
+	if !strings.Contains(out, "sam") || strings.Contains(out, "priya") {
+		t.Errorf("--since should exclude the earlier award: %q", out)
+	}
+
+	out, err = e.runSpec("bounty", "ledger", "--cycle", "Cycle 6")
+	if err != nil {
+		t.Fatalf("ledger --cycle: %v", err)
+	}
+	if !strings.Contains(out, "priya") || strings.Contains(out, "sam") {
+		t.Errorf("--cycle should scope to one cycle: %q", out)
+	}
+
+	_, err = e.runSpec("bounty", "ledger", "--since", "last-tuesday")
+	if err == nil {
+		t.Fatal("expected an error for an unparseable --since")
+	}
+	if !strings.Contains(err.Error(), "2026-07-01") {
+		t.Errorf("error = %q, want the accepted format shown", err)
+	}
+}
+
+// TestSmoke_BountyLedgerJSONFromGitOnly is AC-10's durability claim: deleting
+// the local database does not change the tally.
+func TestSmoke_BountyLedgerJSONFromGitOnly(t *testing.T) {
+	e := newSmokeEnv(t)
+	e.writeUserConfig("tl")
+	e.writeBountyTeamConfig(2, "tl")
+	e.writeArchivedSpec("SPEC-001", "A", "Cycle 7", "priya", "2026-08-10T09:00:00Z")
+	e.initSpecsGit()
+
+	readTally := func() []struct {
+		Handle  string   `json:"handle"`
+		Count   int      `json:"count"`
+		SpecIDs []string `json:"spec_ids"`
+	} {
+		out, err := e.runSpec("bounty", "ledger", "--json")
+		if err != nil {
+			t.Fatalf("ledger --json: %v", err)
+		}
+		var awards []struct {
+			Handle  string   `json:"handle"`
+			Count   int      `json:"count"`
+			SpecIDs []string `json:"spec_ids"`
+		}
+		if err := json.Unmarshal([]byte(out), &awards); err != nil {
+			t.Fatalf("unmarshal %q: %v", out, err)
+		}
+		return awards
+	}
+
+	before := readTally()
+	if len(before) != 1 || before[0].Handle != "priya" || before[0].Count != 1 {
+		t.Fatalf("tally = %+v, want one award for priya", before)
+	}
+
+	// Wipe the local store: the ledger must be reproducible from git alone.
+	resetCmdState(t)
+	if err := os.RemoveAll(filepath.Join(e.home, ".spec", "spec.db")); err != nil {
+		t.Fatalf("remove db: %v", err)
+	}
+	after := readTally()
+	if len(after) != len(before) || after[0].Count != before[0].Count {
+		t.Errorf("tally changed after deleting the local store: %+v then %+v", before, after)
+	}
+}
+
+// TestSmoke_BountyLedgerEmpty is the state every team starts in.
+func TestSmoke_BountyLedgerEmpty(t *testing.T) {
+	e := newSmokeEnv(t)
+	e.writeUserConfig("tl")
+	e.writeBountyTeamConfig(2, "tl")
+	e.writeSpec(specFixture{id: "SPEC-001", title: "A", status: "engineering", author: "Dev"}, "## TL;DR\nx\n")
+	e.initSpecsGit()
+
+	out, err := e.runSpec("bounty", "ledger")
+	if err != nil {
+		t.Fatalf("bounty ledger: %v", err)
+	}
+	if !strings.Contains(out, "No bounties earned") {
+		t.Errorf("ledger output = %q, want the empty state", out)
+	}
+	if !strings.Contains(out, "terminal stage") {
+		t.Errorf("empty ledger should explain when an award is recorded: %q", out)
+	}
+}
