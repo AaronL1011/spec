@@ -136,7 +136,7 @@ These keys work in top-level spec lists and the detail overview where relevant.
 | `e` | Edit in the configured editor, or show docs URL for external roles |
 | `b` | Validate and start/resume the configured coding agent |
 | `d` | Draft the next empty section and review it before anything is written |
-| `D` | Open an interactive authoring session for the spec |
+| `D` | Open an interactive authoring session — prompts for what the session should work on (blank Enter opens a general session) |
 | `x` | Block with a reason |
 | `u` | Resume a blocked spec |
 | `g c` | Claim, assign handles, or type `-` to unassign |
@@ -159,9 +159,11 @@ Run `spec agent check` if either is missing.
 
 ## Drafting a section
 
-Empty sections show `· press d to draft` in the overview. `d` on such a section
-generates a draft and opens the review modal; nothing is written to the spec
-until you accept.
+Empty sections show `· press d to draft` in the reader. In the reader, `d`
+drafts the section under the cursor (falling forward to the next empty owner
+section if the current one already has content); from a list or the overview it
+drafts the first empty owner section. The draft opens the review modal; nothing
+is written to the spec until you accept.
 
 While generating, the modal shows the task name and a live elapsed counter — a
 local model can take tens of seconds, so this distinguishes slow from stuck. Esc
