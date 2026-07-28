@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	xansi "github.com/charmbracelet/x/ansi"
 
+	"github.com/aaronl1011/spec/internal/llm"
 	"github.com/aaronl1011/spec/internal/markdown"
 )
 
@@ -308,5 +309,36 @@ func TestThreadReplyCtrlS_DispatchesThroughApp(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Error("ctrl+s with text should produce a reply command")
+	}
+}
+
+// --- editor suspend ---
+
+// The modal's `e` must hand the editor to the runtime via tea.ExecProcess so
+// Bubble Tea releases the terminal first and restores raw mode after. Running
+// a terminal editor from a background goroutine while the TUI holds the screen
+// leaves the tty in the editor's cooked state on exit — IXON comes back on and
+// Ctrl+S turns into flow control, which presents as "keys stopped working".
+func TestEditDraft_HandsEditorToTheRuntime(t *testing.T) {
+	a := draftDispatchApp(t)
+	a.rc.User.Preferences.Editor = "true" // harmless no-op "editor"
+	a.draft = draftSession{
+		state:    draftReviewing,
+		specID:   "SPEC-001",
+		slug:     "goals_non_goals",
+		attempts: []llm.Attempt{{Content: "draft body"}},
+	}
+
+	_, cmd := a.editDraft()
+	if cmd == nil {
+		t.Fatal("e should produce a command")
+	}
+
+	// Executing an ExecProcess command yields the runtime's internal exec
+	// message; the buggy path ran the editor right here and produced a
+	// draftEditedMsg synchronously.
+	msg := cmd()
+	if _, ranInline := msg.(draftEditedMsg); ranInline {
+		t.Fatal("editDraft ran the editor inside a tea.Cmd goroutine; it must use tea.ExecProcess so the terminal is released and restored")
 	}
 }

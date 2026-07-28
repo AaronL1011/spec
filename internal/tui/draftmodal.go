@@ -298,6 +298,12 @@ func (a App) regenerate() (App, tea.Cmd) {
 }
 
 // editDraft suspends the TUI into $EDITOR and returns with the edited content.
+//
+// The editor must go through tea.ExecProcess: the runtime releases the terminal
+// before the editor starts and restores raw mode after it exits. Running it
+// from a plain tea.Cmd goroutine while the TUI holds the screen leaves the tty
+// in the editor's cooked state — IXON comes back on and Ctrl+S becomes flow
+// control, which breaks keys across the whole app for the rest of the session.
 func (a App) editDraft() (App, tea.Cmd) {
 	att, ok := a.draft.current()
 	if !ok {
@@ -309,13 +315,20 @@ func (a App) editDraft() (App, tea.Cmd) {
 	}
 	cursor := a.draft.cursor
 
-	return a, func() tea.Msg {
-		edited, err := llm.EditInEditor(att.Content, editor)
-		if err != nil {
-			return draftEditedMsg{cursor: cursor, err: err}
+	cmd, result, err := llm.EditorSession(context.Background(), att.Content, editor)
+	if err != nil {
+		return a, func() tea.Msg { return draftEditedMsg{cursor: cursor, err: err} }
+	}
+	return a, tea.ExecProcess(cmd, func(runErr error) tea.Msg {
+		edited, readErr := result()
+		if runErr != nil {
+			return draftEditedMsg{cursor: cursor, err: runErr}
+		}
+		if readErr != nil {
+			return draftEditedMsg{cursor: cursor, err: readErr}
 		}
 		return draftEditedMsg{cursor: cursor, content: edited}
-	}
+	})
 }
 
 // draftEditedMsg returns an $EDITOR round-trip to the update loop.
