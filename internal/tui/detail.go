@@ -169,6 +169,18 @@ func (a App) updateDetail(msg tea.KeyPressMsg) (App, tea.Cmd) {
 	if a.detail.readerMode {
 		readerUsesTab := a.detail.paneActiveForCurrentSection()
 		capturing := a.detail.input.active()
+		// Draft keys are spec actions whose target comes from the reader cursor,
+		// so they must be dispatched here rather than delegated — updateReader
+		// owns navigation, not spec actions, and delegating them was the bug
+		// that made `d` dead in the one mode where it has an exact target.
+		// Never while a thread prompt captures text or the anchor picker owns
+		// the keyboard.
+		if !capturing && !a.detail.pickMode &&
+			(key.Matches(msg, a.keys.Draft) || key.Matches(msg, a.keys.DraftSession)) {
+			if cmd, handled := a.handleSpecAction(a.detail.specID, msg); handled {
+				return a, cmd
+			}
+		}
 		switch {
 		case key.Matches(msg, a.keys.NextTab) && !readerUsesTab && !capturing:
 			return a, a.switchView(a.activeView.Next())

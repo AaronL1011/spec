@@ -174,6 +174,38 @@ func nextEmptyOwnerSection(rc *config.ResolvedConfig, specID, after string) stri
 	return firstEmpty
 }
 
+// resolveDraftTarget picks the section a one-shot draft should fill.
+//
+// An explicit target (the reader cursor) is honoured only while the section is
+// empty — drafting over existing content would turn accept into an overwrite —
+// otherwise the choice falls forward to the next empty owner section, which is
+// the behaviour the docs promise ("draft the next empty section"). Contexts
+// with no cursor (overview, lists) pass an empty slug and get the first empty
+// owner section. Returns empty when nothing qualifies.
+func (a *App) resolveDraftTarget(specID, slug string) string {
+	if slug != "" && sectionIsEmpty(a.rc, specID, slug) {
+		return slug
+	}
+	return nextEmptyOwnerSection(a.rc, specID, slug)
+}
+
+// sectionIsEmpty reports whether a section currently has no content on disk.
+// Read from disk rather than the detail model so the check agrees with what a
+// write would actually replace.
+func sectionIsEmpty(rc *config.ResolvedConfig, specID, slug string) bool {
+	path := resolveLocalSpecPath(rc, specID)
+	sections, err := markdown.ExtractSectionsFromFile(path)
+	if err != nil {
+		return false
+	}
+	for _, s := range sections {
+		if s.Slug == slug {
+			return strings.TrimSpace(s.Content) == ""
+		}
+	}
+	return false
+}
+
 // recordDraftOutcome logs one review to the activity log.
 //
 // Best-effort: telemetry must never interfere with a draft the user accepted.

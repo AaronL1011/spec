@@ -126,8 +126,9 @@ func (a *App) startSectionDraft(specID, slug string) tea.Cmd {
 		a.statusBar.SetStatusError("Drafting unavailable", a.agentPlaneExplanation())
 		return nil
 	}
+	slug = a.resolveDraftTarget(specID, slug)
 	if slug == "" {
-		a.statusBar.SetStatusError("Drafting unavailable", "no section selected")
+		a.statusBar.SetStatusError("Nothing to draft", "every owner section already has content — open the reader (o) to work on one")
 		return nil
 	}
 

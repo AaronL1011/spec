@@ -1115,12 +1115,18 @@ func (m specDetailModel) overviewLines() []string {
 	// Breathing room so the controls read as a distinct footer, not another
 	// Sections row.
 	b.WriteString("\n")
-	archiveHint := Hint("d", "archive")
+	// Archive and restore live behind the g-prefix; the bare keys the footer
+	// used to advertise were stale, and `d` now drafts.
+	archiveHint := Hint("g a", "archive")
 	if m.isArchived {
-		archiveHint = Hint("r", "restore")
+		archiveHint = Hint("g r", "restore")
 	}
-	hints := HintStrip(m.styles, archiveHint,
-		Hint("o", "read sections"), Hint("e", "edit"), Hint("w", "browser preview"), Hint("esc", "back"))
+	pairs := []HintPair{Hint("o", "read sections"), Hint("e", "edit")}
+	if m.agentCanDraft {
+		pairs = append(pairs, Hint("d", "draft"))
+	}
+	pairs = append(pairs, Hint("w", "browser preview"), archiveHint, Hint("esc", "back"))
+	hints := HintStrip(m.styles, pairs...)
 	b.WriteString(hints + "\n")
 
 	return splitLines(b.String())
