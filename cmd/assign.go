@@ -117,7 +117,7 @@ func runAssign(cmd *cobra.Command, args []string) error {
 func renderBountyClaim(p *printer, specID string, claimed, selfClaim bool) {
 	switch {
 	case claimed:
-		p.Line("  %s bounty on %s claimed — finishing it records the award", tui.IconSpark, specID)
+		p.Line("  %s bounty on %s claimed — finishing it records the award", tui.IconBounty, specID)
 	case selfClaim:
 		p.Warn("bounty on %s not claimed: you granted it, and a self-granted award would be unreviewed", specID)
 	}
@@ -184,7 +184,7 @@ func maybeAutoClaim(cmd *cobra.Command, rc *config.ResolvedConfig, specID string
 	case claimed:
 		fmt.Printf("Claimed %s — you're now the assignee.\n", specID)
 		if bountyClaimed {
-			fmt.Printf("%s You took a bountied spec — finishing it records the award.\n", tui.IconSpark)
+			fmt.Printf("%s You took a bountied spec — finishing it records the award.\n", tui.IconBounty)
 		}
 	}
 }

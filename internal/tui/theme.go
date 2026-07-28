@@ -33,7 +33,7 @@ type Theme struct {
 	Error   color.Color // critical, failed
 	Muted   color.Color // disabled, inactive
 
-	// Bounty is the gold used for the bounty marker (spark glyph + SPEC-ID).
+	// Bounty is the gold used for the bounty marker (gem glyph + SPEC-ID).
 	// When nil, BountyColor derives a gold from the background's lightness. It is
 	// deliberately its own token rather than a reuse of Warning, which the
 	// urgency ramp already owns — a bountied row and a warm row must not read
@@ -60,7 +60,7 @@ func (t Theme) urgencyStops() []color.Color {
 }
 
 // Gold values for the bounty marker. Two fixed values rather than a derived
-// blend: gold is a brand colour here (the same spark as the boot splash), so it
+// blend: gold is a brand colour here, matching the boot splash's mark, so it
 // should read identically across themes of the same polarity instead of
 // drifting with each palette's accent. Themes that need a bespoke value set
 // Theme.Bounty.
@@ -772,7 +772,7 @@ func graphite() Theme {
 		Warning: lipgloss.Color("#868686"),
 		Error:   lipgloss.Color("#ececec"),
 		// graphite carries meaning by brightness alone, so the bounty marker is
-		// the brightest neutral in the palette; the spark glyph and bold weight
+		// the brightest neutral in the palette; the bounty glyph and bold weight
 		// do the rest of the work.
 		Bounty: lipgloss.Color("#ffffff"),
 		// Monochrome urgency ramp: fresh = primary text, intensifying by

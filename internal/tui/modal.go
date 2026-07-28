@@ -118,7 +118,7 @@ func (a *App) armBountyModal(specID string) {
 	}
 	a.pendingAction = "bounty"
 	a.pendingSpecID = specID
-	a.modal.ShowInput(IconSpark+" Bounty "+specID, "Why is this worth claiming now? · '-' to clear:")
+	a.modal.ShowInput(IconBounty+" Bounty "+specID, "Why is this worth claiming now? · '-' to clear:")
 	a.modal.SetValue(currentBountyReason(a.rc, specID))
 	a.modal.SetSize(a.width, a.contentHeight())
 }

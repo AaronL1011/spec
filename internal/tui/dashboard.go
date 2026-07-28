@@ -446,7 +446,7 @@ func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) st
 	// the bounty, so neither signal is lost.
 	icon := row.icon
 	if row.bountied {
-		icon = IconSpark
+		icon = IconBounty
 	}
 	if m.focusedSpecID != "" && row.specID == m.focusedSpecID {
 		icon = IconFocus
@@ -485,7 +485,7 @@ func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) st
 // glyph+ID marker and the remainder (title and detail).
 //
 // The urgency gradient owns the remainder; a bounty owns only the marker. That
-// split is the whole point — a bountied, badly-stale row shows a gold spark and
+// split is the whole point — a bountied, badly-stale row shows a gold glyph and
 // ID against a red title, so "worth taking" and "has sat too long" are legible
 // at the same time.
 func (m dashboardModel) paintRow(row dashboardRow, selected bool, mark, rest string) string {

@@ -134,11 +134,11 @@ type specSummary struct {
 }
 
 // marker returns the leading glyph for a spec row in plain output: the bounty
-// spark when the spec is bountied, otherwise a blank of the same width so
+// bounty glyph when the spec is bountied, otherwise a blank of the same width so
 // columns stay aligned whether or not a bounty is present.
 func (s specSummary) marker() string {
 	if s.Bounty != nil {
-		return tui.IconSpark
+		return tui.IconBounty
 	}
 	return " "
 }

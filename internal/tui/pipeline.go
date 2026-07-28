@@ -307,7 +307,7 @@ func (m pipelineModel) renderPipelineRow(spec pipelineSpec, selected bool) strin
 	// bounty never shifts a column (AC-12).
 	glyph := "  "
 	if spec.bountied {
-		glyph = IconSpark + " "
+		glyph = IconBounty + " "
 	}
 	mark := glyph + fmt.Sprintf("%-11s", spec.ID)
 	titleMax := contentWidth - 16

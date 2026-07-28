@@ -157,7 +157,7 @@ modals press `y` or `n`; Esc cancels.
 Run `spec agent check` if either is missing.
 
 `g b` appears only for roles allowed to grant bounties, and only when the team
-has `bounty.enabled: true`. A bountied spec renders its spark glyph and SPEC-ID
+has `bounty.enabled: true`. A bountied spec renders its gem glyph (`◈`) and SPEC-ID
 in gold — with a slow periodic shimmer — on the dashboard, the pipeline screen,
 the spec list, and the detail header. The rest of the row keeps its
 time-urgency colour, so "worth claiming" and "sitting too long" stay separately

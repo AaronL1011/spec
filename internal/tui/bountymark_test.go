@@ -67,7 +67,7 @@ func TestBountyColor_AdaptsToBackground(t *testing.T) {
 // row's width, or columns would shift when a spec is bountied.
 func TestRenderBountyMark_PreservesWidth(t *testing.T) {
 	th := bountyTheme()
-	text := IconSpark + " SPEC-001  "
+	text := IconBounty + " SPEC-001  "
 	for _, shimmer := range []bool{false, true} {
 		for frame := 0; frame < bountyCycleFrames; frame += 7 {
 			got := renderBountyMark(lipgloss.NewStyle(), text, frame, shimmer, th)
@@ -86,7 +86,7 @@ func TestRenderBountyMark_PreservesWidth(t *testing.T) {
 // changes between frames within a sweep; with it off, it never does.
 func TestRenderBountyMark_ShimmerAnimates(t *testing.T) {
 	th := bountyTheme()
-	text := IconSpark + " SPEC-001"
+	text := IconBounty + " SPEC-001"
 
 	var seen []string
 	for frame := 0; frame <= bountySweepFrames; frame++ {
@@ -174,11 +174,11 @@ func TestDashboard_BountyMarkerAndUrgencyCoexist(t *testing.T) {
 	}
 
 	bountied, plain := rows["SPEC-001"], rows["SPEC-002"]
-	if !strings.Contains(stripANSI(bountied), IconSpark) {
-		t.Errorf("bountied row should lead with the spark: %q", stripANSI(bountied))
+	if !strings.Contains(stripANSI(bountied), IconBounty) {
+		t.Errorf("bountied row should lead with the bounty glyph: %q", stripANSI(bountied))
 	}
-	if strings.Contains(stripANSI(plain), IconSpark) {
-		t.Errorf("unbountied row must not show the spark: %q", stripANSI(plain))
+	if strings.Contains(stripANSI(plain), IconBounty) {
+		t.Errorf("unbountied row must not show the bounty glyph: %q", stripANSI(plain))
 	}
 
 	gold := rgbHex(m.styles.Theme.BountyColor())
@@ -251,8 +251,8 @@ func TestSpecList_BountyGutterOnlyWhenEnabled(t *testing.T) {
 	if got := m.bountyGutter(false); got != "  " {
 		t.Errorf("unbountied gutter = %q, want two blanks so columns hold", got)
 	}
-	if got := m.bountyGutter(true); got != IconSpark+" " {
-		t.Errorf("bountied gutter = %q, want the spark", got)
+	if got := m.bountyGutter(true); got != IconBounty+" " {
+		t.Errorf("bountied gutter = %q, want the bounty glyph", got)
 	}
 	// Both gutters are the same width, so rows stay aligned.
 	if lipgloss.Width(m.bountyGutter(true)) != lipgloss.Width(m.bountyGutter(false)) {
@@ -286,10 +286,10 @@ func TestPipeline_BountyRowWidthUnchanged(t *testing.T) {
 	if lipgloss.Width(bountied) != lipgloss.Width(plain) {
 		t.Errorf("bountied row %d cells, plain %d", lipgloss.Width(bountied), lipgloss.Width(plain))
 	}
-	if !strings.Contains(stripANSI(bountied), IconSpark) {
-		t.Errorf("bountied pipeline row should show the spark: %q", stripANSI(bountied))
+	if !strings.Contains(stripANSI(bountied), IconBounty) {
+		t.Errorf("bountied pipeline row should show the bounty glyph: %q", stripANSI(bountied))
 	}
-	if strings.Contains(stripANSI(plain), IconSpark) {
+	if strings.Contains(stripANSI(plain), IconBounty) {
 		t.Errorf("plain pipeline row must not: %q", stripANSI(plain))
 	}
 }

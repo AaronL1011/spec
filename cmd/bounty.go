@@ -172,7 +172,7 @@ func runBountySet(cmd *cobra.Command, args []string) error {
 	if p.JSONEnabled() {
 		return p.JSON(view)
 	}
-	p.Line("%s %s bountied — %s", tui.IconSpark, specID, view.Reason)
+	p.Line("%s %s bountied — %s", tui.IconBounty, specID, view.Reason)
 	p.Line("  Anyone in the owning role can claim it; finishing it records the award.")
 	return nil
 }
@@ -265,7 +265,7 @@ func runBountyList(cmd *cobra.Command, _ []string) error {
 		if v.ClaimedBy != "" {
 			claim = "claimed by " + v.ClaimedBy
 		}
-		p.Line("  %s %-10s  %-36s  %s  ·  %s", tui.IconSpark, v.SpecID, truncate(v.Title, 36), v.Stage, claim)
+		p.Line("  %s %-10s  %-36s  %s  ·  %s", tui.IconBounty, v.SpecID, truncate(v.Title, 36), v.Stage, claim)
 		if v.Reason != "" {
 			p.Line("      %s (%s)", v.Reason, v.GrantedBy)
 		}
@@ -433,7 +433,7 @@ func renderLedger(p *printer, awards []bounty.Award, window string) {
 	}
 	p.Line("Bounties earned %s — %d across %d people:\n", window, total, len(awards))
 	for i, a := range awards {
-		p.Line("  %d. %s %-16s  %d", i+1, tui.IconSpark, a.Handle, a.Count)
+		p.Line("  %d. %s %-16s  %d", i+1, tui.IconBounty, a.Handle, a.Count)
 		p.Line("      %s", strings.Join(a.SpecIDs, ", "))
 	}
 }

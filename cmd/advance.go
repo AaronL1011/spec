@@ -133,7 +133,7 @@ func renderAdvance(p *printer, res *workflow.AdvanceResult) {
 		p.Line("  Skipped stages: %s", strings.Join(res.Skipped, ", "))
 	}
 	if res.BountyEarnedBy != "" {
-		p.Line("  %s bounty earned by %s", tui.IconSpark, res.BountyEarnedBy)
+		p.Line("  %s bounty earned by %s", tui.IconBounty, res.BountyEarnedBy)
 	}
 }
 

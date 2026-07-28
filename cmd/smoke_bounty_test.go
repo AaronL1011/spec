@@ -367,10 +367,10 @@ func TestSmoke_BountyMarkerInList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list --all: %v", err)
 	}
-	if !strings.Contains(out, "✦ SPEC-001") {
-		t.Errorf("list output = %q, want SPEC-001 marked with the spark", out)
+	if !strings.Contains(out, "◈ SPEC-001") {
+		t.Errorf("list output = %q, want SPEC-001 marked with the bounty glyph", out)
 	}
-	if strings.Contains(out, "✦ SPEC-002") {
+	if strings.Contains(out, "◈ SPEC-002") {
 		t.Errorf("list output = %q, want SPEC-002 unmarked", out)
 	}
 }

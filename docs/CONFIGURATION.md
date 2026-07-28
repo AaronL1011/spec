@@ -861,7 +861,7 @@ bounty:
 
 A bounty marks a spec as **worth claiming**. It is a pull signal, not an
 instruction: it never assigns anyone, reorders a queue, changes a gate, or sends
-a notification. A bountied spec renders its spark glyph and SPEC-ID in gold
+a notification. A bountied spec renders its gem glyph (`◈`) and SPEC-ID in gold
 wherever it appears, while the rest of the row keeps its time-urgency colour, so
 "worth taking" and "has been sitting too long" stay separately readable.
 

@@ -81,7 +81,7 @@ func Render(data *DashboardData, userName, role, cycle string) {
 			icon := "⚡"
 			switch {
 			case item.Bounty != nil:
-				icon = glyph.Spark
+				icon = glyph.Bounty
 			case item.Urgency == "stale":
 				icon = "⏰"
 			}

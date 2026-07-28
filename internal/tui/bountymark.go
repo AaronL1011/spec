@@ -6,7 +6,7 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// Bounty marker tuning. The marker is a gold spark plus the SPEC-ID, crossed
+// Bounty marker tuning. The marker is a gold gem glyph plus the SPEC-ID, crossed
 // periodically by a single soft sheen — the boot-splash shimmer, slowed down
 // and looped, so a bountied row reads as a rare item rather than an alarm.
 //
@@ -23,7 +23,7 @@ const (
 // bountyCycleFrames is the full sweep+rest period of the marker animation.
 const bountyCycleFrames = bountySweepFrames + bountyPauseFrames
 
-// renderBountyMark renders the leading span of a bountied row — the spark glyph
+// renderBountyMark renders the leading span of a bountied row — the bounty glyph
 // and the SPEC-ID — in gold, with an animated sheen when shimmer is enabled.
 //
 // It is the single source of the bounty treatment: every surface that shows a
@@ -69,7 +69,7 @@ func bountySheenCenter(frame, width int) float64 {
 
 // Shimmer is a team preference read through config.ResolvedConfig.Bounties()
 // at each call site. NO_COLOR and low-colour terminals need no special case:
-// lipgloss drops the per-cell colours, and the spark glyph plus bold weight
+// lipgloss drops the per-cell colours, and the bounty glyph plus bold weight
 // still mark the row.
 
 // bountyReasonLine formats a bounty's reason and granter for the spec detail

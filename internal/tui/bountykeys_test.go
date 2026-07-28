@@ -65,8 +65,8 @@ func TestBountyKey_OpensReasonPrompt(t *testing.T) {
 	if !strings.Contains(got.modal.Title, "SPEC-001") {
 		t.Errorf("modal title = %q, want the spec named", got.modal.Title)
 	}
-	if !strings.Contains(got.modal.Title, IconSpark) {
-		t.Errorf("modal title = %q, want the bounty spark", got.modal.Title)
+	if !strings.Contains(got.modal.Title, IconBounty) {
+		t.Errorf("modal title = %q, want the bounty glyph", got.modal.Title)
 	}
 }
 

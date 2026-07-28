@@ -7,13 +7,24 @@
 // avoided: they render at inconsistent cell widths across terminals, breaking
 // column-alignment maths. Semantic meaning is carried by glyph SHAPE and, at
 // the call site, theme COLOUR — so glyphs stay orthogonal to the palette.
+//
+// Row icons come from Geometric Shapes (U+25xx) for two measured reasons:
+// coverage and ink mass. Mainstream programming fonts (JetBrains Mono,
+// Caskaydia, Noto Sans Mono) cover U+25xx but NOT the Dingbats block, so a
+// Dingbat silently falls back to another font at another size. And where a font
+// does carry both, Dingbats are drawn for a text run, not a cell: in Meslo
+// Nerd Font, ✦ (U+2726) has ~24% of the ink of ● (U+25CF), so it reads as a
+// tiny icon beside its neighbours. Prefer U+25xx for anything that sits in a
+// row of icons; Spark survives only as the standalone boot-splash mark, where
+// it has no neighbours to be dwarfed by.
 package glyph
 
 // Status and semantic icons. Each is a distinct shape so status remains
 // distinguishable even when colour is stripped (accessibility).
 const (
 	Focus      = "★" // focused spec marker
-	Spark      = "✦" // brand spark (boot splash wordmark)
+	Spark      = "✦" // brand spark (boot splash wordmark only — see Bounty)
+	Bounty     = "◈" // bountied spec marker (gold)
 	Active     = "●" // active / DO
 	Stale      = "◷" // stale / waiting
 	Blocked    = "■" // blocked

@@ -1020,9 +1020,9 @@ func (m specDetailModel) overviewLines() []string {
 	// ── Identity block ────────────────────────────────────────────────────────
 	b.WriteString("\n")
 	if m.meta.HasBounty() {
-		// The bounty owns the spark + ID span here too, so the detail view
+		// The bounty owns the glyph + ID span here too, so the detail view
 		// reads as the same object the list row did.
-		b.WriteString(renderBountyMark(m.styles.Title, "  "+IconSpark+" "+m.meta.ID, m.bountyFrame,
+		b.WriteString(renderBountyMark(m.styles.Title, "  "+IconBounty+" "+m.meta.ID, m.bountyFrame,
 			m.rc.Bounties().ShimmerEnabled(), m.styles.Theme))
 		b.WriteString(m.styles.Title.Render(" — " + m.meta.Title))
 	} else {

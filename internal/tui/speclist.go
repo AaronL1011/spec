@@ -212,7 +212,7 @@ func (m *specListModel) wheelRows(delta int) {
 // Splitting them lets a bountied row paint its marker gold while the rest of
 // the row keeps whatever colour its state calls for.
 //
-// gutter is a fixed-width cell reserved for the bounty spark. It is empty when
+// gutter is a fixed-width cell reserved for the bounty glyph. It is empty when
 // the team has bounties off, so a team that never uses the feature sees exactly
 // the layout it always had; when bounties are on, the cell is present on every
 // row (blank when unbountied) so columns never shift.
@@ -260,7 +260,7 @@ func (m specListModel) formatRow(id, title, status, author, updated, gutter stri
 	return mark, rest
 }
 
-// bountyGutter returns the fixed-width leading cell for a spec row: the spark
+// bountyGutter returns the fixed-width leading cell for a spec row: the gem
 // for a bountied spec, blanks for an unbountied one, and nothing at all when
 // the team has bounties disabled.
 func (m specListModel) bountyGutter(bountied bool) string {
@@ -268,7 +268,7 @@ func (m specListModel) bountyGutter(bountied bool) string {
 		return ""
 	}
 	if bountied {
-		return IconSpark + " "
+		return IconBounty + " "
 	}
 	return "  "
 }
