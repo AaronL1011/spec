@@ -171,6 +171,82 @@ also filled
 	}
 }
 
+// --- D: intent input ---
+
+// D opens an intent input before launching, so the user can say what the
+// session is for instead of being handed a generic kickoff.
+func TestDraftSessionKey_OpensIntentInput(t *testing.T) {
+	a := draftDispatchApp(t)
+	a.detail.readerMode = true
+	a.detail.sectionIdx = 1
+
+	got := pressKey(t, a, "D")
+
+	if !got.modal.Visible {
+		t.Fatal("D should open the intent input modal before launching a session")
+	}
+	if got.pendingAction != "draft-session:goals_non_goals" {
+		t.Errorf("pendingAction = %q, want draft-session carrying the cursor section", got.pendingAction)
+	}
+	if got.pendingSpecID != "SPEC-001" {
+		t.Errorf("pendingSpecID = %q, want SPEC-001", got.pendingSpecID)
+	}
+	if got.draft.active() {
+		t.Error("D should not start a one-shot draft flow")
+	}
+}
+
+// From the overview there is no cursor; the intent modal still opens, with no
+// section pinned.
+func TestDraftSessionKey_OverviewOpensIntentInputWithoutSection(t *testing.T) {
+	a := draftDispatchApp(t)
+	a.detail.readerMode = false
+
+	got := pressKey(t, a, "D")
+
+	if !got.modal.Visible {
+		t.Fatal("D from the overview should open the intent input modal")
+	}
+	if got.pendingAction != "draft-session:" {
+		t.Errorf("pendingAction = %q, want draft-session with no section", got.pendingAction)
+	}
+}
+
+// Submitting the intent launches the session; the intent must reach the
+// kickoff prompt.
+func TestDraftSessionIntent_SubmitLaunches(t *testing.T) {
+	a := draftDispatchApp(t)
+	a.pendingAction = "draft-session:goals_non_goals"
+	a.pendingSpecID = "SPEC-001"
+
+	cmd := a.executeActionWithInput("focus on the failure modes")
+	if cmd == nil {
+		t.Fatal("submitting an intent should launch the session")
+	}
+}
+
+// A blank submit is a valid "just open it": the session launches with the
+// default kickoff rather than the modal refusing to close.
+func TestDraftSessionIntent_BlankSubmitLaunches(t *testing.T) {
+	a := draftDispatchApp(t)
+	a.detail.readerMode = true
+	a.detail.sectionIdx = 1
+
+	a = pressKey(t, a, "D")
+	if !a.modal.Visible {
+		t.Fatal("intent modal should be open")
+	}
+
+	model, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := model.(App)
+	if got.modal.Visible {
+		t.Error("blank Enter should close the intent modal and launch")
+	}
+	if cmd == nil {
+		t.Error("blank Enter should still launch the session with the default kickoff")
+	}
+}
+
 // --- overview footer hints ---
 
 // The overview footer must not advertise stale keys: archive is `g a` (and

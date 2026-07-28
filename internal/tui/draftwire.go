@@ -229,19 +229,30 @@ func (a *App) recordDraftOutcome(action llm.Action) {
 	_ = a.db.ActivityLogAs(a.draft.specID, "agent_generate", summary, "", user, store.ActorHuman)
 }
 
-// interactiveKickoff builds the prompt that opens an escalated session.
+// interactiveKickoff builds the prompt that opens an interactive session.
 //
-// It carries the spec, the target section, the rejected draft, and every steer
-// note, because the first thing a user would otherwise type at a blank prompt is
-// something spec already knew.
-func interactiveKickoff(specID, slug, rejected string, notes []string) string {
+// It carries the spec, the target section, the user's stated intent, the
+// rejected draft, and every steer note, because the first thing a user would
+// otherwise type at a blank prompt is something spec already knew — or, for
+// intent, something spec just asked them.
+func interactiveKickoff(specID, slug, intent, rejected string, notes []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Work on %s", specID)
 	if slug != "" {
 		fmt.Fprintf(&b, ", section §%s", slug)
 	}
 	b.WriteString(".\n\n")
-	b.WriteString("Read the spec through the MCP tools, then write the section with spec_section_write ")
+	if intent = strings.TrimSpace(intent); intent != "" {
+		b.WriteString("The user's goal for this session:\n")
+		b.WriteString(intent)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("Read the spec through the MCP tools first. ")
+	if slug != "" {
+		fmt.Fprintf(&b, "Write §%s with spec_section_write ", slug)
+	} else {
+		b.WriteString("Apply any section changes with spec_section_write ")
+	}
 	b.WriteString("(pass the content_hash from spec_section_read so a concurrent edit is not clobbered).\n")
 
 	if strings.TrimSpace(rejected) != "" {

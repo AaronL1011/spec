@@ -122,7 +122,7 @@ func TestAgentPlaneExplanation_NamesTheReason(t *testing.T) {
 // The kickoff carries what the user would otherwise have to retype, which is the
 // point of escalating rather than opening a blank session.
 func TestInteractiveKickoff_CarriesContext(t *testing.T) {
-	kickoff := interactiveKickoff("SPEC-034", "proposed_solution",
+	kickoff := interactiveKickoff("SPEC-034", "proposed_solution", "",
 		"the rejected draft text",
 		[]string{"weigh the queue option", "two sentences on the mechanism"})
 
@@ -145,12 +145,28 @@ func TestInteractiveKickoff_CarriesContext(t *testing.T) {
 
 // A plain D press has no rejected draft, so the kickoff must not invent one.
 func TestInteractiveKickoff_WithoutPriorDraft(t *testing.T) {
-	kickoff := interactiveKickoff("SPEC-001", "problem_statement", "", nil)
+	kickoff := interactiveKickoff("SPEC-001", "problem_statement", "", "", nil)
 	if strings.Contains(kickoff, "rejected") {
 		t.Errorf("a fresh session should not mention a rejected draft:\n%s", kickoff)
 	}
 	if !strings.Contains(kickoff, "problem_statement") {
 		t.Errorf("the target section should still be named:\n%s", kickoff)
+	}
+}
+
+// The intent is the user's answer to "what is this session for?" — it must
+// lead the kickoff, and a sectionless kickoff must not instruct the agent to
+// "write the section" when none was named.
+func TestInteractiveKickoff_CarriesIntent(t *testing.T) {
+	kickoff := interactiveKickoff("SPEC-034", "", "tighten §4 and log the trade-off as a decision", "", nil)
+	if !strings.Contains(kickoff, "tighten §4 and log the trade-off as a decision") {
+		t.Errorf("kickoff should carry the user's intent:\n%s", kickoff)
+	}
+	if strings.Contains(kickoff, "Write § ") || strings.Contains(kickoff, "section §.") {
+		t.Errorf("a sectionless kickoff should not name a phantom section:\n%s", kickoff)
+	}
+	if !strings.Contains(kickoff, "spec_section_write") {
+		t.Errorf("the port instruction must survive:\n%s", kickoff)
 	}
 }
 

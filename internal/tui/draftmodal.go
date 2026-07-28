@@ -352,7 +352,7 @@ func (a App) escalateDraft() (App, tea.Cmd) {
 	}
 
 	att, _ := a.draft.current()
-	kickoff := interactiveKickoff(a.draft.specID, a.draft.slug, att.Content, a.draft.notes)
+	kickoff := interactiveKickoff(a.draft.specID, a.draft.slug, "", att.Content, a.draft.notes)
 	specID := a.draft.specID
 
 	a.recordDraftOutcome(llm.ActionEscalate)

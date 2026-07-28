@@ -297,8 +297,10 @@ func (a *App) handleSpecAction(specID string, msg tea.KeyPressMsg) (tea.Cmd, boo
 			a.statusBar.SetStatusError("Interactive unavailable", "this agent does not support sessions")
 			return nil, true
 		}
-		slug := a.draftTargetSection()
-		return interactiveDraftSession(a.rc, specID, interactiveKickoff(specID, slug, "", nil)), true
+		// Ask for intent before launching: the kickoff can carry the spec and
+		// section on its own, but only the user knows what the session is for.
+		a.armDraftSessionModal(specID, a.draftTargetSection())
+		return nil, true
 	case key.Matches(msg, a.keys.Build) && isSpecID(specID):
 		// Pre-flight stage guard runs before the confirm modal so an invalid
 		// spec surfaces inline and never reaches the confirm step.
