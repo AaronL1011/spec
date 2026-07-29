@@ -276,7 +276,58 @@ func lintPipelineNode(path string, pipelineNode *yaml.Node) []Diagnostic {
 	for i, stageNode := range stagesNode.Content {
 		diags = append(diags, lintStageNode(path, i, stageNode)...)
 	}
+
+	diags = append(diags, lintEarlyAutoArchive(path, stagesNode)...)
 	return diags
+}
+
+// lintEarlyAutoArchive reports an auto_archive stage that still has required
+// stages after it. Such a stage is terminal (it completes the spec, ends lead
+// and cycle time, and freezes any claimed bounty award) while mandatory work
+// remains — almost always a misplaced flag rather than an intent. Advisory
+// only: a team may genuinely want an early archive escape hatch.
+func lintEarlyAutoArchive(path string, stagesNode *yaml.Node) []Diagnostic {
+	var diags []Diagnostic
+
+	for i, stageNode := range stagesNode.Content {
+		archiveNode := mapValue(stageNode, "auto_archive")
+		if archiveNode == nil || archiveNode.Value != "true" {
+			continue
+		}
+
+		var following []string
+		for _, later := range stagesNode.Content[i+1:] {
+			if optNode := mapValue(later, "optional"); optNode != nil && optNode.Value == "true" {
+				continue
+			}
+			if nameNode := mapValue(later, "name"); nameNode != nil && nameNode.Value != "" {
+				following = append(following, nameNode.Value)
+			}
+		}
+		if len(following) == 0 {
+			continue
+		}
+
+		name := stageName(stageNode, i)
+		diags = append(diags, Diagnostic{
+			File: path, Line: lineOf(archiveNode), Column: archiveNode.Column,
+			Severity: SeverityWarning, Field: fmt.Sprintf("stages[%d].auto_archive", i),
+			Message: fmt.Sprintf("stage %q completes and archives a spec, but required stage(s) follow it: %s",
+				name, strings.Join(following, ", ")),
+			Suggestion: "move auto_archive to the final stage, or mark the following stages optional — run 'spec pipeline' to see the resolved terminal stages",
+		})
+	}
+
+	return diags
+}
+
+// stageName returns a stage's declared name, or a positional label when it is
+// missing (the missing name is reported separately by lintStageNode).
+func stageName(stageNode *yaml.Node, idx int) string {
+	if nameNode := mapValue(stageNode, "name"); nameNode != nil && nameNode.Value != "" {
+		return nameNode.Value
+	}
+	return fmt.Sprintf("stages[%d]", idx)
 }
 
 // lintStageNode validates a single stage mapping.

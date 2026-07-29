@@ -137,6 +137,9 @@ func runPipelineShow(cmd *cobra.Command, args []string) error {
 	}
 
 	cmd.Println()
+	printTerminalStages(cmd, resolved, rc.BountyEnabled())
+
+	cmd.Println()
 	cmd.Println("Commands:")
 	cmd.Println("  spec pipeline --verbose     Show gates and effects")
 	cmd.Println("  spec pipeline presets       List available presets")
@@ -215,7 +218,46 @@ func printPipelineCompact(cmd *cobra.Command, resolved *pipeline.ResolvedPipelin
 	cmd.Println("  " + ownersLine.String())
 }
 
+// printTerminalStages names the stages that mark a spec complete, and the rule
+// that made each one terminal. The set is derived from the stage list rather
+// than declared per stage, so printing it here is how a team sees where their
+// pipeline actually completes without reading pipeline.TerminalStages.
+func printTerminalStages(cmd *cobra.Command, resolved *pipeline.ResolvedPipeline, bounties bool) {
+	terminals := resolved.TerminalStages()
+	if len(terminals) == 0 {
+		cmd.Println("Terminal stages: none — no stage in this pipeline marks a spec complete")
+		return
+	}
+
+	labels := make([]string, 0, len(terminals))
+	for _, t := range terminals {
+		labels = append(labels, fmt.Sprintf("%s (%s)", t.Name, t.Reason))
+	}
+
+	cmd.Printf("Terminal stages: %s\n", strings.Join(labels, ", "))
+	cmd.Println("  Advancing into one of these completes a spec: it ends lead and cycle time")
+	cmd.Println("  and counts toward throughput. The set is derived, not declared — any")
+	cmd.Println("  auto_archive stage, plus the last non-optional stage. Adding a required")
+	cmd.Println("  stage later in the pipeline moves it.")
+	if bounties {
+		cmd.Println("  Bounties are enabled: advancing a claimed bounty here freezes the award")
+		cmd.Println("  permanently, so check this set before reordering stages.")
+	}
+}
+
+// terminalReasonsByStage indexes the terminal derivation by stage name so a
+// per-stage view can annotate without re-deriving for every stage.
+func terminalReasonsByStage(resolved *pipeline.ResolvedPipeline) map[string]string {
+	reasons := make(map[string]string)
+	for _, t := range resolved.TerminalStages() {
+		reasons[t.Name] = t.Reason
+	}
+	return reasons
+}
+
 func printPipelineVerbose(cmd *cobra.Command, resolved *pipeline.ResolvedPipeline, noIcons bool) {
+	terminalReasons := terminalReasonsByStage(resolved)
+
 	for i, stage := range resolved.Stages {
 		icon := stage.Icon
 		if icon == "" || noIcons {
@@ -225,6 +267,9 @@ func printPipelineVerbose(cmd *cobra.Command, resolved *pipeline.ResolvedPipelin
 		optional := ""
 		if stage.Optional {
 			optional = " [optional]"
+		}
+		if reason := terminalReasons[stage.Name]; reason != "" {
+			optional += " [terminal: " + reason + "]"
 		}
 
 		cmd.Printf("┌─ %s %s%s\n", stage.Name, icon, optional)

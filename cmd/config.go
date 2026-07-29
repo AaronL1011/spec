@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/aaronl1011/spec/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -373,6 +374,8 @@ func runConfigTest(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	printResolvedPipeline(rc)
+
 	// Check integrations
 	categories := []struct {
 		name     string
@@ -405,6 +408,36 @@ func runConfigTest(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// printResolvedPipeline reports the resolved stage count and the derived
+// terminal stages. Terminal stages are not a config key — they fall out of
+// auto_archive and the last non-optional stage — and they decide where lead
+// time ends and where a bounty award is frozen, so the resolved set belongs in
+// the resolved-config report.
+func printResolvedPipeline(rc *config.ResolvedConfig) {
+	pipe := rc.Pipeline()
+	if len(pipe.Stages) == 0 {
+		return
+	}
+
+	fmt.Println()
+	fmt.Printf("  Pipeline: %d stages\n", len(pipe.Stages))
+
+	terminals := pipeline.TerminalStagesWithReasons(pipe)
+	if len(terminals) == 0 {
+		fmt.Println("    · Terminal stages: none — no stage marks a spec complete")
+		return
+	}
+
+	labels := make([]string, 0, len(terminals))
+	for _, t := range terminals {
+		labels = append(labels, fmt.Sprintf("%s (%s)", t.Name, t.Reason))
+	}
+	fmt.Printf("    ✓ Terminal stages: %s\n", strings.Join(labels, ", "))
+	if rc.BountyEnabled() {
+		fmt.Println("      Bounty awards freeze on advance into these — run 'spec pipeline' for detail")
+	}
 }
 
 // promptAgentSetup offers an optional coding-agent step.

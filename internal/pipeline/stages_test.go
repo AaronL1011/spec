@@ -96,3 +96,76 @@ func TestIsTerminalStage(t *testing.T) {
 		}
 	}
 }
+
+// TestTerminalStagesWithReasons_ExplainsEachRule: the reason is what `spec
+// pipeline` and `spec config test` print, so each rule must be attributed
+// correctly rather than guessed at by the caller.
+func TestTerminalStagesWithReasons_ExplainsEachRule(t *testing.T) {
+	tests := []struct {
+		name string
+		pipe config.PipelineConfig
+		want map[string]string
+	}{
+		{
+			name: "auto_archive and last required",
+			pipe: config.DefaultPipeline(),
+			want: map[string]string{
+				"closed": TerminalReasonAutoArchive,
+				"done":   TerminalReasonLastRequired,
+			},
+		},
+		{
+			name: "custom last required stage",
+			pipe: config.PipelineConfig{Stages: []config.StageConfig{
+				{Name: "draft"},
+				{Name: "shipped"},
+			}},
+			want: map[string]string{"shipped": TerminalReasonLastRequired},
+		},
+		{
+			name: "all stages optional falls back to stage names",
+			pipe: config.PipelineConfig{Stages: []config.StageConfig{
+				{Name: "draft", Optional: true},
+				{Name: "done", Optional: true},
+			}},
+			want: map[string]string{"done": TerminalReasonNameFallback},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := make(map[string]string)
+			for _, ts := range TerminalStagesWithReasons(tt.pipe) {
+				got[ts.Name] = ts.Reason
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("terminal stages = %v, want %v", got, tt.want)
+			}
+			for name, reason := range tt.want {
+				if got[name] != reason {
+					t.Errorf("reason for %q = %q, want %q", name, got[name], reason)
+				}
+			}
+		})
+	}
+}
+
+// TestTerminalStages_MatchesWithReasons guards the two entry points against
+// drift: the names list must always be the reasons list, in order.
+func TestTerminalStages_MatchesWithReasons(t *testing.T) {
+	pipe := config.DefaultPipeline()
+	names := TerminalStages(pipe)
+	withReasons := TerminalStagesWithReasons(pipe)
+
+	if len(names) != len(withReasons) {
+		t.Fatalf("TerminalStages = %v, TerminalStagesWithReasons = %v", names, withReasons)
+	}
+	for i, n := range names {
+		if withReasons[i].Name != n {
+			t.Errorf("index %d: name %q vs %q", i, n, withReasons[i].Name)
+		}
+		if withReasons[i].Reason == "" {
+			t.Errorf("index %d (%s): empty reason", i, n)
+		}
+	}
+}

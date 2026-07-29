@@ -33,6 +33,16 @@ func (r *ResolvedPipeline) StageByName(name string) *config.StageConfig {
 	return &r.Stages[idx]
 }
 
+// TerminalStages returns the resolved pipeline's completion stages with the
+// rule that qualified each. It is the same derivation the bounty earn hook and
+// the flow metrics use, so views can show exactly which stages settle a spec.
+func (r *ResolvedPipeline) TerminalStages() []TerminalStage {
+	if r == nil {
+		return nil
+	}
+	return TerminalStagesWithReasons(config.PipelineConfig{Stages: r.Stages})
+}
+
 // Resolve takes a pipeline config and returns a fully resolved pipeline.
 // It delegates stage expansion (preset, skip, overrides) to
 // config.ResolveStages — the single source of truth — so this resolver and
