@@ -92,15 +92,15 @@ The config commands have different responsibilities:
 | Command | What it checks |
 | --- | --- |
 | `spec config lint` | Team YAML structure and semantics |
-| `spec config test` | Config and integration presence; no remote calls |
+| `spec config test` | Config and integration presence, resolved [terminal stages](#terminal-stages); no remote calls |
 | `spec config check` | Live PM/Jira project and workflow preflight |
 | `spec whoami` | Effective identity, team, and config paths |
 | `spec pipeline validate` | Pipeline owners, gates, effects, references |
 | `spec build --check` | Build graph, workspaces, skills, capabilities |
 
 `config lint` reports line-precise errors and warns about unused provider
-identity keys. `config check` currently performs the implemented live Jira
-check.
+identity keys and about an `auto_archive` stage placed before required stages.
+`config check` currently performs the implemented live Jira check.
 
 Recommended admin check:
 
@@ -731,12 +731,49 @@ pipeline:
             - notify: next_owner
       on_enter: []
       on_exit: []
-      auto_archive: false
+      auto_archive: false   # completes + archives here (see Terminal stages)
 ```
 
 Owners may be a string or list. Built-in user roles are `pm`, `tl`, `designer`,
 `qa`, and `engineer`; presets also use special owners such as `anyone` and
 `author`.
+
+#### Terminal stages
+
+A **terminal stage** is where a spec is considered complete. It is not a field
+you set — there is no `terminal: true`. The set is derived from the stages you
+already declared:
+
+1. Every stage with `auto_archive: true`.
+2. The **last stage without `optional: true`** (the last required stage).
+3. Only if neither rule matches — which needs every stage to be optional — any
+   stage literally named `done` or `closed`.
+
+With the default pipeline that gives `closed` (rule 1) and `done` (rule 2).
+
+Reaching a terminal stage is what ends lead time and cycle time, counts toward
+throughput (`spec metrics`, `spec retro`), and — if bounties are enabled —
+**freezes a claimed bounty into an immutable award**. So it is worth knowing
+which stages yours are:
+
+```bash
+spec pipeline              # names them, with the rule that qualified each
+spec pipeline --verbose    # tags each stage [terminal: <reason>]
+spec config test           # in the resolved-config report
+```
+
+Because the set is derived, editing an unrelated stage can move it:
+
+- Adding a stage **without** `optional: true` after your finish stage makes the
+  new stage terminal instead, so specs finishing at the old one complete
+  nothing.
+- Marking your finish stage `optional: true` **without** `auto_archive: true`
+  moves completion *backwards* to the stage before it.
+
+`spec config lint` warns when an `auto_archive` stage still has required stages
+after it, since that completes and archives a spec before mandatory work. It
+cannot catch the two cases above — check `spec pipeline` after reordering
+stages.
 
 #### Dashboard scope
 
@@ -907,7 +944,10 @@ Three rules are worth knowing before you turn this on:
 The record lives in the spec's own frontmatter (`bounty.granted_by`,
 `claimed_by`, `earned_by`, `earned_at`) and travels with it into `archive/`, so
 awards survive clones and machine loss. Advancing a claimed, bountied spec into
-a terminal stage freezes the award; it is immutable from then on.
+a [terminal stage](#terminal-stages) freezes the award; it is immutable from then
+on. Terminal stages are derived from your pipeline rather than configured
+directly, so run `spec pipeline` to confirm where awards will settle before you
+turn bounties on.
 
 ```bash
 spec bounty ledger                       # all recorded awards
