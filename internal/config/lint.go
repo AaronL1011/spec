@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/aaronl1011/spec/internal/urgency"
@@ -132,7 +133,89 @@ func lintTeamConfigNode(path string, doc *yaml.Node) []Diagnostic {
 		diags = append(diags, lintDashboardNode(path, dashNode)...)
 	}
 
+	if bountyNode := mapValue(root, "bounty"); bountyNode != nil {
+		diags = append(diags, lintBountyNode(path, bountyNode, pipelineNode)...)
+	}
+
 	return diags
+}
+
+// lintBountyNode validates the bounty block: the grantable role list against
+// the roles the pipeline actually declares, and the scarcity cap.
+func lintBountyNode(path string, bountyNode, pipelineNode *yaml.Node) []Diagnostic {
+	var diags []Diagnostic
+
+	if rolesNode := mapValue(bountyNode, "grantable_by"); rolesNode != nil {
+		if rolesNode.Kind != yaml.SequenceNode {
+			diags = append(diags, Diagnostic{
+				File: path, Line: lineOf(rolesNode), Column: rolesNode.Column,
+				Severity: SeverityError, Field: "bounty.grantable_by",
+				Message:    "grantable_by must be a list of roles",
+				Suggestion: "use 'grantable_by: [tl, pm]'",
+			})
+		} else {
+			known := pipelineRoles(pipelineNode)
+			for _, roleNode := range rolesNode.Content {
+				if roleNode.Value == "" || len(known) == 0 || contains(known, roleNode.Value) {
+					continue
+				}
+				diags = append(diags, Diagnostic{
+					File: path, Line: lineOf(roleNode), Column: roleNode.Column,
+					Severity: SeverityError, Field: "bounty.grantable_by",
+					Message:    fmt.Sprintf("role %q owns no pipeline stage", roleNode.Value),
+					Suggestion: suggestFrom(roleNode.Value, known),
+				})
+			}
+		}
+	}
+
+	if finishNode := mapValue(bountyNode, "finish"); finishNode != nil && finishNode.Value != "" {
+		if _, ok := ParseBountyFinish(finishNode.Value); !ok {
+			diags = append(diags, Diagnostic{
+				File: path, Line: lineOf(finishNode), Column: finishNode.Column,
+				Severity: SeverityError, Field: "bounty.finish",
+				Message:    fmt.Sprintf("unknown finish %q", finishNode.Value),
+				Suggestion: suggestFrom(finishNode.Value, BountyFinishNames()),
+			})
+		}
+	}
+
+	if maxNode := mapValue(bountyNode, "max_active"); maxNode != nil && maxNode.Value != "" {
+		n, err := strconv.Atoi(maxNode.Value)
+		if err != nil || n < 1 {
+			diags = append(diags, Diagnostic{
+				File: path, Line: lineOf(maxNode), Column: maxNode.Column,
+				Severity: SeverityError, Field: "bounty.max_active",
+				Message:    fmt.Sprintf("invalid max_active %q: must be a positive integer", maxNode.Value),
+				Suggestion: "use a small number like 3 — bounties only mean something while they are scarce",
+			})
+		}
+	}
+
+	return diags
+}
+
+// pipelineRoles collects the owner roles declared by the pipeline's stages, so
+// bounty.grantable_by can be validated against roles that actually exist.
+// Returns nil when no pipeline block is present (a preset is in use), in which
+// case role names are not checked.
+func pipelineRoles(pipelineNode *yaml.Node) []string {
+	if pipelineNode == nil {
+		return nil
+	}
+	stagesNode := mapValue(pipelineNode, "stages")
+	if stagesNode == nil || stagesNode.Kind != yaml.SequenceNode {
+		return nil
+	}
+	var roles []string
+	for _, stage := range stagesNode.Content {
+		if roleNode := mapValue(stage, "owner_role"); roleNode != nil && roleNode.Value != "" {
+			if !contains(roles, roleNode.Value) {
+				roles = append(roles, roleNode.Value)
+			}
+		}
+	}
+	return roles
 }
 
 // lintDashboardNode validates the dashboard block: currently the urgency
@@ -193,7 +276,58 @@ func lintPipelineNode(path string, pipelineNode *yaml.Node) []Diagnostic {
 	for i, stageNode := range stagesNode.Content {
 		diags = append(diags, lintStageNode(path, i, stageNode)...)
 	}
+
+	diags = append(diags, lintEarlyAutoArchive(path, stagesNode)...)
 	return diags
+}
+
+// lintEarlyAutoArchive reports an auto_archive stage that still has required
+// stages after it. Such a stage is terminal (it completes the spec, ends lead
+// and cycle time, and freezes any claimed bounty award) while mandatory work
+// remains — almost always a misplaced flag rather than an intent. Advisory
+// only: a team may genuinely want an early archive escape hatch.
+func lintEarlyAutoArchive(path string, stagesNode *yaml.Node) []Diagnostic {
+	var diags []Diagnostic
+
+	for i, stageNode := range stagesNode.Content {
+		archiveNode := mapValue(stageNode, "auto_archive")
+		if archiveNode == nil || archiveNode.Value != "true" {
+			continue
+		}
+
+		var following []string
+		for _, later := range stagesNode.Content[i+1:] {
+			if optNode := mapValue(later, "optional"); optNode != nil && optNode.Value == "true" {
+				continue
+			}
+			if nameNode := mapValue(later, "name"); nameNode != nil && nameNode.Value != "" {
+				following = append(following, nameNode.Value)
+			}
+		}
+		if len(following) == 0 {
+			continue
+		}
+
+		name := stageName(stageNode, i)
+		diags = append(diags, Diagnostic{
+			File: path, Line: lineOf(archiveNode), Column: archiveNode.Column,
+			Severity: SeverityWarning, Field: fmt.Sprintf("stages[%d].auto_archive", i),
+			Message: fmt.Sprintf("stage %q completes and archives a spec, but required stage(s) follow it: %s",
+				name, strings.Join(following, ", ")),
+			Suggestion: "move auto_archive to the final stage, or mark the following stages optional — run 'spec pipeline' to see the resolved terminal stages",
+		})
+	}
+
+	return diags
+}
+
+// stageName returns a stage's declared name, or a positional label when it is
+// missing (the missing name is reported separately by lintStageNode).
+func stageName(stageNode *yaml.Node, idx int) string {
+	if nameNode := mapValue(stageNode, "name"); nameNode != nil && nameNode.Value != "" {
+		return nameNode.Value
+	}
+	return fmt.Sprintf("stages[%d]", idx)
 }
 
 // lintStageNode validates a single stage mapping.
@@ -395,6 +529,19 @@ func suggest(got string, candidates []string) string {
 		return ""
 	}
 	return fmt.Sprintf("did you mean %q?", best)
+}
+
+// suggestFrom is suggest with a guaranteed-actionable fallback: when nothing is
+// close enough to be a typo, it lists the valid values instead of leaving the
+// user with only "that's wrong".
+func suggestFrom(got string, candidates []string) string {
+	if s := suggest(got, candidates); s != "" {
+		return s
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	return "valid values: " + strings.Join(candidates, ", ")
 }
 
 // levenshtein computes the edit distance between two strings.

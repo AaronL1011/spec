@@ -5,6 +5,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/aaronl1011/spec/internal/bounty"
+	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/tui/components"
 )
 
@@ -101,6 +104,36 @@ func (a *App) armAssignModal(specID string) {
 	a.modal.SetSize(a.width, a.contentHeight())
 }
 
+// armBountyModal opens the bounty prompt for a spec, pre-filled with the
+// existing reason so a re-grant sharpens the wording instead of retyping it.
+// Entering "-" clears the bounty.
+//
+// The role check happens here rather than in the action: refusing after the user
+// has typed a reason wastes their effort, so an unauthorised role is told before
+// the prompt opens.
+func (a *App) armBountyModal(specID string) {
+	if err := bounty.Authorize(a.role, a.rc.Bounties()); err != nil {
+		a.statusBar.SetStatusError("Bounty not available", err.Error())
+		return
+	}
+	a.pendingAction = "bounty"
+	a.pendingSpecID = specID
+	a.modal.ShowInput(IconBounty+" Bounty "+specID, "Why is this worth claiming now? · '-' to clear:")
+	a.modal.SetValue(currentBountyReason(a.rc, specID))
+	a.modal.SetSize(a.width, a.contentHeight())
+}
+
+// currentBountyReason reads a spec's existing bounty reason from the local
+// clone, or "" when it has none. Best-effort: a read failure just means an
+// empty prompt.
+func currentBountyReason(rc *config.ResolvedConfig, specID string) string {
+	meta, err := markdown.ReadMeta(resolveLocalSpecPath(rc, specID))
+	if err != nil || !meta.HasBounty() {
+		return ""
+	}
+	return meta.Bounty.Reason
+}
+
 // executeActionWithInput runs the pending action with the given input value.
 // For confirm modals, input is empty. For input modals, it contains the user's text.
 func (a *App) executeActionWithInput(input string) tea.Cmd {
@@ -131,6 +164,15 @@ func (a *App) executeActionWithInput(input string) tea.Cmd {
 		return a.startAction("building "+specID, buildSpec(a.rc, specID))
 	case "assign":
 		return a.startAction("assigning "+specID, assignSpec(a.rc, specID, parseAssignInput(input)))
+	case "bounty":
+		// "-" clears; empty input is a no-op rather than a reasonless grant.
+		if input == "-" {
+			return a.startAction("clearing bounty on "+specID, clearBounty(a.rc, specID))
+		}
+		if strings.TrimSpace(input) == "" {
+			return nil
+		}
+		return a.startAction("bountying "+specID, grantBounty(a.rc, a.role, specID, input))
 	case "unblock":
 		return a.startAction("unblocking "+specID, unblockSpec(a.rc, a.reg, a.db, specID, a.role))
 	case "archive":

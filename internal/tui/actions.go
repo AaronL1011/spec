@@ -6,13 +6,17 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 
 	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/bounty"
 	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
@@ -327,6 +331,11 @@ func assignSpec(rc *config.ResolvedConfig, specID string, assignees []string) te
 				return "", pErr
 			}
 			meta.Assignees = assignees
+			// Claim parity with the CLI: taking a bountied spec is what puts a
+			// name against the award, whichever surface did the assigning.
+			if len(assignees) > 0 && rc.BountyEnabled() {
+				bounty.Claim(meta, assignees[0], time.Now())
+			}
 			if err := markdown.WriteMeta(path, meta); err != nil {
 				return "", err
 			}
@@ -634,4 +643,117 @@ func restoreSpec(rc *config.ResolvedConfig, specID string) tea.Cmd {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// grantBounty places or updates a bounty from the TUI. It mirrors the CLI
+// verb's rules exactly — role gate, scarcity cap, mandatory reason — because
+// both call into internal/bounty; the only difference is where the refusal is
+// rendered.
+func grantBounty(rc *config.ResolvedConfig, role, specID, reason string) tea.Cmd {
+	return func() tea.Msg {
+		cfg := rc.Bounties()
+		if err := bounty.Authorize(role, cfg); err != nil {
+			return actionResultMsg{Action: "bounty", SpecID: specID, Err: err}
+		}
+		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("bounty", specID), func(repoPath string) (string, error) {
+			path, pErr := resolveSpecIn(repoPath, rc, specID)
+			if pErr != nil {
+				return "", pErr
+			}
+			meta, pErr := markdown.ReadMeta(path)
+			if pErr != nil {
+				return "", pErr
+			}
+			if !meta.BountyActive() {
+				active, aErr := activeBountyIDs(specsDirIn(repoPath), specID)
+				if aErr != nil {
+					return "", aErr
+				}
+				if capErr := bounty.CheckCap(active, cfg); capErr != nil {
+					return "", capErr
+				}
+			}
+			if gErr := bounty.Grant(meta, bountyGranter(rc), reason, cfg.ReasonRequired(), time.Now()); gErr != nil {
+				return "", gErr
+			}
+			if wErr := markdown.WriteMeta(path, meta); wErr != nil {
+				return "", wErr
+			}
+			return fmt.Sprintf("chore: bounty %s", specID), nil
+		})
+
+		status, fatal := pushOutcome(err)
+		detail := ""
+		if !fatal {
+			detail = "bountied (" + status + ")"
+			err = nil
+		}
+		return actionResultMsg{Action: "bounty", SpecID: specID, Detail: detail, Err: err}
+	}
+}
+
+// clearBounty removes a bounty from the TUI. A claimed bounty is refused here
+// as it is on the CLI: the TUI has no --force, so retracting an accepted
+// invitation stays a deliberate shell action.
+func clearBounty(rc *config.ResolvedConfig, specID string) tea.Cmd {
+	return func() tea.Msg {
+		err := gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, tuiSyncOpts("bounty", specID), func(repoPath string) (string, error) {
+			path, pErr := resolveSpecIn(repoPath, rc, specID)
+			if pErr != nil {
+				return "", pErr
+			}
+			meta, pErr := markdown.ReadMeta(path)
+			if pErr != nil {
+				return "", pErr
+			}
+			if cErr := bounty.Clear(specID, meta, false); cErr != nil {
+				return "", cErr
+			}
+			if wErr := markdown.WriteMeta(path, meta); wErr != nil {
+				return "", wErr
+			}
+			return fmt.Sprintf("chore: clear bounty on %s", specID), nil
+		})
+
+		status, fatal := pushOutcome(err)
+		detail := ""
+		if !fatal {
+			detail = "bounty cleared (" + status + ")"
+			err = nil
+		}
+		return actionResultMsg{Action: "bounty", SpecID: specID, Detail: detail, Err: err}
+	}
+}
+
+// activeBountyIDs lists live specs holding an unearned bounty, excluding
+// excludeID, so the cap can be enforced against the authoritative clone.
+func activeBountyIDs(specsDir, excludeID string) ([]string, error) {
+	entries, err := os.ReadDir(specsDir)
+	if err != nil {
+		return nil, fmt.Errorf("reading specs dir: %w", err)
+	}
+	var ids []string
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".md" || !strings.HasPrefix(e.Name(), "SPEC-") {
+			continue
+		}
+		meta, err := markdown.ReadMeta(filepath.Join(specsDir, e.Name()))
+		if err != nil || meta.ID == excludeID || !meta.BountyActive() {
+			continue
+		}
+		ids = append(ids, meta.ID)
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// specsDirIn returns the specs content directory inside a repo clone.
+func specsDirIn(repoPath string) string {
+	return filepath.Join(repoPath, gitpkg.SpecsSubDir)
+}
+
+// bountyGranter is the identity a bounty is recorded against — the canonical
+// handle, matching how assignees and claims are stored.
+func bountyGranter(rc *config.ResolvedConfig) string {
+	return selfAssignIdentity(rc)
 }

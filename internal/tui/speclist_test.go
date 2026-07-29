@@ -90,14 +90,16 @@ func TestSpecList_RowFitsWidth(t *testing.T) {
 
 	widths := []int{50, 60, 70, 80, 100, 120}
 	for _, w := range widths {
-		row := m.formatRow(
+		mark, rest := m.formatRow(
 			"SPEC-001",
 			"A very long spec title that could overflow the row width boundary",
 			"in_progress",
 			"alice",
 			"2026-05-26",
+			"",
 			w,
 		)
+		row := mark + rest
 		if len(row) > w {
 			t.Errorf("width=%d: row length %d exceeds width, row=%q", w, len(row), row)
 		}

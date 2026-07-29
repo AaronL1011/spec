@@ -92,15 +92,15 @@ The config commands have different responsibilities:
 | Command | What it checks |
 | --- | --- |
 | `spec config lint` | Team YAML structure and semantics |
-| `spec config test` | Config and integration presence; no remote calls |
+| `spec config test` | Config and integration presence, resolved [terminal stages](#terminal-stages); no remote calls |
 | `spec config check` | Live PM/Jira project and workflow preflight |
 | `spec whoami` | Effective identity, team, and config paths |
 | `spec pipeline validate` | Pipeline owners, gates, effects, references |
 | `spec build --check` | Build graph, workspaces, skills, capabilities |
 
 `config lint` reports line-precise errors and warns about unused provider
-identity keys. `config check` currently performs the implemented live Jira
-check.
+identity keys and about an `auto_archive` stage placed before required stages.
+`config check` currently performs the implemented live Jira check.
 
 Recommended admin check:
 
@@ -731,12 +731,49 @@ pipeline:
             - notify: next_owner
       on_enter: []
       on_exit: []
-      auto_archive: false
+      auto_archive: false   # completes + archives here (see Terminal stages)
 ```
 
 Owners may be a string or list. Built-in user roles are `pm`, `tl`, `designer`,
 `qa`, and `engineer`; presets also use special owners such as `anyone` and
 `author`.
+
+#### Terminal stages
+
+A **terminal stage** is where a spec is considered complete. It is not a field
+you set — there is no `terminal: true`. The set is derived from the stages you
+already declared:
+
+1. Every stage with `auto_archive: true`.
+2. The **last stage without `optional: true`** (the last required stage).
+3. Only if neither rule matches — which needs every stage to be optional — any
+   stage literally named `done` or `closed`.
+
+With the default pipeline that gives `closed` (rule 1) and `done` (rule 2).
+
+Reaching a terminal stage is what ends lead time and cycle time, counts toward
+throughput (`spec metrics`, `spec retro`), and — if bounties are enabled —
+**freezes a claimed bounty into an immutable award**. So it is worth knowing
+which stages yours are:
+
+```bash
+spec pipeline              # names them, with the rule that qualified each
+spec pipeline --verbose    # tags each stage [terminal: <reason>]
+spec config test           # in the resolved-config report
+```
+
+Because the set is derived, editing an unrelated stage can move it:
+
+- Adding a stage **without** `optional: true` after your finish stage makes the
+  new stage terminal instead, so specs finishing at the old one complete
+  nothing.
+- Marking your finish stage `optional: true` **without** `auto_archive: true`
+  moves completion *backwards* to the stage before it.
+
+`spec config lint` warns when an `auto_archive` stage still has required stages
+after it, since that completes and archives a spec before mandatory work. It
+cannot catch the two cases above — check `spec pipeline` after reordering
+stages.
 
 #### Dashboard scope
 
@@ -847,6 +884,82 @@ fast_track:
 ```
 
 This enables `spec fix` for approved roles and labels.
+
+### Bounties
+
+```yaml
+bounty:
+  enabled: true               # default false — no bounty surface at all
+  grantable_by: [tl, pm]      # roles allowed to grant and clear
+  max_active: 3               # concurrently bountied specs
+  require_reason: true        # a grant must say why
+  shimmer: true               # animate the TUI marker
+  finish: gold                # gold | platinum | prismatic
+```
+
+A bounty marks a spec as **worth claiming**. It is a pull signal, not an
+instruction: it never assigns anyone, reorders a queue, changes a gate, or sends
+a notification. A bountied spec renders its gem glyph (`◈`) and SPEC-ID in gold
+wherever it appears, while the rest of the row keeps its time-urgency colour, so
+"worth taking" and "has been sitting too long" stay separately readable.
+
+```bash
+spec bounty set SPEC-042 --reason "unblocks the billing migration"
+spec bounty list
+spec bounty clear SPEC-042            # --force if already claimed
+```
+
+In the TUI, `g b` on a selected spec opens the same prompt; submitting `-`
+clears the bounty.
+
+#### Marker finish
+
+The marker is shaded like a lit surface rather than filled with a flat colour:
+the tone falls away from the glyph toward the end of the ID, and a narrow
+highlight crosses it about every six seconds. Each spec's pass is offset by a
+hash of its ID, so several bountied rows twinkle independently instead of
+blinking together.
+
+| `finish` | reads as |
+| --- | --- |
+| `gold` (default) | warm and legible on every palette |
+| `platinum` | cool white metal — understated to the point of blending into primary text on most themes |
+| `prismatic` | near-white stone whose highlight rotates through hue as it crosses, like dispersion in a cut gem |
+
+`shimmer: false` keeps the shading but parks the highlight. Monochrome themes
+(`graphite`) override all three finishes with a luminance ramp, and `NO_COLOR`
+or a low-colour terminal falls back to the glyph plus bold weight.
+
+Three rules are worth knowing before you turn this on:
+
+- **The cap is the feature.** Past `max_active`, granting fails and lists the
+  specs you must choose between. An uncapped marker debases into a second
+  priority field.
+- **A granter cannot claim their own bounty.** The assignment still happens;
+  the award simply does not attach, so no one self-awards.
+- **Bounties belong on unglamorous, critical work.** The specs that need a nudge
+  are the ones with no intrinsic appeal. Gold-starring the fun greenfield spec
+  inverts the mechanism and starves the boring queue further.
+
+The record lives in the spec's own frontmatter (`bounty.granted_by`,
+`claimed_by`, `earned_by`, `earned_at`) and travels with it into `archive/`, so
+awards survive clones and machine loss. Advancing a claimed, bountied spec into
+a [terminal stage](#terminal-stages) freezes the award; it is immutable from then
+on. Terminal stages are derived from your pipeline rather than configured
+directly, so run `spec pipeline` to confirm where awards will settle before you
+turn bounties on.
+
+```bash
+spec bounty ledger                       # all recorded awards
+spec bounty ledger --since 2026-07-01    # a quarter
+spec bounty ledger --cycle "Cycle 7"     # one delivery cycle
+spec bounty ledger --json                # for a spreadsheet or a script
+```
+
+The ledger is derived from the specs repo and its archive on every run — no
+local database is consulted, so a fresh clone reports the same numbers. What an
+earned bounty is worth is deliberately outside the tool: `spec` records who
+claimed and finished the work, and the reward is a decision you make with it.
 
 ---
 

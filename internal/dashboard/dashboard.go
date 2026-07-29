@@ -17,6 +17,7 @@ import (
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/aaronl1011/spec/internal/thread"
+	"github.com/aaronl1011/spec/internal/tui/glyph"
 	"github.com/aaronl1011/spec/internal/urgency"
 )
 
@@ -34,6 +35,11 @@ type DashboardItem struct {
 	// driving the gradient colour. 0 means fresh or the stage has no stale
 	// window (never stale).
 	StaleFraction float64 `json:"stale_fraction,omitempty"`
+
+	// Bounty is the spec's bounty when it carries one, nil otherwise. It drives
+	// the gold marker on the spec's glyph and ID; the rest of the row keeps its
+	// urgency colour, so the two signals read at the same time.
+	Bounty *markdown.BountyState `json:"bounty,omitempty"`
 
 	// SortTime is the moment this item entered its current state — stage entry
 	// for specs, PR-open for reviews, intake date for triage. It drives the
@@ -73,7 +79,10 @@ func Render(data *DashboardData, userName, role, cycle string) {
 		fmt.Println("─── DO ──────────────────────────────────────────────────────────")
 		for _, item := range data.Do {
 			icon := "⚡"
-			if item.Urgency == "stale" {
+			switch {
+			case item.Bounty != nil:
+				icon = glyph.Bounty
+			case item.Urgency == "stale":
 				icon = "⏰"
 			}
 			stage := item.Stage
@@ -174,6 +183,7 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 						data.Blocked = append(data.Blocked, DashboardItem{
 							SpecID:   s.ID,
 							Title:    s.Title,
+							Bounty:   s.Bounty,
 							SortTime: stageEntryTime(s.StageEnteredAt, s.Updated),
 						})
 					}
@@ -184,14 +194,18 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 						Title:         s.Title,
 						Stage:         s.Status,
 						Assignee:      doAssigneeLabel(pl, s),
+						Bounty:        s.Bounty,
 						StaleFraction: frac,
 						Urgency:       urgencyLabel(frac),
 						SortTime:      stageEntryTime(s.StageEnteredAt, s.Updated),
 					})
 				}
 				claimed := identity.AnyIdentity(s.Assignees, viewer)
-				data.Discussion = append(data.Discussion,
-					discussionItems(threadStore, s.ID, s.Title, viewer, claimed, reviewWindow, curve, now)...)
+				discussions := discussionItems(threadStore, s.ID, s.Title, viewer, claimed, reviewWindow, curve, now)
+				for i := range discussions {
+					discussions[i].Bounty = s.Bounty
+				}
+				data.Discussion = append(data.Discussion, discussions...)
 			}
 		}
 
@@ -266,6 +280,7 @@ type specInfo struct {
 	BlockedFrom    string
 	StageEnteredAt string
 	Updated        string
+	Bounty         *markdown.BountyState
 }
 
 // view projects a specInfo into the resolver's SpecView.
@@ -417,6 +432,7 @@ func loadSpecs(rc *config.ResolvedConfig) ([]specInfo, error) {
 			BlockedFrom:    meta.BlockedFrom,
 			StageEnteredAt: meta.StageEnteredAt,
 			Updated:        meta.Updated,
+			Bounty:         meta.Bounty,
 		})
 	}
 	return specs, nil

@@ -8,6 +8,7 @@ import (
 	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -126,6 +127,20 @@ type specSummary struct {
 	Blocked   bool   `json:"blocked"`
 	Steps     int    `json:"steps"`
 	StepsDone int    `json:"steps_done"`
+
+	// Bounty is the spec's bounty when it carries one. Present in JSON so
+	// scripts see the same shape the spec file stores.
+	Bounty *markdown.BountyState `json:"bounty,omitempty"`
+}
+
+// marker returns the leading glyph for a spec row in plain output: the bounty
+// bounty glyph when the spec is bountied, otherwise a blank of the same width so
+// columns stay aligned whether or not a bounty is present.
+func (s specSummary) marker() string {
+	if s.Bounty != nil {
+		return tui.IconBounty
+	}
+	return " "
 }
 
 func loadAllSpecs(rc *config.ResolvedConfig) ([]specSummary, error) {
@@ -163,6 +178,7 @@ func loadAllSpecs(rc *config.ResolvedConfig) ([]specSummary, error) {
 			Blocked:   hasBlocked,
 			Steps:     stepsTotal,
 			StepsDone: stepsDone,
+			Bounty:    meta.Bounty,
 		})
 	}
 	return specs, nil
@@ -186,7 +202,7 @@ func listByRole(p *printer, specs []specSummary, pipeline config.PipelineConfig,
 	}
 	p.Line("Specs awaiting %s action:\n", role)
 	for _, s := range matching {
-		p.Line("  %-10s  %-40s  [%s]", s.ID, truncate(s.Title, 40), s.Status)
+		p.Line("  %s %-10s  %-40s  [%s]", s.marker(), s.ID, truncate(s.Title, 40), s.Status)
 	}
 	return nil
 }
@@ -213,7 +229,7 @@ func listAllByStage(p *printer, specs []specSummary, pipeline config.PipelineCon
 		}
 		p.Line("─── %s (%s) ───", strings.ToUpper(stage.Name), stage.OwnerRole)
 		for _, s := range items {
-			p.Line("  %-10s  %s", s.ID, s.Title)
+			p.Line("  %s %-10s  %s", s.marker(), s.ID, s.Title)
 		}
 		p.Line("")
 	}

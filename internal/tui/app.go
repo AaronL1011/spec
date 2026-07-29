@@ -156,6 +156,10 @@ type App struct {
 	// Focused spec ID — displayed with ★ in list views.
 	focusedSpecID string
 
+	// bountyFrame is the animation clock for the bounty marker's sheen. It
+	// advances on the existing repaint tick, so the shimmer costs no new timer.
+	bountyFrame int
+
 	// Refresh
 	refreshInterval time.Duration
 	refreshInFlight map[string]bool
@@ -370,6 +374,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinnerTickMsg:
 		if a.spinnerOn {
 			a.statusBar.NextSpinner()
+		}
+		// The bounty sheen rides this tick rather than adding its own: the
+		// repaint already happens, so animating costs only the frame counter.
+		if a.rc.Bounties().ShimmerEnabled() {
+			a.bountyFrame++
 		}
 		return a, a.spinnerTick()
 

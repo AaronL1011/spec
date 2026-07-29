@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/aaronl1011/spec/internal/bounty"
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
@@ -36,6 +38,10 @@ type AdvanceResult struct {
 	SyncedOut     bool                  `json:"synced_out,omitempty"`
 	GateFailures  []pipeline.GateResult `json:"gate_failures,omitempty"`
 	Effects       []EffectOutcome       `json:"effects,omitempty"`
+
+	// BountyEarnedBy is the claimant who earned this spec's bounty on this
+	// transition, when the target stage is terminal. Empty otherwise.
+	BountyEarnedBy string `json:"bounty_earned_by,omitempty"`
 
 	// CommitMsg is the git commit message for the mutation, or "" when there
 	// is nothing to commit (dry-run or gate failure).
@@ -104,8 +110,19 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 		return res, nil
 	}
 
+	// Settle any bounty before the transition write, so the award lands in the
+	// same frontmatter commit as the stage change rather than a second one.
+	earned := pipeline.IsTerminalStage(pl, target) && bounty.Earn(meta, time.Now())
+
 	if _, err := pipeline.Advance(in.SpecPath, meta, target); err != nil {
 		return nil, err
+	}
+
+	if earned {
+		res.BountyEarnedBy = meta.Bounty.EarnedBy
+		d.logActivity(in.SpecID, "bounty_earned",
+			fmt.Sprintf("bounty earned by %s", res.BountyEarnedBy),
+			fmt.Sprintf(`{"earned_by":%q,"stage":%q}`, res.BountyEarnedBy, target))
 	}
 
 	// Record skipped stages in the decision log (best-effort). Fast-track

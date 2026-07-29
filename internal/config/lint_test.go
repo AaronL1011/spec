@@ -241,3 +241,65 @@ func TestKnownPresets_NoDrift(t *testing.T) {
 		}
 	}
 }
+
+// TestLint_EarlyAutoArchive: an auto_archive stage with required stages after
+// it silently moves the pipeline's completion point (and, with bounties on, the
+// point at which an award is frozen), so it is reported.
+func TestLint_EarlyAutoArchive(t *testing.T) {
+	body := `version: "1"
+pipeline:
+  stages:
+    - name: draft
+      owner: pm
+    - name: closed
+      owner: tl
+      auto_archive: true
+    - name: done
+      owner: tl
+`
+	path := writeLintConfig(t, body)
+	res, err := LintTeamConfigFile(path)
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+
+	d := findDiag(res.Diagnostics, "auto_archive")
+	if d == nil {
+		t.Fatalf("expected an auto_archive diagnostic; got %+v", res.Diagnostics)
+	}
+	if d.Severity != SeverityWarning {
+		t.Errorf("severity = %q, want warning (advisory, must not block)", d.Severity)
+	}
+	if !stringContains(d.Message, "done") {
+		t.Errorf("message should name the following required stage, got %q", d.Message)
+	}
+	if res.HasErrors() {
+		t.Errorf("an early auto_archive must not fail the config: %+v", res.Diagnostics)
+	}
+}
+
+// TestLint_AutoArchiveLastIsClean: auto_archive on the final stage is the
+// normal arrangement (and what every preset does), so it is not reported.
+// Optional stages after it are still fine.
+func TestLint_AutoArchiveLastIsClean(t *testing.T) {
+	body := `version: "1"
+pipeline:
+  stages:
+    - name: draft
+      owner: pm
+    - name: done
+      owner: tl
+    - name: closed
+      owner: tl
+      optional: true
+      auto_archive: true
+`
+	path := writeLintConfig(t, body)
+	res, err := LintTeamConfigFile(path)
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+	if d := findDiag(res.Diagnostics, "auto_archive"); d != nil {
+		t.Errorf("unexpected auto_archive diagnostic: %+v", d)
+	}
+}

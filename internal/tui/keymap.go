@@ -60,6 +60,7 @@ type KeyMap struct {
 	Sync          key.Binding
 	Archive       key.Binding // g a — archive (confirm modal)
 	Restore       key.Binding // g r — restore (confirm modal)
+	Bounty        key.Binding // g b — grant/clear bounty (modal)
 
 	// Creation
 	NewSpec   key.Binding
@@ -67,7 +68,7 @@ type KeyMap struct {
 	Standup   key.Binding // g s — standup
 
 	// Prefix keys
-	GPrefix key.Binding // g — arms prefix for g a / g r / g s
+	GPrefix key.Binding // g — arms prefix for g a / g b / g c / g r / g s
 }
 
 // DefaultKeyMap returns the default keybindings.
@@ -245,6 +246,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys(),
 			key.WithHelp("g r", "restore"),
 		),
+		Bounty: key.NewBinding(
+			key.WithKeys(),
+			key.WithHelp("g b", "bounty"),
+		),
 
 		NewSpec: key.NewBinding(
 			key.WithKeys("n"),
@@ -284,7 +289,7 @@ func (k KeyMap) ActionBindings() []key.Binding {
 	return []key.Binding{
 		k.Advance, k.Revert, k.Edit, k.Build, k.Draft, k.DraftSession, k.Block, k.Unblock,
 		k.Assign, k.Focus, k.Open, k.Preview, k.Yank, k.Decide, k.Push, k.Sync,
-		k.Archive, k.Restore, k.ToggleArchive,
+		k.Archive, k.Restore, k.Bounty, k.ToggleArchive,
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/tui"
 	"github.com/aaronl1011/spec/internal/workflow"
 	"github.com/spf13/cobra"
 )
@@ -130,6 +131,9 @@ func renderAdvance(p *printer, res *workflow.AdvanceResult) {
 	p.Line("✓ %s advanced: %s → %s", res.SpecID, res.PreviousStage, res.NewStage)
 	if len(res.Skipped) > 0 {
 		p.Line("  Skipped stages: %s", strings.Join(res.Skipped, ", "))
+	}
+	if res.BountyEarnedBy != "" {
+		p.Line("  %s bounty earned by %s", tui.IconBounty, res.BountyEarnedBy)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
@@ -26,6 +27,8 @@ type specListItem struct {
 	Status  string
 	Author  string
 	Updated string
+	// bountied marks the spec's glyph + ID in gold.
+	bountied bool
 }
 
 // specListModel is a filterable list of all specs.
@@ -44,6 +47,10 @@ type specListModel struct {
 	height int
 	styles Styles
 	keys   KeyMap
+
+	// bountyFrame is the shared animation clock for the bounty marker, pushed
+	// in from the app on each repaint tick.
+	bountyFrame int
 }
 
 func newSpecList(rc *config.ResolvedConfig, styles Styles, keys KeyMap) specListModel {
@@ -134,8 +141,8 @@ func (m specListModel) view() string {
 
 	// Column header
 	contentWidth := ContentWidth(m.width)
-	headerLine := m.formatRow("ID", "TITLE", "STATUS", "AUTHOR", "UPDATED", contentWidth)
-	b.WriteString(m.styles.Subtitle.Render(headerLine))
+	headerMark, headerRest := m.formatRow("ID", "TITLE", "STATUS", "AUTHOR", "UPDATED", m.bountyGutter(false), contentWidth)
+	b.WriteString(m.styles.Subtitle.Render(headerMark + headerRest))
 	b.WriteString("\n")
 	b.WriteString(m.styles.Separator.Render(RuleLine(contentWidth)))
 	b.WriteString("\n")
@@ -145,11 +152,16 @@ func (m specListModel) view() string {
 
 	for i := start; i < end; i++ {
 		spec := m.filtered[i]
-		line := m.formatRow(spec.ID, spec.Title, spec.Status, spec.Author, spec.Updated, contentWidth)
+		mark, rest := m.formatRow(spec.ID, spec.Title, spec.Status, spec.Author, spec.Updated, m.bountyGutter(spec.bountied), contentWidth)
+		base := m.styles.RowNormal
 		if i == m.cursor {
-			b.WriteString(m.styles.RowSelected.Render(line))
+			base = m.styles.RowSelected
+		}
+		if spec.bountied {
+			b.WriteString(newBountyPainter(m.rc, m.styles.Theme, m.bountyFrame).paint(base, spec.ID, mark))
+			b.WriteString(base.Render(rest))
 		} else {
-			b.WriteString(m.styles.RowNormal.Render(line))
+			b.WriteString(base.Render(mark + rest))
 		}
 		b.WriteString("\n")
 	}
@@ -194,7 +206,16 @@ func (m *specListModel) wheelRows(delta int) {
 	m.cursor = clampCursor(m.cursor+delta, len(m.filtered))
 }
 
-func (m specListModel) formatRow(id, title, status, author, updated string, width int) string {
+// formatRow lays out one spec row as two spans: the leading marker (indent,
+// bounty gutter, and SPEC-ID) and the remainder (title, status, author, date).
+// Splitting them lets a bountied row paint its marker gold while the rest of
+// the row keeps whatever colour its state calls for.
+//
+// gutter is a fixed-width cell reserved for the bounty glyph. It is empty when
+// the team has bounties off, so a team that never uses the feature sees exactly
+// the layout it always had; when bounties are on, the cell is present on every
+// row (blank when unbountied) so columns never shift.
+func (m specListModel) formatRow(id, title, status, author, updated, gutter string, width int) (mark, rest string) {
 	compact := width < 70
 
 	// Fixed column widths. The title column absorbs whatever is left.
@@ -205,36 +226,50 @@ func (m specListModel) formatRow(id, title, status, author, updated string, widt
 		statusCol = 12
 		authorCol = 10
 		updateCol = 10
-		gaps      = 4 // spaces between columns
 	)
+	gutterW := lipgloss.Width(gutter)
+	mark = fmt.Sprintf("  %s%-*s", gutter, idCol, truncate(id, idCol))
 
 	if compact {
-		fixed := indent + idCol + 1 + len(truncate(status, statusCol))
+		fixed := indent + gutterW + idCol + 1 + len(truncate(status, statusCol))
 		titleMax := width - fixed - 1
 		if titleMax < 8 {
 			titleMax = 8
 		}
-		return fmt.Sprintf("  %-*s %-*s %s",
-			idCol, truncate(id, idCol),
+		rest = fmt.Sprintf(" %-*s %s",
 			titleMax, truncate(title, titleMax),
 			truncate(status, statusCol),
 		)
+		return mark, rest
 	}
 
 	// Wide: all columns. Compute title width so total == width exactly.
-	// Layout: indent + id + gap + title + gap + status + gap + author + gap + updated
-	fixed := indent + idCol + 1 + 1 + statusCol + 1 + authorCol + 1 + updateCol
+	// Layout: indent + gutter + id + gap + title + gap + status + gap + author + gap + updated
+	fixed := indent + gutterW + idCol + 1 + 1 + statusCol + 1 + authorCol + 1 + updateCol
 	titleMax := width - fixed
 	if titleMax < 10 {
 		titleMax = 10
 	}
-	return fmt.Sprintf("  %-*s %-*s %-*s %-*s %-*s",
-		idCol, truncate(id, idCol),
+	rest = fmt.Sprintf(" %-*s %-*s %-*s %-*s",
 		titleMax, truncate(title, titleMax),
 		statusCol, truncate(status, statusCol),
 		authorCol, truncate(author, authorCol),
 		updateCol, truncate(updated, updateCol),
 	)
+	return mark, rest
+}
+
+// bountyGutter returns the fixed-width leading cell for a spec row: the gem
+// for a bountied spec, blanks for an unbountied one, and nothing at all when
+// the team has bounties disabled.
+func (m specListModel) bountyGutter(bountied bool) string {
+	if !m.rc.BountyEnabled() {
+		return ""
+	}
+	if bountied {
+		return IconBounty + " "
+	}
+	return "  "
 }
 
 func (m specListModel) selectedSpecID() string {
@@ -308,11 +343,12 @@ func loadAllSpecs(ctx context.Context, rc *config.ResolvedConfig, archiveMode bo
 			continue
 		}
 		specs = append(specs, specListItem{
-			ID:      meta.ID,
-			Title:   meta.Title,
-			Status:  meta.Status,
-			Author:  meta.Author,
-			Updated: meta.Updated,
+			ID:       meta.ID,
+			Title:    meta.Title,
+			Status:   meta.Status,
+			Author:   meta.Author,
+			Updated:  meta.Updated,
+			bountied: meta.Bounty != nil,
 		})
 	}
 	return specs, syncErr

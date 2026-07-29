@@ -236,6 +236,9 @@ func (a App) updateDetail(msg tea.KeyPressMsg) (App, tea.Cmd) {
 				a.modal.SetSize(a.width, a.contentHeight())
 			}
 			return a, nil
+		case msg.Text == "b" && isSpecID(specID):
+			a.armBountyModal(specID)
+			return a, nil
 		case msg.Text == "c" && isSpecID(specID):
 			a.armAssignModal(specID)
 			return a, nil

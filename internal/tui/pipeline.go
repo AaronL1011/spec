@@ -36,6 +36,8 @@ type pipelineSpec struct {
 	// staleFraction is the eased time-urgency intensity (0..1) for this spec at
 	// its current stage; 0 = fresh or the stage has no stale window.
 	staleFraction float64
+	// bountied marks the spec's glyph + ID in gold.
+	bountied bool
 }
 
 // pipelineModel shows all specs grouped by pipeline stage.
@@ -55,6 +57,10 @@ type pipelineModel struct {
 	height int
 	styles Styles
 	keys   KeyMap
+
+	// bountyFrame is the shared animation clock for the bounty marker, pushed
+	// in from the app on each repaint tick.
+	bountyFrame int
 }
 
 func newPipeline(rc *config.ResolvedConfig, styles Styles, keys KeyMap) pipelineModel {
@@ -297,36 +303,43 @@ func (m *pipelineModel) wheelRows(delta int) {
 func (m pipelineModel) renderPipelineRow(spec pipelineSpec, selected bool) string {
 	contentWidth := ContentWidth(m.width)
 
-	idStr := fmt.Sprintf("%-11s", spec.ID)
-	titleMax := contentWidth - 14
+	// The glyph cell is reserved on every row — blank when unbountied — so a
+	// bounty never shifts a column (AC-12).
+	glyph := "  "
+	if spec.bountied {
+		glyph = IconBounty + " "
+	}
+	mark := glyph + fmt.Sprintf("%-11s", spec.ID)
+	titleMax := contentWidth - 16
 	if titleMax < 10 {
 		titleMax = 10
 	}
-	title := truncate(spec.Title, titleMax)
-
-	line := fmt.Sprintf("%s%s %s", Indent(2), idStr, title)
+	rest := " " + truncate(spec.Title, titleMax)
 
 	if spec.Updated != "" {
-		remaining := contentWidth - lipgloss.Width(line)
+		remaining := contentWidth - lipgloss.Width(Indent(2)+mark+rest)
 		if remaining > len(spec.Updated)+2 {
-			line += strings.Repeat(" ", remaining-len(spec.Updated)) + spec.Updated
+			rest += strings.Repeat(" ", remaining-len(spec.Updated)) + spec.Updated
 		}
 	}
 
-	// The eased time-urgency gradient colours the whole row; the ramp foreground
-	// is composed over the selection background so urgency stays visible while
-	// selected (AC-7).
+	// The eased time-urgency gradient colours the row; the ramp foreground is
+	// composed over the selection background so urgency stays visible while
+	// selected (AC-7). A bounty claims only the glyph + ID span, leaving the
+	// title and date to the gradient.
+	base := m.styles.RowNormal
 	if selected {
-		style := m.styles.RowSelected
-		if spec.staleFraction > 0 {
-			style = style.Foreground(m.styles.Theme.RampColor(spec.staleFraction))
-		}
-		return style.Render(line)
+		base = m.styles.RowSelected
 	}
 	if spec.staleFraction > 0 {
-		return m.styles.RowNormal.Foreground(m.styles.Theme.RampColor(spec.staleFraction)).Render(line)
+		base = base.Foreground(m.styles.Theme.RampColor(spec.staleFraction))
 	}
-	return m.styles.RowNormal.Render(line)
+	if !spec.bountied {
+		return base.Render(Indent(2) + mark + rest)
+	}
+	return base.Render(Indent(2)) +
+		newBountyPainter(m.rc, m.styles.Theme, m.bountyFrame).paint(base, spec.ID, mark) +
+		base.Render(rest)
 }
 
 func (m pipelineModel) selectedSpecID() string {
@@ -435,6 +448,7 @@ func loadPipelineData(ctx context.Context, rc *config.ResolvedConfig) ([]pipelin
 			ID:            meta.ID,
 			Title:         meta.Title,
 			Updated:       meta.Updated,
+			bountied:      meta.Bounty != nil,
 			staleFraction: dashboard.StageUrgency(pl, curve, meta.Status, meta.StageEnteredAt, meta.Updated, now),
 		})
 	}

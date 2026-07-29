@@ -139,6 +139,7 @@ These keys work in top-level spec lists and the detail overview where relevant.
 | `D` | Open an interactive authoring session — prompts for what the session should work on (blank Enter opens a general session) |
 | `x` | Block with a reason |
 | `u` | Resume a blocked spec |
+| `g b` | Bounty the spec — prompts for a reason, `-` clears it (roles in `bounty.grantable_by` only) |
 | `g c` | Claim, assign handles, or type `-` to unassign |
 | `f` | Toggle focused-spec context |
 | `c` | Record a decision |
@@ -154,6 +155,15 @@ modals press `y` or `n`; Esc cancels.
 
 `d` and `D` appear only when the configured agent supports the plane they need.
 Run `spec agent check` if either is missing.
+
+`g b` appears only for roles allowed to grant bounties, and only when the team
+has `bounty.enabled: true`. A bountied spec renders its gem glyph (`◈`) and
+SPEC-ID as a shaded metal surface — brightest at the gem, falling away along the
+ID, with a highlight crossing it every few seconds — on the dashboard, the
+pipeline screen, the spec list, and the detail header. The metal is selectable
+with `bounty.finish` (`gold`, `platinum`, `prismatic`). The rest of the row keeps its
+time-urgency colour, so "worth claiming" and "sitting too long" stay separately
+readable. See [Configuration](CONFIGURATION.md#bounties).
 
 ---
 

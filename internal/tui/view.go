@@ -48,6 +48,13 @@ func (a App) render() string {
 	a.statusBar.SetScroll(a.activeScrollInfo())
 	a.dashboard.focusedSpecID = a.focusedSpecID
 
+	// Share one animation clock across every surface that draws a bounty
+	// marker, so a spec shimmers in step wherever it appears.
+	a.dashboard.bountyFrame = a.bountyFrame
+	a.pipeline.bountyFrame = a.bountyFrame
+	a.specs.bountyFrame = a.bountyFrame
+	a.detail.bountyFrame = a.bountyFrame
+
 	// Update breadcrumb for reader mode.
 	if a.showDetail && a.detail.readerMode {
 		sections := a.detail.readableSections()
