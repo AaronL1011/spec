@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aaronl1011/spec/internal/adapter"
+	"github.com/aaronl1011/spec/internal/adapter/noop"
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/thread"
 )
@@ -405,5 +407,38 @@ func TestPrintAwarenessLine_NothingPrintedWhenAllClear(t *testing.T) {
 	out := captureStderr(t, func() { PrintAwarenessLine(rc, "engineer") })
 	if out != "" {
 		t.Errorf("expected no output when all clear, got %q", out)
+	}
+}
+
+// stubRepo is a RepoAdapter test double returning a fixed review-request set.
+type stubRepo struct {
+	noop.Repo
+	prs []adapter.PullRequest
+}
+
+func (s stubRepo) RequestedReviews(context.Context, string) ([]adapter.PullRequest, error) {
+	return s.prs, nil
+}
+
+func TestAggregate_ReviewSection_ExcludesDraftPRs(t *testing.T) {
+	rc := &config.ResolvedConfig{
+		SpecsRepoDir: t.TempDir(),
+		Team:         defaultTeamConfig(),
+		User:         userCfg("Ana", "@ana", "engineer"),
+	}
+	reg := adapter.NewRegistry(rc.Team).WithRepo(stubRepo{prs: []adapter.PullRequest{
+		{Number: 1, Title: "Ready", Repo: "api", URL: "u1", CreatedAt: time.Now().Add(-time.Hour)},
+		{Number: 2, Title: "WIP", Repo: "api", URL: "u2", Draft: true, CreatedAt: time.Now().Add(-72 * time.Hour)},
+	}})
+
+	data, err := Aggregate(context.Background(), rc, reg, "engineer")
+	if err != nil {
+		t.Fatalf("Aggregate: %v", err)
+	}
+	if len(data.Review) != 1 {
+		t.Fatalf("REVIEW = %d items, want 1 (draft excluded): %+v", len(data.Review), data.Review)
+	}
+	if data.Review[0].SpecID != "PR #1" {
+		t.Errorf("REVIEW[0] = %q, want %q", data.Review[0].SpecID, "PR #1")
 	}
 }

@@ -84,6 +84,7 @@ type PullRequest struct {
 	Author    string
 	URL       string
 	Status    string // "open", "merged", "closed"
+	Draft     bool   // PR is a draft: opened for visibility, not yet review-ready
 	Approved  bool
 	CIStatus  string // "passing", "failing", "pending"
 	CreatedAt time.Time
