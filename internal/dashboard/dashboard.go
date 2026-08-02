@@ -228,6 +228,12 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 		prs, err := reg.Repo().RequestedReviews(ctx, rc.IdentityForCategory("repo"))
 		if err == nil {
 			for _, pr := range prs {
+				// Draft PRs are not review-ready: the author has explicitly
+				// signalled work-in-progress, so an aging draft is not the
+				// viewer's debt and must not warm the REVIEW section.
+				if pr.Draft {
+					continue
+				}
 				frac := ReviewUrgency(reviewWindow, curve, pr.CreatedAt, now)
 				data.Review = append(data.Review, DashboardItem{
 					SpecID:        fmt.Sprintf("PR #%d", pr.Number),

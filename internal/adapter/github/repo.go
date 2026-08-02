@@ -184,6 +184,7 @@ func (r *RepoClient) searchPRs(ctx context.Context, query, errContext string) ([
 			Author:    issue.GetUser().GetLogin(),
 			URL:       issue.GetHTMLURL(),
 			Status:    "open",
+			Draft:     issue.GetDraft(),
 			CreatedAt: issue.GetCreatedAt().Time,
 		})
 	}
@@ -237,6 +238,7 @@ func toPullRequest(pr *gh.PullRequest, repo string) adapter.PullRequest {
 		Author:    pr.GetUser().GetLogin(),
 		URL:       pr.GetHTMLURL(),
 		Status:    pr.GetState(),
+		Draft:     pr.GetDraft(),
 		CreatedAt: pr.GetCreatedAt().Time,
 	}
 }
