@@ -20,7 +20,7 @@ var listCmd = &cobra.Command{
 Use default mode to see specs awaiting your role, --mine to focus on your
 work, --all for a stage-grouped pipeline view, and --triage to inspect
 unpromoted intake items.`,
-	Example: "  spec list\n  spec list --mine\n  spec list --all\n  spec list --triage",
+	Example: "  spec list\n  spec list --mine\n  spec list --all\n  spec list --triage\n  spec list --parent SPEC-004",
 	RunE:    runList,
 }
 
@@ -29,6 +29,7 @@ func init() {
 	listCmd.Flags().Bool("mine", false, "show only specs you own")
 	listCmd.Flags().String("role", "", "view from another role's perspective")
 	listCmd.Flags().Bool("triage", false, "show open triage items")
+	listCmd.Flags().String("parent", "", "show only the deliverable slices of an initiative spec")
 	rootCmd.AddCommand(listCmd)
 }
 
@@ -75,6 +76,9 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if parentFilter := normalizeSpecID(mustString(cmd, "parent")); parentFilter != "" {
+		return listSlices(p, rc, parentFilter)
+	}
 	if showMine {
 		return listMine(p, specs, rc.UserName())
 	}
@@ -244,6 +248,37 @@ func listAllByStage(p *printer, specs []specSummary, pipeline config.PipelineCon
 	}
 
 	p.Line("%d specs in pipeline.", len(specs))
+	return nil
+}
+
+// listSlices renders an initiative's deliverable slices with its rollup. An
+// initiative that has no slices is reported as such rather than as an empty
+// list, because "nothing is linked yet" and "everything is filtered out" are
+// different problems with different fixes.
+func listSlices(p *printer, rc *config.ResolvedConfig, parentID string) error {
+	tree := specHierarchyView(rc, parentID, "")
+
+	type sliceRow struct {
+		ID     string `json:"id"`
+		Title  string `json:"title"`
+		Status string `json:"status"`
+	}
+	rows := make([]sliceRow, 0, len(tree.Children))
+	for _, c := range tree.Children {
+		rows = append(rows, sliceRow{ID: c.ID, Title: c.Title, Status: c.Status})
+	}
+
+	if p.JSONEnabled() {
+		return p.JSON(rows)
+	}
+	if len(rows) == 0 {
+		p.Line("%s has no slices — attach one with 'spec link <id> --parent %s'.", parentID, parentID)
+		return nil
+	}
+	p.Line("Slices of %s: %d/%d complete\n", parentID, tree.Rollup.Complete, tree.Rollup.Total)
+	for _, r := range rows {
+		p.Line("  %-10s  %-40s  [%s]", r.ID, truncate(r.Title, 40), r.Status)
+	}
 	return nil
 }
 

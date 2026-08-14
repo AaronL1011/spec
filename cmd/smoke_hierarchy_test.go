@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,6 +138,115 @@ func TestSmoke_LinkParentRefusals(t *testing.T) {
 	}
 }
 
+func TestSmoke_StatusShowsBothDirections(t *testing.T) {
+	e := newSmokeEnv(t)
+	e.writeUserConfig("engineer")
+	e.writeTeamConfig()
+	e.writeSpec(specFixture{id: "SPEC-004", title: "API rate limiting", status: "build", author: "Dev"}, "## TL;DR\nx\n")
+	e.writeSpec(specFixture{id: "SPEC-009", title: "Token bucket", status: "done", author: "Dev", parent: "SPEC-004"}, "## TL;DR\nx\n")
+	e.writeSpec(specFixture{id: "SPEC-010", title: "Redis backend", status: "build", author: "Dev", parent: "SPEC-004"}, "## TL;DR\nx\n")
+	e.initSpecsGit()
+
+	out, err := e.runSpec("status", "SPEC-004")
+	if err != nil {
+		t.Fatalf("status initiative: %v", err)
+	}
+	if !strings.Contains(out, "Slices: 1/2 complete") {
+		t.Errorf("initiative status = %q, want the slice rollup", out)
+	}
+	if !strings.Contains(out, "SPEC-009") || !strings.Contains(out, "SPEC-010") {
+		t.Errorf("initiative status should list its slices:\n%s", out)
+	}
+
+	out, err = e.runSpec("status", "SPEC-009")
+	if err != nil {
+		t.Fatalf("status slice: %v", err)
+	}
+	if !strings.Contains(out, "Parent: SPEC-004 — API rate limiting") {
+		t.Errorf("slice status = %q, want the parent line", out)
+	}
+}
+
+// The JSON shape is a scripting contract: a standalone spec must emit exactly
+// what it always did.
+func TestSmoke_StatusJSONShapeStableForStandaloneSpec(t *testing.T) {
+	e := newSmokeEnv(t)
+	e.writeUserConfig("engineer")
+	e.writeTeamConfig()
+	e.writeSpec(specFixture{id: "SPEC-001", title: "Standalone", status: "build", author: "Dev"}, "## TL;DR\nx\n")
+	e.initSpecsGit()
+
+	out, err := e.runSpec("status", "SPEC-001", "--json")
+	if err != nil {
+		t.Fatalf("status --json: %v", err)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("status --json is not valid JSON (%v): %s", err, out)
+	}
+	for _, key := range []string{"parent", "children"} {
+		if _, ok := payload[key]; ok {
+			t.Errorf("standalone spec emitted %q; both fields must be omitempty", key)
+		}
+	}
+}
+
+func TestSmoke_StatusJSONCarriesHierarchy(t *testing.T) {
+	e := newSmokeEnv(t)
+	e.writeUserConfig("engineer")
+	e.writeTeamConfig()
+	e.writeSpec(specFixture{id: "SPEC-004", title: "Initiative", status: "build", author: "Dev"}, "## TL;DR\nx\n")
+	e.writeSpec(specFixture{id: "SPEC-009", title: "Slice", status: "done", author: "Dev", parent: "SPEC-004"}, "## TL;DR\nx\n")
+	e.initSpecsGit()
+
+	out, err := e.runSpec("status", "SPEC-004", "--json")
+	if err != nil {
+		t.Fatalf("status --json: %v", err)
+	}
+	var payload struct {
+		Children []struct {
+			ID       string `json:"id"`
+			Complete bool   `json:"complete"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("decoding: %v\n%s", err, out)
+	}
+	if len(payload.Children) != 1 || payload.Children[0].ID != "SPEC-009" || !payload.Children[0].Complete {
+		t.Errorf("children = %+v, want SPEC-009 marked complete", payload.Children)
+	}
+}
+
+func TestSmoke_ListParent(t *testing.T) {
+	e := newSmokeEnv(t)
+	e.writeUserConfig("engineer")
+	e.writeTeamConfig()
+	e.writeSpec(specFixture{id: "SPEC-004", title: "Initiative", status: "build", author: "Dev"}, "## TL;DR\nx\n")
+	e.writeSpec(specFixture{id: "SPEC-009", title: "Slice one", status: "done", author: "Dev", parent: "SPEC-004"}, "## TL;DR\nx\n")
+	e.writeSpec(specFixture{id: "SPEC-014", title: "Unrelated", status: "draft", author: "Dev"}, "## TL;DR\nx\n")
+	e.initSpecsGit()
+
+	out, err := e.runSpec("list", "--parent", "SPEC-004")
+	if err != nil {
+		t.Fatalf("list --parent: %v", err)
+	}
+	if !strings.Contains(out, "SPEC-009") {
+		t.Errorf("list --parent should show the slice:\n%s", out)
+	}
+	if strings.Contains(out, "SPEC-014") {
+		t.Errorf("list --parent leaked an unrelated spec:\n%s", out)
+	}
+
+	out, err = e.runSpec("list", "--parent", "SPEC-014")
+	if err != nil {
+		t.Fatalf("list --parent on a childless spec: %v", err)
+	}
+	if !strings.Contains(out, "no slices") {
+		t.Errorf("a childless spec should say so rather than print an empty list:\n%s", out)
+	}
+}
+
+// A dangling parent makes every downstream query undefined, so validate fails.
 func TestSmoke_ValidateDanglingParentIsAnError(t *testing.T) {
 	e := newSmokeEnv(t)
 	e.writeUserConfig("engineer")
