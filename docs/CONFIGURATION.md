@@ -810,8 +810,8 @@ Compose gates with `all`, `any`, and `not`. Legacy `section_complete` and
 
 ##### Letting an initiative close (`children_complete`)
 
-A spec that carries vision for a set of deliverable slices (an *initiative*,
-declared by `parent:` on each slice) has no PR stack of its own, so the delivery
+A spec that carries vision for a set of deliverable slices (see
+[spec hierarchy](#spec-hierarchy)) has no PR stack of its own, so the delivery
 gates wedge it permanently. `children_complete` passes when the spec has **at
 least one** slice and every slice has reached a terminal stage. A spec with no
 slices evaluates **false**, never vacuously true, so adding this gate under
@@ -843,8 +843,8 @@ The same rollup is available to expression gates and `skip_when` as
 In an expression, always test `children.total > 0` alongside `children.open ==
 0`; the latter alone is true for every spec that has no slices.
 
-A team that never edits its config still gets links and validation — its
-initiatives simply stop at `pr-review`.
+A team that never edits its config still gets links, rollups, agent context
+inheritance and validation — its initiatives simply stop at `pr-review`.
 
 #### Effects
 
@@ -999,6 +999,72 @@ The ledger is derived from the specs repo and its archive on every run — no
 local database is consulted, so a fresh clone reports the same numbers. What an
 earned bounty is worth is deliberately outside the tool: `spec` records who
 claimed and finished the work, and the reward is a decision you make with it.
+
+---
+
+## Spec hierarchy
+
+A spec may declare a **parent** in its frontmatter, making it a *deliverable
+slice* of an *initiative*:
+
+```yaml
+---
+id: SPEC-009
+title: Token bucket limiter
+parent: SPEC-004
+---
+```
+
+There is no new document type and no `kind:` field. An initiative is an
+ordinary spec that happens to have slices; "is this an initiative?" is always
+derived from the graph, never declared, so the two can never disagree. A spec
+with no `parent:` behaves exactly as it always did, including every gate —
+there is nothing to migrate.
+
+```bash
+spec new --title "Redis backend" --parent SPEC-004   # scaffold a slice
+spec link SPEC-009 --parent SPEC-004                 # attach an existing spec
+spec link SPEC-009 --parent ""                       # detach
+spec list --parent SPEC-004                          # the initiative's slices
+spec status SPEC-004                                 # slices + rollup
+spec status SPEC-009                                 # the parent line
+```
+
+### The rules
+
+The tree is **two levels deep with one parent**, enforced when the link is
+made rather than detected afterwards:
+
+| Rule | At link time | `spec validate` |
+| --- | --- | --- |
+| Parent must exist | refused | **error** |
+| Parent must not be the spec itself | refused | **error** |
+| Parent must not itself have a parent | refused | warning |
+| A spec with slices may not gain a parent | refused | warning |
+| Parent must not be in a terminal stage | refused | warning |
+| Parent must not be archived | refused | warning |
+
+Frontmatter is hand-editable, so `spec validate` re-checks all six as a
+backstop. The severity split is deliberate: a dangling or self-referential
+parent makes every hierarchy query undefined and blocks `spec advance`, while
+an initiative that closed last week must not retroactively wedge a slice
+someone is working on today. `spec link --parent ""` always works and is the
+escape hatch for every refusal.
+
+One spec never mutates another's stage. If a slice is reverted after its
+initiative closed, `spec validate` reports `SPEC-004 closed · SPEC-009 reopened
+to build` and a human decides what to do.
+
+### What a slice inherits
+
+A slice's coding agent is given the initiative's **TL;DR, §1 Problem Statement
+and §4 Proposed Solution** as a delimited, read-only block — vision is written
+once and never copy-pasted. The parent's §5–§8 are deliberately excluded: its
+acceptance criteria and technical implementation describe nothing the slice
+should build, and injecting them invites an agent to implement the wrong scope.
+
+To let an initiative reach a terminal stage without a PR stack of its own, see
+[`children_complete`](#letting-an-initiative-close-children_complete).
 
 ---
 
