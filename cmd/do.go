@@ -73,7 +73,7 @@ func runDo(cmd *cobra.Command, args []string) error {
 	maybeAutoClaim(cmd, rc, specID, meta)
 
 	reg := buildRegistry(rc)
-	engine := build.NewEngine(db, reg.Agent(), buildEngineOptions(rc, false))
+	engine := build.NewEngine(db, reg.Agent(), buildEngineOptions(rc, specID, false))
 
 	workDir, err := os.Getwd()
 	if err != nil {

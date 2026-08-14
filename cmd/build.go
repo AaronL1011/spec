@@ -69,7 +69,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	defer func() { _ = db.Close() }()
 
 	reg := buildRegistry(rc)
-	engine := build.NewEngine(db, reg.Agent(), buildEngineOptions(rc, false))
+	engine := build.NewEngine(db, reg.Agent(), buildEngineOptions(rc, specID, false))
 
 	workDir, err := os.Getwd()
 	if err != nil {

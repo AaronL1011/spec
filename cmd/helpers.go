@@ -314,8 +314,11 @@ func buildRegistry(rc *config.ResolvedConfig) *adapter.Registry {
 
 // buildEngineOptions assembles build.Options from agent integration config.
 // headless plumbs the autonomous run mode (e.g. `spec fix --auto`).
-func buildEngineOptions(rc *config.ResolvedConfig, headless bool) build.Options {
-	opts := build.Options{Headless: headless}
+//
+// specID is the spec about to be built; it resolves the initiative context a
+// deliverable slice inherits. Pass "" when no spec is in scope.
+func buildEngineOptions(rc *config.ResolvedConfig, specID string, headless bool) build.Options {
+	opts := build.Options{Headless: headless, InheritedContext: inheritedContextFor(rc, specID)}
 	// Use the effective agent config so per-user skill/command/test_command
 	// overrides apply alongside the per-user provider choice.
 	agent := rc.EffectiveAgentConfig()

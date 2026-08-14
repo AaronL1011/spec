@@ -175,7 +175,7 @@ func runHeadlessFix(rc *config.ResolvedConfig, specID string) error {
 	defer func() { _ = db.Close() }()
 
 	reg := buildRegistry(rc)
-	engine := build.NewEngine(db, reg.Agent(), buildEngineOptions(rc, true))
+	engine := build.NewEngine(db, reg.Agent(), buildEngineOptions(rc, specID, true))
 
 	workDir, err := os.Getwd()
 	if err != nil {

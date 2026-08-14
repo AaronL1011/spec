@@ -389,7 +389,7 @@ func (e *Engine) assemble(ctx context.Context, specPath string, session *Session
 		conventions = string(data)
 	}
 
-	buildCtx, err := AssembleContext(specPath, session, conventions)
+	buildCtx, err := AssembleContext(specPath, session, conventions, e.opts.InheritedContext)
 	if err != nil {
 		return nil, fmt.Errorf("assembling context: %w", err)
 	}

@@ -99,6 +99,21 @@ func printHierarchyFindings(findings []hierarchy.Finding) bool {
 	return hierarchy.HasErrors(findings)
 }
 
+// inheritedContextFor returns the read-only initiative block a deliverable
+// slice carries into its coding agent's context: the parent's TL;DR, problem
+// statement and proposed solution.
+//
+// Empty for a standalone spec and for any failure to resolve or read the
+// parent. Inherited context is an enhancement to a build, never a
+// precondition, so it must not be able to fail one.
+func inheritedContextFor(rc *config.ResolvedConfig, specID string) string {
+	g, err := loadHierarchy(rc)
+	if err != nil {
+		return ""
+	}
+	return g.InheritedContextFor(specID)
+}
+
 // sortSpecRefs orders refs by ID, which for SPEC-NNN is also creation order.
 func sortSpecRefs(refs []hierarchy.SpecRef) {
 	sort.Slice(refs, func(i, j int) bool { return refs[i].ID < refs[j].ID })

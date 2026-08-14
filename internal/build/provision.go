@@ -40,6 +40,11 @@ type Options struct {
 	// "none"/"local" to keep work on local branches with no finishing tools.
 	// Empty means the default.
 	Strategy string
+	// InheritedContext is the read-only initiative block for the spec being
+	// built — its parent's TL;DR, problem statement and proposed solution.
+	// Resolved by the caller because only it knows the specs-repo layout, and
+	// empty for a spec with no parent.
+	InheritedContext string
 }
 
 // agentDir is the reserved location for the agent skill/profile seam.

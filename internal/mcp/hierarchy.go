@@ -26,3 +26,21 @@ func (h *GenericHandler) childrenContext(specID string) expr.ChildrenContext {
 	}
 	return g.Rollup(specID, h.config.Pipeline()).ExprContext()
 }
+
+// withInheritedContext prefixes a spec's content with its initiative's
+// read-only context block when the spec is a deliverable slice.
+//
+// It is applied on the whole-spec read paths only. A section read returns the
+// section the caller asked for: silently appending an initiative's prose to a
+// request for §7.3 would corrupt the one surface that is supposed to be exact.
+func (h *GenericHandler) withInheritedContext(specID, content string) string {
+	g, err := h.specGraph()
+	if err != nil {
+		return content
+	}
+	inherited := g.InheritedContextFor(specID)
+	if inherited == "" {
+		return content
+	}
+	return inherited + "\n" + content
+}

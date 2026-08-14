@@ -463,7 +463,7 @@ func (h *GenericHandler) getSpecResource(specID string) (*Resource, error) {
 	return &Resource{
 		URI:     fmt.Sprintf("spec://%s", specID),
 		Name:    fmt.Sprintf("Spec: %s", specID),
-		Content: content,
+		Content: h.withInheritedContext(strings.ToUpper(specID), content),
 	}, nil
 }
 
@@ -556,7 +556,7 @@ func (h *GenericHandler) toolRead(args json.RawMessage) (*ToolResult, error) {
 		return &ToolResult{Success: true, Message: sec.Content}, nil
 	}
 
-	return &ToolResult{Success: true, Message: content}, nil
+	return &ToolResult{Success: true, Message: h.withInheritedContext(strings.ToUpper(params.ID), content)}, nil
 }
 
 func (h *GenericHandler) toolStatus(args json.RawMessage) (*ToolResult, error) {

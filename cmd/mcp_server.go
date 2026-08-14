@@ -145,12 +145,12 @@ func runBuildMCPServer(cmd *cobra.Command, specID string, rc *config.ResolvedCon
 		}
 	}
 
-	buildCtx, err := build.AssembleContext(specPath, session, "")
+	buildCtx, err := build.AssembleContext(specPath, session, "", inheritedContextFor(rc, specID))
 	if err != nil {
 		return fmt.Errorf("assembling build context: %w", err)
 	}
 
-	buildServer := build.NewMCPServer(session, buildCtx, db, specPath, buildEngineOptions(rc, false)).
+	buildServer := build.NewMCPServer(session, buildCtx, db, specPath, buildEngineOptions(rc, specID, false)).
 		WithRepo(buildRegistry(rc).Repo())
 	generic := mcp.NewGenericHandler(rc, filepath.Dir(specPath)).
 		WithRegistry(buildRegistry(rc)).

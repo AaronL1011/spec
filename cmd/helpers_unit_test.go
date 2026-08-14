@@ -35,7 +35,7 @@ func TestSplitConfigList(t *testing.T) {
 
 func TestBuildEngineOptions_Defaults(t *testing.T) {
 	rc := &config.ResolvedConfig{}
-	opts := buildEngineOptions(rc, true)
+	opts := buildEngineOptions(rc, "", true)
 	if !opts.Headless {
 		t.Error("expected Headless=true")
 	}
@@ -61,7 +61,7 @@ func TestBuildEngineOptions_TeamPolicyAndPersonalAgent(t *testing.T) {
 	}}
 	rc := &config.ResolvedConfig{Team: team, User: user}
 
-	opts := buildEngineOptions(rc, false)
+	opts := buildEngineOptions(rc, "", false)
 	if opts.Headless {
 		t.Error("expected Headless=false")
 	}
