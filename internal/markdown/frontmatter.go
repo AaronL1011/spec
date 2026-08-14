@@ -14,18 +14,28 @@ import (
 
 // SpecMeta represents the YAML frontmatter of a SPEC.md file.
 type SpecMeta struct {
-	ID          string   `yaml:"id"`
-	Title       string   `yaml:"title"`
-	Status      string   `yaml:"status"`
-	Version     string   `yaml:"version"`
-	Author      string   `yaml:"author"`
-	Cycle       string   `yaml:"cycle"`
-	EpicKey     string   `yaml:"epic_key,omitempty"`
-	Repos       []string `yaml:"repos,omitempty"`
-	RevertCount int      `yaml:"revert_count"`
-	Source      string   `yaml:"source,omitempty"`
-	Created     string   `yaml:"created"`
-	Updated     string   `yaml:"updated"`
+	ID      string   `yaml:"id"`
+	Title   string   `yaml:"title"`
+	Status  string   `yaml:"status"`
+	Version string   `yaml:"version"`
+	Author  string   `yaml:"author"`
+	Cycle   string   `yaml:"cycle"`
+	EpicKey string   `yaml:"epic_key,omitempty"`
+	Repos   []string `yaml:"repos,omitempty"`
+
+	// Parent is the ID of the initiative spec this spec is a deliverable slice
+	// of (e.g. "SPEC-004"). Empty means the spec stands alone, which is the
+	// state of every spec written before hierarchy existed. A spec may have at
+	// most one parent, and the tree is exactly two levels deep: a spec with a
+	// parent may not itself be a parent. Both rules are enforced at link time
+	// (internal/hierarchy) and re-checked by `spec validate`, because
+	// frontmatter is hand-editable.
+	Parent string `yaml:"parent,omitempty"`
+
+	RevertCount int    `yaml:"revert_count"`
+	Source      string `yaml:"source,omitempty"`
+	Created     string `yaml:"created"`
+	Updated     string `yaml:"updated"`
 
 	// StageEnteredAt records when the spec entered its current stage (RFC3339).
 	// It drives the time-urgency gradient's dwell calculation and is stamped on
