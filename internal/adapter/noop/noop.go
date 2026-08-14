@@ -26,12 +26,18 @@ type PM struct{}
 
 func (PM) FindEpic(ctx context.Context, specID string) (string, error)           { return "", nil }
 func (PM) CreateEpic(ctx context.Context, spec adapter.SpecMeta) (string, error) { return "", nil }
-func (PM) LinkEpic(ctx context.Context, epicKey, specID, specURL string) error   { return nil }
-func (PM) UpdateStatus(ctx context.Context, epicKey string, status string) error { return nil }
-func (PM) FetchUpdates(ctx context.Context, epicKey string) (*adapter.PMUpdate, error) {
+
+// CreateTask returns no key and no error, per the never-panic rule: a team
+// with no PM tool still links slices to initiatives spec-side.
+func (PM) CreateTask(ctx context.Context, spec adapter.SpecMeta, parentKey string) (string, error) {
+	return "", nil
+}
+func (PM) LinkEpic(ctx context.Context, pmKey, specID, specURL string) error   { return nil }
+func (PM) UpdateStatus(ctx context.Context, pmKey string, status string) error { return nil }
+func (PM) FetchUpdates(ctx context.Context, pmKey string) (*adapter.PMUpdate, error) {
 	return nil, nil
 }
-func (PM) SyncStories(ctx context.Context, epicKey string, stories []adapter.StorySpec) ([]adapter.StoryLink, error) {
+func (PM) SyncStories(ctx context.Context, pmKey string, stories []adapter.StorySpec) ([]adapter.StoryLink, error) {
 	return nil, nil
 }
 func (PM) Validate(ctx context.Context) error { return nil }

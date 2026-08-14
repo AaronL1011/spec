@@ -124,11 +124,12 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Find-or-create the PM epic if configured (idempotent, crash-safe).
+	// Find-or-create the PM object if configured (idempotent, crash-safe). A
+	// slice becomes a task under its initiative's epic; anything else an epic.
 	if rc.HasIntegration("pm") {
 		sm := pmSpecMeta(rc, specID, title, &markdownMeta{Status: "draft"})
-		if epicKey := ensureEpic(rc, reg, specID, sm); epicKey != "" {
-			fmt.Printf("Linked PM epic: %s\n", epicKey)
+		if pmKey := ensurePMObject(rc, reg, specID, sm, parentID); pmKey != "" {
+			fmt.Printf("Linked PM issue: %s\n", pmKey)
 		}
 	}
 

@@ -129,11 +129,12 @@ func runPromote(cmd *cobra.Command, args []string) error {
 // notification) and prints the result. Integration failures degrade to
 // warnings; only output errors are returned.
 func finishPromote(p *printer, rc *config.ResolvedConfig, reg *adapter.Registry, triageID, newSpecID, title string) error {
-	// Find-or-create the PM epic if configured (idempotent, crash-safe).
+	// Find-or-create the PM object if configured (idempotent, crash-safe).
+	// A promoted triage item never has a parent, so this is always an epic.
 	var pmKey string
 	if rc.HasIntegration("pm") {
 		sm := pmSpecMeta(rc, newSpecID, title, &markdownMeta{Status: "draft"})
-		pmKey = ensureEpic(rc, reg, newSpecID, sm)
+		pmKey = ensurePMObject(rc, reg, newSpecID, sm, "")
 	}
 
 	// Notify — non-fatal, warn on failure

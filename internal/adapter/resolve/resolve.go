@@ -126,6 +126,7 @@ func resolvePM(cfg *config.TeamConfig) (adapter.PMAdapter, string) {
 			TeamID:         jc.TeamID,
 			EpicIssueType:  jc.EpicIssueType,
 			StoryIssueType: jc.StoryIssueType,
+			TaskIssueType:  jc.TaskIssueType,
 			Fields:         jc.Fields,
 			Labels:         jc.Labels,
 			Components:     jc.Components,

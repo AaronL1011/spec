@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/hierarchy"
 	"github.com/aaronl1011/spec/internal/markdown"
@@ -155,8 +156,41 @@ func runLinkParent(cmd *cobra.Command, specID, parentID string) error {
 			fmt.Printf(" — %s", parent.Title)
 		}
 		fmt.Println()
+		projectParentToPM(rc, specID, parentID, meta.PMKey)
 		return fmt.Sprintf("chore: link %s to parent %s", specID, parentID), nil
 	})
+}
+
+// projectParentToPM reflects a new parent link onto the PM board.
+//
+// A spec that already has a PM object keeps it and is only linked: converting
+// a Jira epic into a task is a lossy, provider-specific "Move", and pm_queue
+// replays operations on retry — a replayed lossy Move is how issue history
+// gets destroyed. A spec with no PM object yet is left to its next sync, which
+// will create it as a task under the initiative's epic.
+//
+// Entirely best-effort: the spec-side link is authoritative whether or not the
+// board catches up.
+func projectParentToPM(rc *config.ResolvedConfig, specID, parentID, pmKey string) {
+	if !rc.HasIntegration("pm") {
+		return
+	}
+	parentKey := parentPMKey(rc, parentID)
+	if pmKey == "" {
+		if parentKey == "" {
+			return
+		}
+		fmt.Printf("  PM: %s will be created as a task under %s on the next sync\n", specID, parentKey)
+		return
+	}
+	if parentKey == "" {
+		warnf("%s has no PM object yet — %s stays linked to the spec only", parentID, specID)
+		return
+	}
+	if err := buildRegistry(rc).PM().LinkEpic(context.Background(), pmKey, specID, specBackLinkURL(rc, specID)); err != nil {
+		warnf("PM back-link failed: %v", err)
+	}
+	warnf("%s already exists as %s — linked to %s rather than converted", specID, pmKey, parentKey)
 }
 
 // parentDescription renders the target of a no-op link for the user.
