@@ -38,6 +38,11 @@ type pipelineSpec struct {
 	staleFraction float64
 	// bountied marks the spec's glyph + ID in gold.
 	bountied bool
+	// parent is the initiative this spec is a slice of. The pipeline groups by
+	// stage, and an initiative in `engineering` with slices in `build` and
+	// `done` cannot nest without lying about stage — so hierarchy is a marker
+	// on the row here, never a tree.
+	parent string
 }
 
 // pipelineModel shows all specs grouped by pipeline stage.
@@ -309,7 +314,7 @@ func (m pipelineModel) renderPipelineRow(spec pipelineSpec, selected bool) strin
 	if spec.bountied {
 		glyph = IconBounty + " "
 	}
-	mark := glyph + fmt.Sprintf("%-11s", spec.ID)
+	mark := glyph + fmt.Sprintf("%-11s", spec.ID+dashboard.SliceMark(spec.parent))
 	titleMax := contentWidth - 16
 	if titleMax < 10 {
 		titleMax = 10
@@ -449,6 +454,7 @@ func loadPipelineData(ctx context.Context, rc *config.ResolvedConfig) ([]pipelin
 			Title:         meta.Title,
 			Updated:       meta.Updated,
 			bountied:      meta.Bounty != nil,
+			parent:        meta.Parent,
 			staleFraction: dashboard.StageUrgency(pl, curve, meta.Status, meta.StageEnteredAt, meta.Updated, now),
 		})
 	}

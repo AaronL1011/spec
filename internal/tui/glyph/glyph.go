@@ -38,6 +38,10 @@ const (
 	Filled     = "▣" // filled / complete box
 	Open       = "○" // open / not started
 
+	Slice     = "◦" // a spec that is a deliverable slice of an initiative
+	Expanded  = "▾" // an initiative whose slices are shown
+	Collapsed = "▸" // an initiative whose slices are folded away
+
 	Bullet  = "•" // list bullet
 	Cursor  = "▸" // selection / focus cursor
 	Caret   = "▌" // text input caret

@@ -12,7 +12,9 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/aaronl1011/spec/internal/config"
+	"github.com/aaronl1011/spec/internal/hierarchy"
 	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/pipeline"
 )
 
 // specListDataMsg carries loaded spec metadata.
@@ -27,8 +29,21 @@ type specListItem struct {
 	Status  string
 	Author  string
 	Updated string
+	// Parent is the initiative this spec is a deliverable slice of, or "".
+	Parent string
 	// bountied marks the spec's glyph + ID in gold.
 	bountied bool
+	// complete records whether the spec has reached a terminal stage, resolved
+	// at load time where the pipeline config is in scope.
+	complete bool
+
+	// depth, lastChild, initiative and rollup are assigned by nestSpecs and
+	// describe the row's place in the rendered tree rather than the document.
+	depth      int
+	lastChild  bool
+	initiative bool
+	folded     bool
+	rollup     hierarchy.Rollup
 }
 
 // specListModel is a filterable list of all specs.
@@ -42,6 +57,15 @@ type specListModel struct {
 	err         error
 	cursor      int
 	archiveMode bool // true = showing archived specs
+
+	// collapsed holds the initiative IDs whose slices are hidden. Keyed by ID
+	// rather than by row index so the state survives a refetch that reorders or
+	// resizes the list.
+	collapsed map[string]bool
+
+	// nested reports whether the visible list contains any hierarchy, which is
+	// what turns the tree gutter on.
+	nested bool
 
 	width  int
 	height int
@@ -93,6 +117,9 @@ func (m specListModel) update(msg tea.Msg) (specListModel, tea.Cmd) {
 			if m.cursor < len(m.filtered)-1 {
 				m.cursor++
 			}
+		case key.Matches(msg, m.keys.Collapse):
+			m.toggleCollapse()
+			return m, nil
 		case key.Matches(msg, m.keys.ToggleArchive):
 			// ` toggles archive list mode. (The global `/` search overlay now
 			// owns spec search; this list no longer filters in place.)
@@ -141,7 +168,8 @@ func (m specListModel) view() string {
 
 	// Column header
 	contentWidth := ContentWidth(m.width)
-	headerMark, headerRest := m.formatRow("ID", "TITLE", "STATUS", "AUTHOR", "UPDATED", m.bountyGutter(false), contentWidth)
+	header := specListItem{ID: "ID", Title: "TITLE", Status: "STATUS", Author: "AUTHOR", Updated: "UPDATED"}
+	headerMark, headerRest := m.formatRow(header, m.rowGutter(header), contentWidth)
 	b.WriteString(m.styles.Subtitle.Render(headerMark + headerRest))
 	b.WriteString("\n")
 	b.WriteString(m.styles.Separator.Render(RuleLine(contentWidth)))
@@ -152,7 +180,7 @@ func (m specListModel) view() string {
 
 	for i := start; i < end; i++ {
 		spec := m.filtered[i]
-		mark, rest := m.formatRow(spec.ID, spec.Title, spec.Status, spec.Author, spec.Updated, m.bountyGutter(spec.bountied), contentWidth)
+		mark, rest := m.formatRow(spec, m.rowGutter(spec), contentWidth)
 		base := m.styles.RowNormal
 		if i == m.cursor {
 			base = m.styles.RowSelected
@@ -215,8 +243,9 @@ func (m *specListModel) wheelRows(delta int) {
 // the team has bounties off, so a team that never uses the feature sees exactly
 // the layout it always had; when bounties are on, the cell is present on every
 // row (blank when unbountied) so columns never shift.
-func (m specListModel) formatRow(id, title, status, author, updated, gutter string, width int) (mark, rest string) {
+func (m specListModel) formatRow(item specListItem, gutter string, width int) (mark, rest string) {
 	compact := width < 70
+	id, title, status, author, updated := item.ID, item.Title, item.Status, item.Author, item.Updated
 
 	// Fixed column widths. The title column absorbs whatever is left.
 	// The total must not exceed width so the styled row never wraps.
@@ -250,13 +279,27 @@ func (m specListModel) formatRow(id, title, status, author, updated, gutter stri
 	if titleMax < 10 {
 		titleMax = 10
 	}
-	rest = fmt.Sprintf(" %-*s %-*s %-*s %-*s",
+	// An initiative trades its UPDATED cell for its slice rollup: the date a
+	// vision document was last touched says nothing useful, while "3/5" is the
+	// only number that matters on that row.
+	last := truncate(updated, updateCol)
+	if item.initiative {
+		last = fmt.Sprintf("%d/%d", item.rollup.Complete, item.rollup.Total)
+	}
+	rest = fmt.Sprintf(" %-*s %-*s %-*s %*s",
 		titleMax, truncate(title, titleMax),
 		statusCol, truncate(status, statusCol),
 		authorCol, truncate(author, authorCol),
-		updateCol, truncate(updated, updateCol),
+		updateCol, truncate(last, updateCol),
 	)
 	return mark, rest
+}
+
+// rowGutter assembles a row's full leading gutter: the bounty cell, then the
+// hierarchy cell. Both are empty when their feature is not in play, so the
+// layout only grows for teams that actually use them.
+func (m specListModel) rowGutter(item specListItem) string {
+	return m.bountyGutter(item.bountied) + treeGutter(item, m.nested)
 }
 
 // bountyGutter returns the fixed-width leading cell for a spec row: the gem
@@ -270,6 +313,40 @@ func (m specListModel) bountyGutter(bountied bool) string {
 		return IconBounty + " "
 	}
 	return "  "
+}
+
+// toggleCollapse folds or unfolds the slices of the initiative under the
+// cursor. Pressing it on a slice folds its initiative and moves the selection
+// there, so the row the user is looking at never disappears from under them.
+func (m *specListModel) toggleCollapse() {
+	if m.cursor < 0 || m.cursor >= len(m.filtered) {
+		return
+	}
+	row := m.filtered[m.cursor]
+	target := row.ID
+	if !row.initiative {
+		if row.Parent == "" {
+			return
+		}
+		target = row.Parent
+	}
+	if m.collapsed == nil {
+		m.collapsed = make(map[string]bool)
+	}
+	m.collapsed[target] = !m.collapsed[target]
+	m.applyFilter()
+	m.selectSpec(target)
+}
+
+// selectSpec moves the cursor to a spec by ID, leaving it alone when the spec
+// is not currently visible.
+func (m *specListModel) selectSpec(id string) {
+	for i, it := range m.filtered {
+		if it.ID == id {
+			m.cursor = i
+			return
+		}
+	}
 }
 
 func (m specListModel) selectedSpecID() string {
@@ -293,7 +370,8 @@ func (m *specListModel) setSize(w, h int) {
 // (SPEC-028); the list now only splits active vs archived via archiveMode,
 // which is selected at fetch time.
 func (m *specListModel) applyFilter() {
-	m.filtered = m.allSpecs
+	m.filtered = collapseSlices(nestSpecs(m.allSpecs), m.collapsed)
+	m.nested = hasHierarchy(m.filtered)
 	if m.cursor >= len(m.filtered) {
 		m.cursor = max(0, len(m.filtered)-1)
 	}
@@ -332,6 +410,7 @@ func loadAllSpecs(ctx context.Context, rc *config.ResolvedConfig, archiveMode bo
 		return nil, fmt.Errorf("reading specs dir: %w", err)
 	}
 
+	pl := rc.Pipeline()
 	var specs []specListItem
 	for _, e := range entries {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
@@ -348,7 +427,9 @@ func loadAllSpecs(ctx context.Context, rc *config.ResolvedConfig, archiveMode bo
 			Status:   meta.Status,
 			Author:   meta.Author,
 			Updated:  meta.Updated,
+			Parent:   meta.Parent,
 			bountied: meta.Bounty != nil,
+			complete: pipeline.IsTerminalStage(pl, meta.Status),
 		})
 	}
 	return specs, syncErr

@@ -40,7 +40,10 @@ type specDetailDataMsg struct {
 	ResumeOffset  int
 	Archived      bool
 	BuildLine     string
-	Err           error
+	// ParentTitle is the title of the initiative named by Meta.Parent, resolved
+	// on the fetch goroutine so the render path never touches the filesystem.
+	ParentTitle string
+	Err         error
 }
 
 // threadsChangedMsg carries the refreshed thread set after a mutation.
@@ -81,6 +84,9 @@ type specDetailModel struct {
 	// buildLine is the compact build status ("step N/M — [repo] desc · ACs x/y")
 	// shown when a build session exists for the spec. Empty when none.
 	buildLine string
+	// parentTitle is the title of this spec's initiative, empty when it stands
+	// alone or the parent does not resolve.
+	parentTitle string
 
 	// Spec data
 	meta        *markdown.SpecMeta
@@ -285,6 +291,7 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	if msg.Hash != "" && msg.Hash == m.contentHash && m.meta != nil {
 		m.err = nil
 		m.buildLine = msg.BuildLine
+		m.parentTitle = msg.ParentTitle
 		return m, nil
 	}
 	// A refresh into an already-loaded spec (watcher-triggered or poll) must
@@ -306,6 +313,7 @@ func (m specDetailModel) handleDataMsg(msg specDetailDataMsg) (specDetailModel, 
 	m.contentHash = msg.Hash
 	m.isArchived = msg.Archived
 	m.buildLine = msg.BuildLine
+	m.parentTitle = msg.ParentTitle
 	m.readerCache = make(map[string]string)
 	m.contentLines = m.estimateContentLines()
 	m.resumeSection, m.resumeOffset = msg.ResumeSection, msg.ResumeOffset
@@ -396,6 +404,7 @@ func (m specDetailModel) applyRefresh(msg specDetailDataMsg) (specDetailModel, t
 	m.contentHash = msg.Hash
 	m.isArchived = msg.Archived
 	m.buildLine = msg.BuildLine
+	m.parentTitle = msg.ParentTitle
 	m.readerCache = make(map[string]string) // content changed — invalidate renders
 	m.contentLines = m.estimateContentLines()
 
@@ -1064,6 +1073,19 @@ func (m specDetailModel) overviewLines() []string {
 		b.WriteString("\n")
 	}
 
+	// ── Hierarchy line ── the initiative a slice belongs to. The detail pane is
+	// where a row's marker glyph gets its meaning, so the parent is named in
+	// full here rather than left as a symbol.
+	if m.meta.Parent != "" {
+		partOf := m.meta.Parent
+		if m.parentTitle != "" {
+			partOf += " — " + m.parentTitle
+		}
+		b.WriteString(m.styles.Subtitle.Render(Indent(1)+"Part of   ") +
+			m.styles.Accent.Render(truncate(partOf, contentWidth-12)))
+		b.WriteString("\n")
+	}
+
 	// ── Assignees line ──
 	if len(m.meta.Assignees) > 0 {
 		assigned := truncate(strings.Join(m.meta.Assignees, ", "), contentWidth-12)
@@ -1424,6 +1446,7 @@ func (m specDetailModel) fetchData() tea.Cmd {
 			ResumeOffset:  resumeOffset,
 			Archived:      isArchived,
 			BuildLine:     buildStatusLine(db, specID, content),
+			ParentTitle:   parentSpecTitle(rc, meta.Parent),
 		}
 	}
 }

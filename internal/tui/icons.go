@@ -24,6 +24,10 @@ const (
 	IconFilled     = glyph.Filled
 	IconOpen       = glyph.Open
 
+	IconSlice     = glyph.Slice     // spec is a slice of an initiative
+	IconExpanded  = glyph.Expanded  // initiative with its slices shown
+	IconCollapsed = glyph.Collapsed // initiative with its slices folded
+
 	IconBullet = glyph.Bullet
 	IconCursor = glyph.Cursor
 	IconCaret  = glyph.Caret

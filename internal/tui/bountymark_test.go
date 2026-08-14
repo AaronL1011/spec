@@ -448,9 +448,13 @@ func TestSpecList_BountyRowFitsWidth(t *testing.T) {
 	m := testSpecListModel()
 	enableBounties(m.rc, false)
 	for _, w := range []int{50, 60, 70, 80, 100, 120} {
-		mark, rest := m.formatRow("SPEC-001",
-			"A very long spec title that could overflow the row width boundary",
-			"in_progress", "alice", "2026-05-26", m.bountyGutter(true), w)
+		mark, rest := m.formatRow(specListItem{
+			ID:      "SPEC-001",
+			Title:   "A very long spec title that could overflow the row width boundary",
+			Status:  "in_progress",
+			Author:  "alice",
+			Updated: "2026-05-26",
+		}, m.bountyGutter(true), w)
 		if got := lipgloss.Width(mark + rest); got > w {
 			t.Errorf("width=%d: row is %d cells", w, got)
 		}
