@@ -150,6 +150,8 @@ type specFixture struct {
 	title  string
 	status string
 	author string
+	// parent, when set, makes the spec a deliverable slice of that initiative.
+	parent string
 }
 
 // writeSpec writes a spec markdown file into the sandboxed specs directory.
@@ -166,6 +168,7 @@ func (e *smokeEnv) writeSpec(s specFixture, body string) {
 		"version: 0.1.0\n" +
 		"author: " + s.author + "\n" +
 		"cycle: Cycle 0\n" +
+		parentLine(s.parent) +
 		"revert_count: 0\n" +
 		"created: \"2026-01-01\"\n" +
 		"updated: \"2026-01-01\"\n" +
@@ -173,6 +176,14 @@ func (e *smokeEnv) writeSpec(s specFixture, body string) {
 	if err := os.WriteFile(filepath.Join(dir, s.id+".md"), []byte(fm), 0o644); err != nil {
 		e.t.Fatalf("write spec %s: %v", s.id, err)
 	}
+}
+
+// parentLine renders the optional parent frontmatter field.
+func parentLine(parent string) string {
+	if parent == "" {
+		return ""
+	}
+	return "parent: " + parent + "\n"
 }
 
 // initSpecsGit turns the sandboxed clone into a git repo backed by a local
