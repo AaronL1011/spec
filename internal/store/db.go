@@ -72,7 +72,7 @@ func (db *DB) Conn() *sql.DB {
 
 // schemaVersion is the latest migration version. Bump it when adding a
 // migrateVN, or the version assertion in db_test.go will catch the omission.
-const schemaVersion = 9
+const schemaVersion = 10
 
 func (db *DB) migrate() error {
 	// Create migrations table if not exists
@@ -133,6 +133,11 @@ func (db *DB) migrate() error {
 	}
 	if currentVersion < 9 {
 		if err := db.migrateV9(); err != nil {
+			return err
+		}
+	}
+	if currentVersion < 10 {
+		if err := db.migrateV10(); err != nil {
 			return err
 		}
 	}
@@ -517,6 +522,73 @@ func (db *DB) migrateV9() error {
 // schema also runs the additive migration.
 func isDuplicateColumnErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "duplicate column name")
+}
+
+// isMissingColumnErr reports whether err is SQLite complaining that a column
+// does not exist, which is how a re-run rename presents.
+func isMissingColumnErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such column")
+}
+
+// migrateV10 renames epic_key to pm_key wherever the tool stores a spec's PM
+// object key.
+//
+// A deliverable slice's PM object is a task, not an epic, so "epic_key" became
+// a lie the moment hierarchy landed. The field now means "this spec's PM object
+// key", whatever type the PM tool gave it; resolving the type is the adapter's
+// job (internal/adapter/jira), not the store's.
+//
+// pm_queue is an ordinary table and takes a plain column rename, preserving
+// every queued operation. spec_search is FTS5, which cannot ALTER its column
+// set, so it is dropped and recreated exactly as migrateV6 did; clearing
+// spec_search_state forces a full reindex on the next reconcile. That is cheap
+// here — specs repos hold hundreds of documents, not millions.
+func (db *DB) migrateV10() error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning migration v10: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Tolerate an already-renamed column so a partially-applied or
+	// re-run migration is not fatal.
+	if _, err := tx.Exec(`ALTER TABLE pm_queue RENAME COLUMN epic_key TO pm_key`); err != nil {
+		if !isMissingColumnErr(err) {
+			return fmt.Errorf("migration v10 renaming pm_queue.epic_key: %w", err)
+		}
+	}
+
+	statements := []string{
+		`DROP TABLE IF EXISTS spec_search`,
+		// Column order matters: bm25 weights and the snippet() column index in
+		// internal/store/search.go mirror this exact order.
+		`CREATE VIRTUAL TABLE spec_search USING fts5(
+			spec_id,
+			section_slug UNINDEXED,
+			section_heading,
+			title,
+			status,
+			body,
+			author,
+			assignees,
+			cycle,
+			pm_key,
+			archived UNINDEXED,
+			path UNINDEXED,
+			tokenize = 'unicode61 remove_diacritics 2'
+		)`,
+		// The index is now empty; only state rows suppress re-indexing of
+		// unchanged files, so they must go too or the index stays empty.
+		`DELETE FROM spec_search_state`,
+
+		`INSERT INTO migrations (version) VALUES (10)`,
+	}
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("migration v10 statement failed: %w\nSQL: %s", err, stmt)
+		}
+	}
+	return tx.Commit()
 }
 
 // DefaultDBPath returns the default database path.

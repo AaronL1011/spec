@@ -108,7 +108,7 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 		res.Skipped = pipeline.SkippedStages(pl, meta.Status, target)
 	}
 
-	execCtx := d.execContext(in.SpecID, meta.Title, res.PreviousStage, target, in.SpecDir, meta.EpicKey, effects.TransitionAdvance, in.DryRun)
+	execCtx := d.execContext(in.SpecID, meta.Title, res.PreviousStage, target, in.SpecDir, meta.PMKey, effects.TransitionAdvance, in.DryRun)
 
 	if in.DryRun {
 		res.Effects = d.previewAdvanceEffects(ctx, resolved, res.PreviousStage, execCtx)
@@ -145,11 +145,11 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 
 	// Reflect the new stage onto the linked PM board status (on by default,
 	// idempotent, queued-on-failure). Independent of any update_pm effect.
-	if outcome := d.syncPMStatus(ctx, in.SpecID, meta.EpicKey, target); outcome != nil {
+	if outcome := d.syncPMStatus(ctx, in.SpecID, meta.PMKey, target); outcome != nil {
 		res.Effects = append(res.Effects, *outcome)
 	}
 	// Reconcile per-step PM stories when story sync is enabled.
-	if outcome := d.syncPMStories(ctx, in.SpecID, in.SpecPath, meta.EpicKey, meta.Steps); outcome != nil {
+	if outcome := d.syncPMStories(ctx, in.SpecID, in.SpecPath, meta.PMKey, meta.Steps); outcome != nil {
 		res.Effects = append(res.Effects, *outcome)
 	}
 

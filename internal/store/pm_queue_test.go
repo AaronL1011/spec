@@ -10,7 +10,7 @@ func TestPMQueue_EnqueuePendingResolve(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	id, err := db.PMQueueEnqueue(PMQueueItem{
-		SpecID: "SPEC-1", EpicKey: "PLAT-1", Op: PMOpStatus, Payload: "build", Detail: "boom",
+		SpecID: "SPEC-1", PMKey: "PLAT-1", Op: PMOpStatus, Payload: "build", Detail: "boom",
 	})
 	if err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -46,7 +46,7 @@ func TestPMQueue_DedupesSameOp(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	item := PMQueueItem{SpecID: "SPEC-1", EpicKey: "PLAT-1", Op: PMOpStatus, Payload: "build"}
+	item := PMQueueItem{SpecID: "SPEC-1", PMKey: "PLAT-1", Op: PMOpStatus, Payload: "build"}
 	id1, _ := db.PMQueueEnqueue(item)
 	id2, _ := db.PMQueueEnqueue(item)
 	if id1 != id2 {

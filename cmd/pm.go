@@ -61,7 +61,7 @@ func ensureEpic(rc *config.ResolvedConfig, reg *adapter.Registry, specID string,
 	if existing, err := pm.FindEpic(ctx(), specID); err != nil {
 		warnf("could not query PM for an existing epic: %v", err)
 	} else if existing != "" {
-		if perr := persistEpicKey(rc, specID, existing); perr != nil {
+		if perr := persistPMKey(rc, specID, existing); perr != nil {
 			warnf("could not persist PM epic key: %v", perr)
 		}
 		_ = pm.LinkEpic(ctx(), existing, specID, backlink)
@@ -77,7 +77,7 @@ func ensureEpic(rc *config.ResolvedConfig, reg *adapter.Registry, specID string,
 	if key == "" {
 		return ""
 	}
-	if perr := persistEpicKey(rc, specID, key); perr != nil {
+	if perr := persistPMKey(rc, specID, key); perr != nil {
 		enqueuePMRepair(specID, key, store.PMOpCreate, "", perr)
 		warnf("created epic %s but could not link it to the spec — queued for repair: %v", key, perr)
 	}
@@ -85,7 +85,7 @@ func ensureEpic(rc *config.ResolvedConfig, reg *adapter.Registry, specID string,
 }
 
 // enqueuePMRepair records a failed PM operation in the retry queue (best-effort).
-func enqueuePMRepair(specID, epicKey, op, payload string, cause error) {
+func enqueuePMRepair(specID, pmKey, op, payload string, cause error) {
 	db, err := openDB()
 	if err != nil {
 		return
@@ -96,7 +96,7 @@ func enqueuePMRepair(specID, epicKey, op, payload string, cause error) {
 		detail = cause.Error()
 	}
 	_, _ = db.PMQueueEnqueue(store.PMQueueItem{
-		SpecID: specID, EpicKey: epicKey, Op: op, Payload: payload, Detail: detail,
+		SpecID: specID, PMKey: pmKey, Op: op, Payload: payload, Detail: detail,
 	})
 }
 
@@ -132,11 +132,11 @@ func reconcilePM(rc *config.ResolvedConfig, reg *adapter.Registry, db *store.DB,
 func replayPMOp(rc *config.ResolvedConfig, pm adapter.PMAdapter, item store.PMQueueItem) error {
 	switch item.Op {
 	case store.PMOpStatus:
-		return pm.UpdateStatus(ctx(), item.EpicKey, item.Payload)
+		return pm.UpdateStatus(ctx(), item.PMKey, item.Payload)
 	case store.PMOpLink:
-		return pm.LinkEpic(ctx(), item.EpicKey, item.SpecID, item.Payload)
+		return pm.LinkEpic(ctx(), item.PMKey, item.SpecID, item.Payload)
 	case store.PMOpCreate:
-		key := item.EpicKey
+		key := item.PMKey
 		if key == "" {
 			found, err := pm.FindEpic(ctx(), item.SpecID)
 			if err != nil {
@@ -147,7 +147,7 @@ func replayPMOp(rc *config.ResolvedConfig, pm adapter.PMAdapter, item store.PMQu
 		if key == "" {
 			return fmt.Errorf("no epic found for %s", item.SpecID)
 		}
-		return persistEpicKey(rc, item.SpecID, key)
+		return persistPMKey(rc, item.SpecID, key)
 	default:
 		return fmt.Errorf("unknown PM op %q", item.Op)
 	}

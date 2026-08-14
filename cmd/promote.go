@@ -130,10 +130,10 @@ func runPromote(cmd *cobra.Command, args []string) error {
 // warnings; only output errors are returned.
 func finishPromote(p *printer, rc *config.ResolvedConfig, reg *adapter.Registry, triageID, newSpecID, title string) error {
 	// Find-or-create the PM epic if configured (idempotent, crash-safe).
-	var epicKey string
+	var pmKey string
 	if rc.HasIntegration("pm") {
 		sm := pmSpecMeta(rc, newSpecID, title, &markdownMeta{Status: "draft"})
-		epicKey = ensureEpic(rc, reg, newSpecID, sm)
+		pmKey = ensureEpic(rc, reg, newSpecID, sm)
 	}
 
 	// Notify — non-fatal, warn on failure
@@ -150,11 +150,11 @@ func finishPromote(p *printer, rc *config.ResolvedConfig, reg *adapter.Registry,
 	if p.JSONEnabled() {
 		return p.JSON(map[string]interface{}{
 			"triage_id": triageID, "spec_id": newSpecID, "title": title,
-			"status": "draft", "epic_key": epicKey,
+			"status": "draft", "pm_key": pmKey,
 		})
 	}
-	if epicKey != "" {
-		p.Line("Created PM epic: %s", epicKey)
+	if pmKey != "" {
+		p.Line("Created PM epic: %s", pmKey)
 	}
 	p.Line("✓ Promoted %s → %s — %s", triageID, newSpecID, title)
 	p.Line("  Status: draft")

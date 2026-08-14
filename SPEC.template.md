@@ -5,7 +5,7 @@ status: draft
 version: 0.1.0
 author: —
 cycle: TBD
-epic_key:
+pm_key:
 repos: []   # repositories touched by §7.3 nodes; each must be mapped in ~/.spec/config.yaml workspaces:
 revert_count: 0
 created: YYYY-MM-DD

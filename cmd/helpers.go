@@ -399,8 +399,11 @@ func warnf(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, "warning: "+format+"\n", args...)
 }
 
-func persistEpicKey(rc *config.ResolvedConfig, specID, epicKey string) error {
-	if epicKey == "" {
+// persistPMKey records the spec's PM object key in its frontmatter. The key
+// may name an epic or a task; which one is the PM adapter's concern, so
+// nothing here inspects it.
+func persistPMKey(rc *config.ResolvedConfig, specID, pmKey string) error {
+	if pmKey == "" {
 		return nil
 	}
 	return gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(nil, specID), func(repoPath string) (string, error) {
@@ -412,13 +415,13 @@ func persistEpicKey(rc *config.ResolvedConfig, specID, epicKey string) error {
 		if err != nil {
 			return "", err
 		}
-		if meta.EpicKey == epicKey {
+		if meta.PMKey == pmKey {
 			return "", nil
 		}
-		meta.EpicKey = epicKey
+		meta.PMKey = pmKey
 		if err := markdown.WriteMeta(path, meta); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("chore: link %s to epic %s", specID, epicKey), nil
+		return fmt.Sprintf("chore: link %s to %s", specID, pmKey), nil
 	})
 }

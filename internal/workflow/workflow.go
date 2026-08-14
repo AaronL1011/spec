@@ -55,9 +55,9 @@ func outcomes(results []effects.Result) []EffectOutcome {
 func (d Deps) user() string { return d.Config.UserName() }
 
 // execContext builds the effect-execution context shared by transitions.
-// specDir is the specs/ directory inside the repo clone; epicKey comes from
+// specDir is the specs/ directory inside the repo clone; pmKey comes from
 // the spec frontmatter.
-func (d Deps) execContext(specID, title, from, to, specDir, epicKey string, tt effects.TransitionType, dryRun bool) effects.ExecutionContext {
+func (d Deps) execContext(specID, title, from, to, specDir, pmKey string, tt effects.TransitionType, dryRun bool) effects.ExecutionContext {
 	return effects.ExecutionContext{
 		SpecID:         specID,
 		SpecTitle:      title,
@@ -77,7 +77,7 @@ func (d Deps) execContext(specID, title, from, to, specDir, epicKey string, tt e
 			UserName:         d.user(),
 			DryRun:           dryRun,
 		},
-		PMUpdater: &effects.PMUpdaterAdapter{PM: d.Registry.PM(), EpicKey: epicKey},
+		PMUpdater: &effects.PMUpdaterAdapter{PM: d.Registry.PM(), PMKey: pmKey},
 		Webhooker: &effects.WebhookerAdapter{},
 		Logger:    &effects.LoggerAdapter{DB: d.DB, SpecDir: specDir, SpecID: specID},
 	}

@@ -146,7 +146,7 @@ func runLinkParent(cmd *cobra.Command, specID, parentID string) error {
 
 		if parentID == "" {
 			fmt.Printf("✓ Detached %s from %s\n", specID, previous)
-			warnPMUnchangedOnDetach(meta.EpicKey, specID)
+			warnPMUnchangedOnDetach(meta.PMKey, specID)
 			return fmt.Sprintf("chore: detach %s from %s", specID, previous), nil
 		}
 		parent, _ := graph.Get(parentID)
@@ -192,7 +192,7 @@ func runLinkEpic(specID, epic string) error {
 		return fmt.Errorf("PM integration not configured — set integrations.pm in spec.config.yaml before adopting an epic")
 	}
 
-	if err := persistEpicKey(rc, specID, epic); err != nil {
+	if err := persistPMKey(rc, specID, epic); err != nil {
 		return fmt.Errorf("recording epic %s on %s: %w", epic, specID, err)
 	}
 

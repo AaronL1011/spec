@@ -34,7 +34,7 @@ type statusReport struct {
 	Author      string   `json:"author"`
 	Cycle       string   `json:"cycle"`
 	Version     string   `json:"version"`
-	EpicKey     string   `json:"epic_key,omitempty"`
+	PMKey       string   `json:"pm_key,omitempty"`
 	Repos       []string `json:"repos,omitempty"`
 	Source      string   `json:"source,omitempty"`
 	RevertCount int      `json:"revert_count"`
@@ -116,8 +116,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Author: %s\n", meta.Author)
 	fmt.Printf("Cycle: %s\n", meta.Cycle)
 	fmt.Printf("Version: %s\n", meta.Version)
-	if meta.EpicKey != "" {
-		fmt.Printf("Epic: %s%s\n", meta.EpicKey, pmDriftSuffix(specID))
+	// "PM" rather than "Epic": a deliverable slice's PM object is a task, and
+	// the CLI no longer knows which type the key names.
+	if meta.PMKey != "" {
+		fmt.Printf("PM: %s%s\n", meta.PMKey, pmDriftSuffix(specID))
 	}
 	if len(meta.Repos) > 0 {
 		fmt.Printf("Repos: %s\n", strings.Join(meta.Repos, ", "))
@@ -207,7 +209,7 @@ func buildStatusReport(pl config.PipelineConfig, meta *markdown.SpecMeta, sectio
 		Author:      meta.Author,
 		Cycle:       meta.Cycle,
 		Version:     meta.Version,
-		EpicKey:     meta.EpicKey,
+		PMKey:       meta.PMKey,
 		Repos:       meta.Repos,
 		Source:      meta.Source,
 		RevertCount: meta.RevertCount,

@@ -15,16 +15,16 @@ import (
 // configured status mapping is a clean no-op. On failure it enqueues a retry
 // and records an audit row so the board never silently drifts from spec state
 // (docs/JIRA_HARDENING_PLAN.md §P3, §P5).
-func (d Deps) syncPMStatus(ctx context.Context, specID, epicKey, stage string) *EffectOutcome {
-	if epicKey == "" || d.Registry == nil {
+func (d Deps) syncPMStatus(ctx context.Context, specID, pmKey, stage string) *EffectOutcome {
+	if pmKey == "" || d.Registry == nil {
 		return nil
 	}
 	pm := d.Registry.PM()
 	if pm == nil {
 		return nil
 	}
-	if err := pm.UpdateStatus(ctx, epicKey, stage); err != nil {
-		d.enqueuePM(specID, epicKey, store.PMOpStatus, stage, err)
+	if err := pm.UpdateStatus(ctx, pmKey, stage); err != nil {
+		d.enqueuePM(specID, pmKey, store.PMOpStatus, stage, err)
 		return &EffectOutcome{Message: "Jira status sync deferred (queued for retry)", Err: err.Error()}
 	}
 	return nil
@@ -35,8 +35,8 @@ func (d Deps) syncPMStatus(ctx context.Context, specID, epicKey, stage string) *
 // by marker label), and best-effort: returned story keys are written back to
 // the spec frontmatter; failures enqueue a retry. Returns an outcome to surface
 // when work was deferred (docs/JIRA_HARDENING_PLAN.md §P4).
-func (d Deps) syncPMStories(ctx context.Context, specID, specPath, epicKey string, steps []markdown.BuildStep) *EffectOutcome {
-	if epicKey == "" || len(steps) == 0 || d.Registry == nil || d.Config == nil || d.Config.Team == nil {
+func (d Deps) syncPMStories(ctx context.Context, specID, specPath, pmKey string, steps []markdown.BuildStep) *EffectOutcome {
+	if pmKey == "" || len(steps) == 0 || d.Registry == nil || d.Config == nil || d.Config.Team == nil {
 		return nil
 	}
 	if !d.Config.Team.Integrations.PM.Jira().SyncStories {
@@ -53,9 +53,9 @@ func (d Deps) syncPMStories(ctx context.Context, specID, specPath, epicKey strin
 		}
 	}
 
-	links, err := d.Registry.PM().SyncStories(ctx, epicKey, specs)
+	links, err := d.Registry.PM().SyncStories(ctx, pmKey, specs)
 	if err != nil {
-		d.enqueuePM(specID, epicKey, store.PMOpStory, "", err)
+		d.enqueuePM(specID, pmKey, store.PMOpStory, "", err)
 		return &EffectOutcome{Message: "Jira story sync deferred (queued for retry)", Err: err.Error()}
 	}
 	d.writeStoryKeys(specPath, links)
@@ -91,7 +91,7 @@ func (d Deps) writeStoryKeys(specPath string, links []adapter.StoryLink) {
 
 // enqueuePM records a failed PM operation for later retry and audits it. Both
 // writes are best-effort: a nil DB (e.g. in unit tests) degrades to a no-op.
-func (d Deps) enqueuePM(specID, epicKey, op, payload string, cause error) {
+func (d Deps) enqueuePM(specID, pmKey, op, payload string, cause error) {
 	if d.DB == nil {
 		return
 	}
@@ -101,7 +101,7 @@ func (d Deps) enqueuePM(specID, epicKey, op, payload string, cause error) {
 	}
 	_, _ = d.DB.PMQueueEnqueue(store.PMQueueItem{
 		SpecID:  specID,
-		EpicKey: epicKey,
+		PMKey:   pmKey,
 		Op:      op,
 		Payload: payload,
 		Detail:  detail,

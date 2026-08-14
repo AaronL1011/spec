@@ -95,7 +95,7 @@ func TestParseMeta(t *testing.T) {
 		{"Status", meta.Status, "build"},
 		{"Author", meta.Author, "Aaron Lewis"},
 		{"Cycle", meta.Cycle, "Cycle 7"},
-		{"EpicKey", meta.EpicKey, "PLAT-123"},
+		{"PMKey", meta.PMKey, "PLAT-123"},
 		{"RevertCount", meta.RevertCount, 1},
 		{"Source", meta.Source, "TRIAGE-088"},
 		{"Repos length", len(meta.Repos), 2},
