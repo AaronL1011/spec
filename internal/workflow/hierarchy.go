@@ -5,6 +5,7 @@ import (
 
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/hierarchy"
+	"github.com/aaronl1011/spec/internal/pipeline/expr"
 )
 
 // specHierarchy builds the parent/child graph from the specs directory inside
@@ -12,6 +13,18 @@ import (
 // callers that only need decoration degrade, callers that gate do not.
 func (d Deps) specHierarchy(specDir string) (*hierarchy.Graph, error) {
 	return hierarchy.Load(specDir, config.ArchiveDir(d.Config.Team))
+}
+
+// childrenContext returns the deliverable-slice rollup for a spec, as the
+// plain struct the expression context takes. It degrades to the zero value
+// (which reads as "not an initiative") when the graph cannot be built, so an
+// unreadable specs directory can only ever make children_complete fail closed.
+func (d Deps) childrenContext(specDir, specID string) expr.ChildrenContext {
+	g, err := d.specHierarchy(specDir)
+	if err != nil {
+		return expr.ChildrenContext{}
+	}
+	return g.Rollup(specID, d.Config.Pipeline()).ExprContext()
 }
 
 // checkHierarchy refuses a transition while the spec's parent link is broken.

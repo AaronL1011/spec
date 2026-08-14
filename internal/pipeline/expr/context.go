@@ -54,6 +54,12 @@ func (b *ContextBuilder) WithPRs(open, approved int, threadsResolved bool) *Cont
 	return b
 }
 
+// WithChildren sets the deliverable-slice rollup for an initiative spec.
+func (b *ContextBuilder) WithChildren(children ChildrenContext) *ContextBuilder {
+	b.ctx.Children = children
+	return b
+}
+
 // Build returns the built context.
 func (b *ContextBuilder) Build() Context {
 	return b.ctx

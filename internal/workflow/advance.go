@@ -11,6 +11,7 @@ import (
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/aaronl1011/spec/internal/pipeline/effects"
+	"github.com/aaronl1011/spec/internal/pipeline/expr"
 )
 
 // ErrGatesNotMet is returned by Advance when the target stage's gate
@@ -76,11 +77,12 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 	hasPRStack := markdown.IsSectionNonEmpty(sections, "pr_stack_plan")
 
 	resolved, _ := d.resolvedPipeline()
+	children := d.childrenContext(in.SpecDir, in.SpecID)
 
 	target := in.TargetStage
 	var autoSkipped []string
 	if target == "" {
-		next, skipped, err := nextEffectiveStage(resolved, pl, meta.Status, sections, hasPRStack, meta)
+		next, skipped, err := nextEffectiveStage(resolved, pl, meta.Status, sections, hasPRStack, meta, children)
 		if err != nil {
 			return nil, fmt.Errorf("cannot advance from %q: %w", meta.Status, err)
 		}
@@ -96,7 +98,7 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 		DryRun:        in.DryRun,
 	}
 
-	gateResults := pipeline.EvaluateGates(pl, target, sections, hasPRStack, false, meta)
+	gateResults := pipeline.EvaluateGates(pl, target, sections, hasPRStack, false, meta, children)
 	if !pipeline.AllGatesPassed(gateResults) {
 		res.GateFailures = pipeline.FailedGates(gateResults)
 		return res, ErrGatesNotMet
@@ -214,13 +216,13 @@ func (d Deps) previewAdvanceEffects(ctx context.Context, resolved *pipeline.Reso
 // It returns the target stage and the list of stages skipped because their
 // skip_when condition matched. When no resolved pipeline is available it falls
 // back to the plain next-stage computation.
-func nextEffectiveStage(resolved *pipeline.ResolvedPipeline, pl config.PipelineConfig, current string, sections []markdown.Section, hasPRStack bool, meta *markdown.SpecMeta) (string, []string, error) {
+func nextEffectiveStage(resolved *pipeline.ResolvedPipeline, pl config.PipelineConfig, current string, sections []markdown.Section, hasPRStack bool, meta *markdown.SpecMeta, children expr.ChildrenContext) (string, []string, error) {
 	if resolved == nil {
 		next, err := pipeline.NextStage(pl, current, true)
 		return next, nil, err
 	}
 
-	ctx := pipeline.BuildExprContext(sections, hasPRStack, false, meta)
+	ctx := pipeline.BuildExprContext(sections, hasPRStack, false, meta, children)
 	next, ok := pipeline.NextEffectiveStage(resolved, current, ctx)
 	if !ok {
 		return "", nil, fmt.Errorf("no next stage after %q", current)

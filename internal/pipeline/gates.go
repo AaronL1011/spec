@@ -24,7 +24,12 @@ type GateResult struct {
 // BuildExprContext builds the expression context used by both gate evaluation
 // and skip_when evaluation from a spec's sections and metadata. It is the single
 // source of truth for translating spec state into an expr.Context.
-func BuildExprContext(sections []markdown.Section, hasPRStack bool, prsApproved bool, meta *markdown.SpecMeta) expr.Context {
+//
+// children is the spec's deliverable-slice rollup, supplied by the caller as a
+// plain struct: this package must not import internal/hierarchy, which imports
+// it for terminal-stage detection. A caller with no hierarchy data passes the
+// zero value, which reads as "not an initiative".
+func BuildExprContext(sections []markdown.Section, hasPRStack bool, prsApproved bool, meta *markdown.SpecMeta, children expr.ChildrenContext) expr.Context {
 	var timeInStage time.Duration
 	var revertCount int
 	var specID, specTitle, specStatus string
@@ -48,6 +53,7 @@ func BuildExprContext(sections []markdown.Section, hasPRStack bool, prsApproved 
 		WithSpec(specID, specTitle, specStatus, nil, 0, timeInStage, revertCount).
 		WithPRStack(hasPRStack, 0, 0, false, false).
 		WithPRs(0, 0, prsApproved).
+		WithChildren(children).
 		Build()
 
 	for _, sec := range sections {
@@ -61,8 +67,8 @@ func BuildExprContext(sections []markdown.Section, hasPRStack bool, prsApproved 
 }
 
 // EvaluateGates checks all gates for the current stage by building a context from raw parameters.
-func EvaluateGates(pipeline config.PipelineConfig, currentStage string, sections []markdown.Section, hasPRStack bool, prsApproved bool, meta *markdown.SpecMeta) []GateResult {
-	ctx := BuildExprContext(sections, hasPRStack, prsApproved, meta)
+func EvaluateGates(pipeline config.PipelineConfig, currentStage string, sections []markdown.Section, hasPRStack bool, prsApproved bool, meta *markdown.SpecMeta, children expr.ChildrenContext) []GateResult {
+	ctx := BuildExprContext(sections, hasPRStack, prsApproved, meta, children)
 	return evaluateGatesWithBuiltContext(pipeline, currentStage, sections, ctx)
 }
 
@@ -162,6 +168,10 @@ func evaluateGateWithContext(gate config.GateConfig, sections []markdown.Section
 		}
 	}
 
+	if gate.ChildrenComplete != nil && *gate.ChildrenComplete {
+		return evaluateChildrenComplete(ctx.Children)
+	}
+
 	if gate.Duration != "" {
 		// Duration gate: require spec to spend minimum time in current stage before advancing.
 		// Computed from spec.Updated (when last modified) to now. If no valid updated date,
@@ -249,6 +259,34 @@ func evaluateGateWithContext(gate config.GateConfig, sections []markdown.Section
 		Gate:   gate.Type(),
 		Passed: true,
 		Reason: fmt.Sprintf("unknown gate type %q — skipping", gate.Type()),
+	}
+}
+
+// evaluateChildrenComplete passes iff the spec is an initiative (at least one
+// deliverable slice) and every slice has reached a terminal stage.
+//
+// The "at least one" condition is the entire safety argument for shipping this
+// predicate before any team adopts it. Teams compose it under `any:` beside
+// pr_stack_exists so an initiative — which has no PR stack of its own — can
+// still close. A childless spec evaluating false makes that branch inert; a
+// childless spec evaluating vacuously true would silently disable
+// pr_stack_exists for every spec in the repo.
+func evaluateChildrenComplete(children expr.ChildrenContext) GateResult {
+	switch {
+	case children.Total == 0:
+		return GateResult{
+			Gate:   "children_complete",
+			Passed: false,
+			Reason: "this spec has no deliverable slices — attach them with 'spec link <slice> --parent <this spec>', or satisfy the delivery gates instead",
+		}
+	case children.Open > 0:
+		return GateResult{
+			Gate:   "children_complete",
+			Passed: false,
+			Reason: fmt.Sprintf("%d of %d slices are still open — finish them before closing the initiative", children.Open, children.Total),
+		}
+	default:
+		return GateResult{Gate: "children_complete", Passed: true}
 	}
 }
 

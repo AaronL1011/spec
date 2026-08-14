@@ -795,6 +795,7 @@ gates:
   - steps_exists: true
   - prs_approved: true
   - review_approved: true
+  - children_complete: true
   - duration: 24h
   - link_exists: pr
   - link_exists:
@@ -806,6 +807,44 @@ gates:
 
 Compose gates with `all`, `any`, and `not`. Legacy `section_complete` and
 `pr_stack_exists` map to `section_not_empty` and `steps_exists`.
+
+##### Letting an initiative close (`children_complete`)
+
+A spec that carries vision for a set of deliverable slices (an *initiative*,
+declared by `parent:` on each slice) has no PR stack of its own, so the delivery
+gates wedge it permanently. `children_complete` passes when the spec has **at
+least one** slice and every slice has reached a terminal stage. A spec with no
+slices evaluates **false**, never vacuously true, so adding this gate under
+`any:` can only ever relax an initiative — never an ordinary spec.
+
+This is opt-in; upgrading does not rewrite your pipeline. To adopt it, relax
+**both** delivery stages — relaxing only the first leaves the initiative wedged
+one stage later:
+
+```yaml
+pipeline:
+  stages:
+    - name: pr-review
+      owner_role: engineer
+      gates:
+        - any:
+            - pr_stack_exists: true
+            - children_complete: true
+    - name: qa-validation
+      owner_role: qa
+      gates:
+        - any:
+            - prs_approved: true
+            - children_complete: true
+```
+
+The same rollup is available to expression gates and `skip_when` as
+`children.total`, `children.complete`, `children.open` and `children.blocked`.
+In an expression, always test `children.total > 0` alongside `children.open ==
+0`; the latter alone is true for every spec that has no slices.
+
+A team that never edits its config still gets links and validation — its
+initiatives simply stop at `pr-review`.
 
 #### Effects
 

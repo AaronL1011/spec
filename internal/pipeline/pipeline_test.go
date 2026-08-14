@@ -7,6 +7,7 @@ import (
 
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/pipeline/expr"
 )
 
 func defaultPipeline() config.PipelineConfig {
@@ -122,19 +123,19 @@ func TestEvaluateGates(t *testing.T) {
 	}
 
 	// tl-review gate: section_complete: problem_statement → should pass
-	results := EvaluateGates(p, "tl-review", sections, false, false, nil)
+	results := EvaluateGates(p, "tl-review", sections, false, false, nil, expr.ChildrenContext{})
 	if !AllGatesPassed(results) {
 		t.Errorf("tl-review gates should pass, failed: %v", FailedGates(results))
 	}
 
 	// engineering gate: section_complete: acceptance_criteria → should fail
-	results = EvaluateGates(p, "engineering", sections, false, false, nil)
+	results = EvaluateGates(p, "engineering", sections, false, false, nil, expr.ChildrenContext{})
 	if AllGatesPassed(results) {
 		t.Error("engineering gates should fail (empty acceptance_criteria)")
 	}
 
 	// pr-review gate: pr_stack_exists → should fail (no PR stack at all)
-	results = EvaluateGates(p, "pr-review", sections, false, false, nil)
+	results = EvaluateGates(p, "pr-review", sections, false, false, nil, expr.ChildrenContext{})
 	if AllGatesPassed(results) {
 		t.Error("pr-review gates should fail (no PR stack)")
 	}
@@ -142,7 +143,7 @@ func TestEvaluateGates(t *testing.T) {
 	// pr-review with a §7.3 plan but no recorded draft PRs → should still fail.
 	planOnly := append([]markdown.Section{}, sections...)
 	planOnly = append(planOnly, markdown.Section{Slug: "pr_stack_plan", Content: "1. [svc] root\n2. [svc] leaf (after: 1)\n"})
-	results = EvaluateGates(p, "pr-review", planOnly, true, false, nil)
+	results = EvaluateGates(p, "pr-review", planOnly, true, false, nil, expr.ChildrenContext{})
 	if AllGatesPassed(results) {
 		t.Error("pr-review gates should fail when leaf nodes have no recorded draft PR")
 	}
@@ -153,7 +154,7 @@ func TestEvaluateGates(t *testing.T) {
 		Slug:    "pr_stack_plan",
 		Content: "1. [svc] root\n2. [svc] leaf (after: 1) <!-- pr: https://github.com/o/svc/pull/9 -->\n",
 	})
-	results = EvaluateGates(p, "pr-review", withPRs, true, false, nil)
+	results = EvaluateGates(p, "pr-review", withPRs, true, false, nil, expr.ChildrenContext{})
 	if !AllGatesPassed(results) {
 		t.Errorf("pr-review gates should pass when all leaves have draft PRs, failed: %v", FailedGates(results))
 	}

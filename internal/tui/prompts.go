@@ -270,6 +270,7 @@ var CommonGateTypes = []GateType{
 	{Name: "PR stack exists", Description: "Require PR stack plan in §7.3", Value: "pr_stack_exists"},
 	{Name: "PRs approved", Description: "All PRs must be approved", Value: "prs_approved"},
 	{Name: "Decisions resolved", Description: "All decisions must be resolved", Value: "decisions_resolved"},
+	{Name: "Slices complete", Description: "Every deliverable slice of this initiative is done", Value: "children_complete"},
 	{Name: "Custom expression", Description: "Write a custom expression", Value: "expr"},
 	{Name: "No gate", Description: "Skip adding a gate", Value: "none"},
 }

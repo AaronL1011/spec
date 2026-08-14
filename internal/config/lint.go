@@ -53,7 +53,7 @@ func (r LintResult) HasErrors() bool {
 // typos like "sectoin_complete" with a did-you-mean suggestion.
 var knownGateKeys = []string{
 	"section_not_empty", "section_complete", "pr_stack_exists", "steps_exists",
-	"prs_approved", "review_approved", "duration", "link_exists",
+	"prs_approved", "review_approved", "children_complete", "duration", "link_exists",
 	"expr", "message", "all", "any", "not",
 }
 

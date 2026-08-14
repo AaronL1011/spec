@@ -62,7 +62,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	hasPRStack := markdown.IsSectionNonEmpty(sections, "pr_stack_plan")
-	results := pipeline.EvaluateGates(pl, nextStage, sections, hasPRStack, false, meta)
+	results := pipeline.EvaluateGates(pl, nextStage, sections, hasPRStack, false, meta, tree.Rollup.ExprContext())
 
 	if len(results) == 0 {
 		if !hierarchyBroken {

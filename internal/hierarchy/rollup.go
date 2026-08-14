@@ -3,6 +3,7 @@ package hierarchy
 import (
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/pipeline/expr"
 )
 
 // Rollup summarises an initiative's deliverable slices.
@@ -52,4 +53,21 @@ func (g *Graph) Rollup(id string, pl config.PipelineConfig) Rollup {
 // would silently waive the delivery gate for every ordinary spec in the repo.
 func (r Rollup) IsComplete() bool {
 	return r.Total > 0 && r.Complete == r.Total
+}
+
+// ExprContext projects the rollup into the gate expression environment.
+//
+// The conversion lives here rather than at each of the three gate call sites
+// (CLI, workflow engine, MCP server) so the rollup a gate sees can never drift
+// between surfaces. It is also why internal/pipeline takes a plain
+// expr.ChildrenContext rather than a hierarchy.Rollup: this package already
+// imports internal/pipeline for terminal-stage detection, so the dependency
+// can only point this way.
+func (r Rollup) ExprContext() expr.ChildrenContext {
+	return expr.ChildrenContext{
+		Total:    r.Total,
+		Complete: r.Complete,
+		Open:     r.Open,
+		Blocked:  r.Blocked,
+	}
 }

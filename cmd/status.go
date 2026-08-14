@@ -9,6 +9,7 @@ import (
 	gitpkg "github.com/aaronl1011/spec/internal/git"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
+	"github.com/aaronl1011/spec/internal/pipeline/expr"
 	"github.com/aaronl1011/spec/internal/syncaudit"
 	"github.com/spf13/cobra"
 )
@@ -83,7 +84,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	pl := rc.Pipeline()
 
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-		return newPrinter(cmd).JSON(buildStatusReport(pl, meta, sections))
+		return newPrinter(cmd).JSON(buildStatusReport(pl, meta, sections, specHierarchyView(rc, specID, meta.Parent).Rollup.ExprContext()))
 	}
 
 	// Header
@@ -136,7 +137,8 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	// Gate check for current stage
 	hasPRStack := markdown.IsSectionNonEmpty(sections, "pr_stack_plan")
-	results := pipeline.EvaluateGates(pl, meta.Status, sections, hasPRStack, false, meta)
+	results := pipeline.EvaluateGates(pl, meta.Status, sections, hasPRStack, false, meta,
+		specHierarchyView(rc, specID, meta.Parent).Rollup.ExprContext())
 	if len(results) > 0 {
 		fmt.Println("Gate checks (current stage):")
 		for _, r := range results {
@@ -153,7 +155,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 // buildStatusReport assembles the machine-readable status shape from the spec
 // metadata, its level-2 sections, and the current-stage gate evaluation.
-func buildStatusReport(pl config.PipelineConfig, meta *markdown.SpecMeta, sections []markdown.Section) statusReport {
+func buildStatusReport(pl config.PipelineConfig, meta *markdown.SpecMeta, sections []markdown.Section, children expr.ChildrenContext) statusReport {
 	rep := statusReport{
 		ID:          meta.ID,
 		Title:       meta.Title,
@@ -177,7 +179,7 @@ func buildStatusReport(pl config.PipelineConfig, meta *markdown.SpecMeta, sectio
 		})
 	}
 	hasPRStack := markdown.IsSectionNonEmpty(sections, "pr_stack_plan")
-	for _, r := range pipeline.EvaluateGates(pl, meta.Status, sections, hasPRStack, false, meta) {
+	for _, r := range pipeline.EvaluateGates(pl, meta.Status, sections, hasPRStack, false, meta, children) {
 		rep.Gates = append(rep.Gates, statusGateResult{Gate: r.Gate, Passed: r.Passed, Reason: r.Reason})
 	}
 	return rep

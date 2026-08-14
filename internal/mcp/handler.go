@@ -752,7 +752,7 @@ func (h *GenericHandler) toolValidate(args json.RawMessage) (*ToolResult, error)
 	body := markdown.Body(content)
 	sections := markdown.ExtractSections(body)
 	hasPRStack := markdown.IsSectionNonEmpty(sections, "pr_stack_plan")
-	results := pipeline.EvaluateGates(h.config.Team.Pipeline, next, sections, hasPRStack, false, meta)
+	results := pipeline.EvaluateGates(h.config.Team.Pipeline, next, sections, hasPRStack, false, meta, h.childrenContext(specID))
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Validating %s: %s → %s\n\n", specID, meta.Status, next)
