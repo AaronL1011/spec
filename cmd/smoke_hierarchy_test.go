@@ -137,6 +137,41 @@ func TestSmoke_LinkParentRefusals(t *testing.T) {
 	}
 }
 
+func TestSmoke_ValidateDanglingParentIsAnError(t *testing.T) {
+	e := newSmokeEnv(t)
+	e.writeUserConfig("engineer")
+	e.writeTeamConfig()
+	e.writeSpec(specFixture{id: "SPEC-009", title: "Slice", status: "draft", author: "Dev", parent: "SPEC-999"}, "## TL;DR\nx\n")
+	e.initSpecsGit()
+
+	out, err := e.runSpec("validate", "SPEC-009")
+	if err == nil {
+		t.Fatalf("expected validation to fail on a dangling parent:\n%s", out)
+	}
+	if !strings.Contains(out, "parent_exists") {
+		t.Errorf("validate output should name the rule that fired:\n%s", out)
+	}
+}
+
+// An initiative that closed last week must not retroactively wedge a slice
+// someone is working on today, so a terminal parent is a warning.
+func TestSmoke_ValidateTerminalParentIsAWarning(t *testing.T) {
+	e := newSmokeEnv(t)
+	e.writeUserConfig("engineer")
+	e.writeTeamConfig()
+	e.writeSpec(specFixture{id: "SPEC-004", title: "Closed initiative", status: "done", author: "Dev"}, "## TL;DR\nx\n")
+	e.writeSpec(specFixture{id: "SPEC-009", title: "Slice", status: "draft", author: "Dev", parent: "SPEC-004"}, "## TL;DR\nx\n")
+	e.initSpecsGit()
+
+	out, err := e.runSpec("validate", "SPEC-009")
+	if err != nil {
+		t.Fatalf("a terminal parent must not fail validation: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "parent_terminal") {
+		t.Errorf("validate should warn about the terminal parent:\n%s", out)
+	}
+}
+
 func TestSmoke_NewWithParent(t *testing.T) {
 	e := hierarchyEnv(t)
 

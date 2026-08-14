@@ -63,6 +63,9 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 	if err := pipeline.ValidateAdvance(pl, meta.Status, in.TargetStage, d.Role); err != nil {
 		return nil, err
 	}
+	if err := d.checkHierarchy(in.SpecDir, in.SpecID); err != nil {
+		return nil, err
+	}
 
 	// Read sections up front so the next-stage computation can evaluate
 	// skip_when expressions against the spec's current state.
