@@ -26,6 +26,12 @@ const (
 	// RuleParentExists — the named parent resolves to a spec.
 	RuleParentExists = "parent_exists"
 
+	// RuleParentUnreadable — the named parent's file exists but its
+	// frontmatter cannot be parsed. Unverifiable is not broken: the spec is
+	// provably on disk, so this warns where a genuinely dangling parent
+	// errors, and no child is blocked over someone else's typo.
+	RuleParentUnreadable = "parent_unreadable"
+
 	// RuleSelfParent — a spec does not name itself as its parent.
 	RuleSelfParent = "self_parent"
 
@@ -115,6 +121,16 @@ func checkParentLink(g *Graph, ref SpecRef, pl config.PipelineConfig) []Finding 
 			Message:  fmt.Sprintf("%s names parent %s, which does not exist — fix or clear it with 'spec link %s --parent <id>'", ref.ID, ref.Parent, ref.ID),
 		}}
 	}
+	if parent.Corrupt {
+		// The parent exists but its status, archive state and own parent are
+		// unknowable, so every check below is suspended rather than guessed.
+		return []Finding{{
+			Rule:     RuleParentUnreadable,
+			Severity: SeverityWarning,
+			Message: fmt.Sprintf("parent %s exists at %s but its frontmatter cannot be parsed — fix that file; hierarchy checks on %s are suspended until it parses",
+				ref.Parent, parent.Path, ref.ID),
+		}}
+	}
 
 	var findings []Finding
 	if parent.Parent != "" {
@@ -151,6 +167,11 @@ func checkReopenedChildren(g *Graph, ref SpecRef, pl config.PipelineConfig) []Fi
 	}
 	var findings []Finding
 	for _, child := range g.Children(ref.ID) {
+		if child.Corrupt {
+			// An unreadable slice's stage is unknown; claiming it "reopened"
+			// would be a guess. The rollup already counts it as open.
+			continue
+		}
 		if child.Archived || pipeline.IsTerminalStage(pl, child.Status) {
 			continue
 		}

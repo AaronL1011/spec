@@ -34,6 +34,9 @@ func (g *Graph) Rollup(id string, pl config.PipelineConfig) Rollup {
 	for _, child := range g.Children(id) {
 		r.Total++
 		switch {
+		case child.Corrupt:
+			// Unknown must fail closed: an unreadable slice counts as open, so
+			// children_complete can never pass over a file nobody can read.
 		case pipeline.IsTerminalStage(pl, child.Status):
 			r.Complete++
 		case child.Status == pipeline.StatusBlocked:

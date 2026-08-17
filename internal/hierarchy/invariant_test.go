@@ -34,6 +34,35 @@ func TestCheck(t *testing.T) {
 			wantContains: "SPEC-999",
 		},
 		{
+			name: "unreadable parent is a warning, not a dangling error",
+			refs: []SpecRef{
+				{ID: "SPEC-004", Path: "specs/SPEC-004.md", Corrupt: true},
+				{ID: "SPEC-009", Status: "build", Parent: "SPEC-004"},
+			},
+			id:           "SPEC-009",
+			wantRules:    []string{RuleParentUnreadable},
+			wantContains: "specs/SPEC-004.md",
+		},
+		{
+			// A corrupt parent's archive state and status are untrusted, so the
+			// terminal/archived warnings must be suspended, not guessed.
+			name: "unreadable parent suspends the status checks",
+			refs: []SpecRef{
+				{ID: "SPEC-004", Corrupt: true, Archived: true},
+				{ID: "SPEC-009", Status: "build", Parent: "SPEC-004"},
+			},
+			id:        "SPEC-009",
+			wantRules: []string{RuleParentUnreadable},
+		},
+		{
+			name: "corrupt child of a closed initiative is not reported reopened",
+			refs: []SpecRef{
+				{ID: "SPEC-004", Status: "done"},
+				{ID: "SPEC-009", Parent: "SPEC-004", Corrupt: true},
+			},
+			id: "SPEC-004",
+		},
+		{
 			name:       "self-parent is an error",
 			refs:       []SpecRef{{ID: "SPEC-009", Parent: "SPEC-009"}},
 			id:         "SPEC-009",

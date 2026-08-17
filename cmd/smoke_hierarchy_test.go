@@ -263,6 +263,32 @@ func TestSmoke_ValidateDanglingParentIsAnError(t *testing.T) {
 	}
 }
 
+// A parent file that exists but will not parse is unverifiable, not broken:
+// the child validates with a warning naming the file to fix, and is never
+// blocked over someone else's typo.
+func TestSmoke_ValidateUnreadableParentIsAWarning(t *testing.T) {
+	e := newSmokeEnv(t)
+	e.writeUserConfig("engineer")
+	e.writeTeamConfig()
+	e.writeSpec(specFixture{id: "SPEC-009", title: "Slice", status: "draft", author: "Dev", parent: "SPEC-004"}, "## TL;DR\nx\n")
+	mangled := "---\nid: SPEC-004\ntitle: [unclosed\nstatus: build\n---\n\n# mangled\n"
+	if err := os.WriteFile(filepath.Join(e.specsDirPath(), "SPEC-004.md"), []byte(mangled), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.initSpecsGit()
+
+	out, err := e.runSpec("validate", "SPEC-009")
+	if err != nil {
+		t.Fatalf("an unreadable parent must not fail validation: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "parent_unreadable") {
+		t.Errorf("validate should warn about the unreadable parent:\n%s", out)
+	}
+	if !strings.Contains(out, "SPEC-004.md") {
+		t.Errorf("the warning should name the file to fix:\n%s", out)
+	}
+}
+
 // An initiative that closed last week must not retroactively wedge a slice
 // someone is working on today, so a terminal parent is a warning.
 func TestSmoke_ValidateTerminalParentIsAWarning(t *testing.T) {
