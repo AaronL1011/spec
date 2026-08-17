@@ -113,6 +113,18 @@ func TestSmoke_LinkParentRefusals(t *testing.T) {
 			parent:   "SPEC-030",
 			wantText: "spec revert SPEC-030",
 		},
+		{
+			name: "unreadable parent names the file to fix",
+			setup: func(e *smokeEnv) {
+				mangled := "---\nid: SPEC-030\ntitle: [unclosed\nstatus: build\n---\n\n# mangled\n"
+				if err := os.WriteFile(filepath.Join(e.specsDirPath(), "SPEC-030.md"), []byte(mangled), 0o644); err != nil {
+					e.t.Fatal(err)
+				}
+			},
+			child:    "SPEC-009",
+			parent:   "SPEC-030",
+			wantText: "fix its frontmatter",
+		},
 	}
 
 	for _, tt := range tests {

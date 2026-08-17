@@ -15,8 +15,16 @@ var (
 	// ErrSpecNotFound means the spec being linked does not resolve.
 	ErrSpecNotFound = errors.New("spec not found")
 
+	// ErrSpecUnreadable means the spec being linked exists but its frontmatter
+	// cannot be parsed, so no link can be written into it.
+	ErrSpecUnreadable = errors.New("spec frontmatter cannot be parsed")
+
 	// ErrParentNotFound means the proposed parent does not resolve.
 	ErrParentNotFound = errors.New("parent spec not found")
+
+	// ErrParentUnreadable means the proposed parent exists but its frontmatter
+	// cannot be parsed, so its eligibility cannot be verified.
+	ErrParentUnreadable = errors.New("parent spec cannot be parsed")
 
 	// ErrSelfParent means a spec was asked to be its own parent.
 	ErrSelfParent = errors.New("a spec cannot be its own parent")
@@ -44,10 +52,18 @@ var (
 // fact. Every refusal names the escape.
 //
 // Detaching (parentID == "") is always permitted and is the escape hatch for
-// every rule below, so a mis-linked spec is never stuck.
+// every rule below, so a mis-linked spec is never stuck. The one exception is
+// a spec whose own frontmatter will not parse: no write — including a detach
+// — can land in a file the tool cannot read, so the refusal names the real
+// fix (repair the file) instead of failing later with a bare parse error.
 func Link(g *Graph, childID, parentID string, pl config.PipelineConfig) error {
-	if _, ok := g.Get(childID); !ok {
+	child, ok := g.Get(childID)
+	if !ok {
 		return fmt.Errorf("%w: %s — check the ID and try again", ErrSpecNotFound, childID)
+	}
+	if child.Corrupt {
+		return fmt.Errorf("%w: %s exists at %s but cannot be read — fix its frontmatter, then retry",
+			ErrSpecUnreadable, childID, child.Path)
 	}
 	if parentID == "" {
 		return nil
@@ -73,6 +89,13 @@ func CanParent(g *Graph, parentID string, pl config.PipelineConfig) error {
 	parent, ok := g.Get(parentID)
 	if !ok {
 		return fmt.Errorf("%w: %s — create it first, or check the ID", ErrParentNotFound, parentID)
+	}
+	if parent.Corrupt {
+		// Check-time treats an unreadable parent as a warning; the mutation
+		// point refuses instead, because attaching new work to a spec whose
+		// eligibility cannot be verified is a choice, not an accident.
+		return fmt.Errorf("%w: %s exists at %s but cannot be read — fix its frontmatter before adding slices",
+			ErrParentUnreadable, parentID, parent.Path)
 	}
 	if parent.Parent != "" {
 		return fmt.Errorf("%w: %s is already a slice of %s, so it cannot also be an initiative — use --parent %s instead",

@@ -213,6 +213,32 @@ func TestLink(t *testing.T) {
 			wantErr: ErrParentNotFound,
 		},
 		{
+			name:    "unreadable child is refused with the real fix",
+			refs:    append(twoLevelTree(), SpecRef{ID: "SPEC-666", Path: "specs/SPEC-666.md", Corrupt: true}),
+			child:   "SPEC-666",
+			parent:  "SPEC-004",
+			wantErr: ErrSpecUnreadable,
+		},
+		{
+			// No write — not even a detach — can land in a file that will not
+			// parse, so the refusal must name the file rather than fail later.
+			name:    "detaching an unreadable child is refused with the real fix",
+			refs:    append(twoLevelTree(), SpecRef{ID: "SPEC-666", Path: "specs/SPEC-666.md", Corrupt: true}),
+			child:   "SPEC-666",
+			parent:  "",
+			wantErr: ErrSpecUnreadable,
+		},
+		{
+			name: "unreadable parent is refused at the mutation point",
+			refs: []SpecRef{
+				{ID: "SPEC-004", Path: "specs/SPEC-004.md", Corrupt: true},
+				{ID: "SPEC-014", Status: "draft"},
+			},
+			child:   "SPEC-014",
+			parent:  "SPEC-004",
+			wantErr: ErrParentUnreadable,
+		},
+		{
 			name:    "self parent",
 			refs:    twoLevelTree(),
 			child:   "SPEC-014",
