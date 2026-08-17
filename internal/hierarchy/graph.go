@@ -32,6 +32,15 @@ type SpecRef struct {
 	// supplied by the caller rather than derived from Path so this package
 	// never has to know a team's configured archive directory name.
 	Archived bool
+
+	// Corrupt marks a spec file that exists but whose frontmatter could not be
+	// parsed. ID and Path are trustworthy — both derive from the filename —
+	// and Parent may carry a best-effort salvage (see salvageParent), but
+	// Title and Status are unknowable and stay empty. Corrupt refs exist to
+	// prove existence: a slice of an unreadable initiative draws a warning,
+	// not the dangling-parent error that would block its advance over someone
+	// else's typo.
+	Corrupt bool
 }
 
 // Graph indexes specs by ID and by parent. It is built once per command and
