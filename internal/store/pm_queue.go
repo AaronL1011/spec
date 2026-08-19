@@ -18,9 +18,11 @@ const (
 // PMQueueItem is a PM-tool operation that failed and must be retried so the
 // board never silently drifts from spec state (docs/JIRA_HARDENING_PLAN.md §P5).
 type PMQueueItem struct {
-	ID        int64
-	SpecID    string
-	EpicKey   string
+	ID     int64
+	SpecID string
+	// PMKey is the PM object this operation targets. It may name an epic or a
+	// task; the adapter resolves the type from the key.
+	PMKey     string
 	Op        string
 	Payload   string // op-specific: target status, spec URL, etc.
 	Status    string // queued | needs-resolution
@@ -48,8 +50,8 @@ func (db *DB) PMQueueEnqueue(item PMQueueItem) (int64, error) {
 	).Scan(&id)
 	if err == nil {
 		if _, err := db.conn.Exec(
-			`UPDATE pm_queue SET epic_key = ?, attempts = attempts + 1, detail = ?, updated_at = ? WHERE id = ?`,
-			item.EpicKey, item.Detail, now, id,
+			`UPDATE pm_queue SET pm_key = ?, attempts = attempts + 1, detail = ?, updated_at = ? WHERE id = ?`,
+			item.PMKey, item.Detail, now, id,
 		); err != nil {
 			return 0, fmt.Errorf("update pm queue %d: %w", id, err)
 		}
@@ -60,9 +62,9 @@ func (db *DB) PMQueueEnqueue(item PMQueueItem) (int64, error) {
 	}
 
 	res, err := db.conn.Exec(
-		`INSERT INTO pm_queue (spec_id, epic_key, op, payload, status, attempts, detail, created_at, updated_at)
+		`INSERT INTO pm_queue (spec_id, pm_key, op, payload, status, attempts, detail, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		item.SpecID, item.EpicKey, item.Op, item.Payload, status, item.Attempts, item.Detail, now, now,
+		item.SpecID, item.PMKey, item.Op, item.Payload, status, item.Attempts, item.Detail, now, now,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("enqueue pm op: %w", err)
@@ -74,7 +76,7 @@ func (db *DB) PMQueueEnqueue(item PMQueueItem) (int64, error) {
 // PMQueuePending returns queued PM operations, oldest first. When specID is
 // non-empty the result is scoped to that spec.
 func (db *DB) PMQueuePending(specID string) ([]PMQueueItem, error) {
-	query := `SELECT id, spec_id, epic_key, op, payload, status, attempts, detail, created_at, updated_at
+	query := `SELECT id, spec_id, pm_key, op, payload, status, attempts, detail, created_at, updated_at
 		 FROM pm_queue WHERE status = ?`
 	args := []interface{}{QueueStatusQueued}
 	if specID != "" {
@@ -126,11 +128,11 @@ func scanPMQueue(rows *sql.Rows) ([]PMQueueItem, error) {
 	for rows.Next() {
 		var it PMQueueItem
 		var created, updated int64
-		var epicKey, payload, detail sql.NullString
-		if err := rows.Scan(&it.ID, &it.SpecID, &epicKey, &it.Op, &payload, &it.Status, &it.Attempts, &detail, &created, &updated); err != nil {
+		var pmKey, payload, detail sql.NullString
+		if err := rows.Scan(&it.ID, &it.SpecID, &pmKey, &it.Op, &payload, &it.Status, &it.Attempts, &detail, &created, &updated); err != nil {
 			return nil, fmt.Errorf("scanning pm queue: %w", err)
 		}
-		it.EpicKey = epicKey.String
+		it.PMKey = pmKey.String
 		it.Payload = payload.String
 		it.Detail = detail.String
 		it.CreatedAt = time.Unix(created, 0)

@@ -6,16 +6,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/hierarchy"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/spf13/cobra"
 )
 
 var linkCmd = &cobra.Command{
 	Use:   "link [id]",
-	Short: "Attach a resource link to a spec section",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runLink,
+	Short: "Attach a resource link, a PM epic, or a parent initiative to a spec",
+	Example: "  spec link SPEC-009 --section design_inputs --url https://figma.com/…\n" +
+		"  spec link SPEC-009 --parent SPEC-004\n" +
+		"  spec link SPEC-009 --parent \"\"",
+	Args: cobra.MaximumNArgs(1),
+	RunE: runLink,
 }
 
 func init() {
@@ -23,6 +28,7 @@ func init() {
 	linkCmd.Flags().String("url", "", "resource URL (required)")
 	linkCmd.Flags().String("label", "", "optional label for the link")
 	linkCmd.Flags().String("epic", "", "adopt an existing PM epic key (e.g. PLAT-123) for this spec")
+	linkCmd.Flags().String("parent", "", "attach this spec as a slice of an initiative spec (empty string detaches)")
 	rootCmd.AddCommand(linkCmd)
 }
 
@@ -38,6 +44,12 @@ func runLink(cmd *cobra.Command, args []string) error {
 
 	if epic != "" {
 		return runLinkEpic(specID, epic)
+	}
+	// Changed rather than non-empty: `--parent ""` is the detach verb, and an
+	// omitted flag must not be read as a request to detach.
+	if cmd.Flags().Changed("parent") {
+		parent, _ := cmd.Flags().GetString("parent")
+		return runLinkParent(cmd, specID, normalizeSpecID(parent))
 	}
 
 	if section == "" {
@@ -90,6 +102,115 @@ func runLink(cmd *cobra.Command, args []string) error {
 	})
 }
 
+// runLinkParent attaches a spec to an initiative as one of its deliverable
+// slices, or detaches it when parentID is empty.
+//
+// Every precondition is checked before the write (internal/hierarchy.Link), so
+// a refused link never leaves half a relationship on disk. Detaching is always
+// allowed and is the escape hatch for every refusal.
+func runLinkParent(cmd *cobra.Command, specID, parentID string) error {
+	rc, err := resolveConfig()
+	if err != nil {
+		return err
+	}
+	if err := requireTeamConfig(rc); err != nil {
+		return err
+	}
+
+	return gitpkg.WithSpecsRepoOpts(context.Background(), &rc.Team.SpecsRepo, syncOpts(cmd, specID), func(repoPath string) (string, error) {
+		graph, err := loadHierarchyIn(specsDir(repoPath), rc)
+		if err != nil {
+			return "", err
+		}
+		if err := hierarchy.Link(graph, specID, parentID, rc.Pipeline()); err != nil {
+			return "", err
+		}
+
+		path, err := specPathIn(repoPath, rc, specID)
+		if err != nil {
+			return "", err
+		}
+		meta, err := readSpecMeta(path)
+		if err != nil {
+			return "", err
+		}
+		if meta.Parent == parentID {
+			fmt.Printf("%s is already %s\n", specID, parentDescription(parentID))
+			return "", nil
+		}
+
+		previous := meta.Parent
+		meta.Parent = parentID
+		if err := markdown.WriteMeta(path, meta); err != nil {
+			return "", err
+		}
+
+		if parentID == "" {
+			fmt.Printf("✓ Detached %s from %s\n", specID, previous)
+			warnPMUnchangedOnDetach(meta.PMKey, specID)
+			return fmt.Sprintf("chore: detach %s from %s", specID, previous), nil
+		}
+		parent, _ := graph.Get(parentID)
+		fmt.Printf("✓ %s is now a slice of %s", specID, parentID)
+		if parent.Title != "" {
+			fmt.Printf(" — %s", parent.Title)
+		}
+		fmt.Println()
+		projectParentToPM(rc, specID, parentID, meta.PMKey)
+		return fmt.Sprintf("chore: link %s to parent %s", specID, parentID), nil
+	})
+}
+
+// projectParentToPM reflects a new parent link onto the PM board.
+//
+// A spec that already has a PM object keeps it and is only linked: converting
+// a Jira epic into a task is a lossy, provider-specific "Move", and pm_queue
+// replays operations on retry — a replayed lossy Move is how issue history
+// gets destroyed. A spec with no PM object yet is left to its next sync, which
+// will create it as a task under the initiative's epic.
+//
+// Entirely best-effort: the spec-side link is authoritative whether or not the
+// board catches up.
+func projectParentToPM(rc *config.ResolvedConfig, specID, parentID, pmKey string) {
+	if !rc.HasIntegration("pm") {
+		return
+	}
+	parentKey := parentPMKey(rc, parentID)
+	if pmKey == "" {
+		if parentKey == "" {
+			return
+		}
+		fmt.Printf("  PM: %s will be created as a task under %s on the next sync\n", specID, parentKey)
+		return
+	}
+	if parentKey == "" {
+		warnf("%s has no PM object yet — %s stays linked to the spec only", parentID, specID)
+		return
+	}
+	if err := buildRegistry(rc).PM().LinkEpic(context.Background(), pmKey, specID, specBackLinkURL(rc, specID)); err != nil {
+		warnf("PM back-link failed: %v", err)
+	}
+	warnf("%s already exists as %s — linked to %s rather than converted", specID, pmKey, parentKey)
+}
+
+// parentDescription renders the target of a no-op link for the user.
+func parentDescription(parentID string) string {
+	if parentID == "" {
+		return "standalone"
+	}
+	return "a slice of " + parentID
+}
+
+// warnPMUnchangedOnDetach tells the author that detaching moved the spec link
+// only. The PM object stays a task under the old epic: converting a PM issue's
+// type is lossy and provider-specific, so board hygiene is left to a human.
+func warnPMUnchangedOnDetach(pmKey, specID string) {
+	if pmKey == "" {
+		return
+	}
+	warnf("%s is detached in the spec, but its PM object %s still sits under the old epic — move it on the board if that matters", specID, pmKey)
+}
+
 // runLinkEpic adopts an existing PM epic for a spec: it records the epic key in
 // the spec frontmatter and sets a back-link on the PM issue, without creating a
 // new epic. Used when work originated in the PM tool.
@@ -105,7 +226,7 @@ func runLinkEpic(specID, epic string) error {
 		return fmt.Errorf("PM integration not configured — set integrations.pm in spec.config.yaml before adopting an epic")
 	}
 
-	if err := persistEpicKey(rc, specID, epic); err != nil {
+	if err := persistPMKey(rc, specID, epic); err != nil {
 		return fmt.Errorf("recording epic %s on %s: %w", epic, specID, err)
 	}
 

@@ -55,7 +55,7 @@ func Revert(ctx context.Context, d Deps, in RevertInput) (*RevertResult, error) 
 	}
 
 	resolved, _ := d.resolvedPipeline()
-	execCtx := d.execContext(in.SpecID, meta.Title, res.PreviousStage, in.TargetStage, in.SpecDir, meta.EpicKey, effects.TransitionRevert, false)
+	execCtx := d.execContext(in.SpecID, meta.Title, res.PreviousStage, in.TargetStage, in.SpecDir, meta.PMKey, effects.TransitionRevert, false)
 
 	if resolved != nil {
 		executor := effects.NewExecutor(false)

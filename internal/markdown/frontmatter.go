@@ -14,18 +14,39 @@ import (
 
 // SpecMeta represents the YAML frontmatter of a SPEC.md file.
 type SpecMeta struct {
-	ID          string   `yaml:"id"`
-	Title       string   `yaml:"title"`
-	Status      string   `yaml:"status"`
-	Version     string   `yaml:"version"`
-	Author      string   `yaml:"author"`
-	Cycle       string   `yaml:"cycle"`
-	EpicKey     string   `yaml:"epic_key,omitempty"`
-	Repos       []string `yaml:"repos,omitempty"`
-	RevertCount int      `yaml:"revert_count"`
-	Source      string   `yaml:"source,omitempty"`
-	Created     string   `yaml:"created"`
-	Updated     string   `yaml:"updated"`
+	ID      string `yaml:"id"`
+	Title   string `yaml:"title"`
+	Status  string `yaml:"status"`
+	Version string `yaml:"version"`
+	Author  string `yaml:"author"`
+	Cycle   string `yaml:"cycle"`
+	// PMKey is this spec's PM object key (e.g. "PLAT-123"). It is an epic for a
+	// standalone or initiative spec and a task for a deliverable slice; which
+	// one is the PM adapter's concern, resolved from the key, not the spec's.
+	// That is why the field is not named for a Jira issue type.
+	PMKey string `yaml:"pm_key,omitempty"`
+
+	// EpicKey is the pre-hierarchy name for PMKey, retained read-only so specs
+	// already in the wild keep resolving. ParseMeta coalesces it into PMKey and
+	// clears it, so the next WriteMeta migrates the field in place and no
+	// separate rewrite pass is ever needed. Never set this directly.
+	EpicKey string `yaml:"epic_key,omitempty"`
+
+	Repos []string `yaml:"repos,omitempty"`
+
+	// Parent is the ID of the initiative spec this spec is a deliverable slice
+	// of (e.g. "SPEC-004"). Empty means the spec stands alone, which is the
+	// state of every spec written before hierarchy existed. A spec may have at
+	// most one parent, and the tree is exactly two levels deep: a spec with a
+	// parent may not itself be a parent. Both rules are enforced at link time
+	// (internal/hierarchy) and re-checked by `spec validate`, because
+	// frontmatter is hand-editable.
+	Parent string `yaml:"parent,omitempty"`
+
+	RevertCount int    `yaml:"revert_count"`
+	Source      string `yaml:"source,omitempty"`
+	Created     string `yaml:"created"`
+	Updated     string `yaml:"updated"`
 
 	// StageEnteredAt records when the spec entered its current stage (RFC3339).
 	// It drives the time-urgency gradient's dwell calculation and is stamped on
@@ -227,7 +248,20 @@ func ParseMeta(content string) (*SpecMeta, error) {
 	if err := yaml.Unmarshal([]byte(fm), &meta); err != nil {
 		return nil, fmt.Errorf("parsing frontmatter: %w", err)
 	}
+	meta.coalescePMKey()
 	return &meta, nil
+}
+
+// coalescePMKey folds the legacy epic_key into pm_key.
+//
+// The read fallback is mandatory rather than tidy: specs already in the specs
+// repo say epic_key, and they will not all be rewritten at once. pm_key wins
+// when both are present, since it is the field the current tool writes.
+func (m *SpecMeta) coalescePMKey() {
+	if m.PMKey == "" {
+		m.PMKey = m.EpicKey
+	}
+	m.EpicKey = ""
 }
 
 // ReadTriageMeta reads and parses triage frontmatter.

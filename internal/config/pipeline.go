@@ -293,14 +293,21 @@ func (s StageConfig) HasOwner(role string) bool {
 // GateConfig defines a gate condition for stage advancement.
 type GateConfig struct {
 	// Simple gate types (mutually exclusive with Expr)
-	SectionNotEmpty string          `yaml:"section_not_empty,omitempty"`
-	SectionComplete string          `yaml:"section_complete,omitempty"` // Deprecated: use SectionNotEmpty
-	PRStackExists   *bool           `yaml:"pr_stack_exists,omitempty"`  // Deprecated: use StepsExists
-	StepsExists     *bool           `yaml:"steps_exists,omitempty"`     // Build plan has at least one step
-	PRsApproved     *bool           `yaml:"prs_approved,omitempty"`
-	ReviewApproved  *bool           `yaml:"review_approved,omitempty"` // Technical plan review is approved
-	Duration        string          `yaml:"duration,omitempty"`
-	LinkExists      *LinkExistsGate `yaml:"link_exists,omitempty"`
+	SectionNotEmpty string `yaml:"section_not_empty,omitempty"`
+	SectionComplete string `yaml:"section_complete,omitempty"` // Deprecated: use SectionNotEmpty
+	PRStackExists   *bool  `yaml:"pr_stack_exists,omitempty"`  // Deprecated: use StepsExists
+	StepsExists     *bool  `yaml:"steps_exists,omitempty"`     // Build plan has at least one step
+	PRsApproved     *bool  `yaml:"prs_approved,omitempty"`
+	ReviewApproved  *bool  `yaml:"review_approved,omitempty"` // Technical plan review is approved
+
+	// ChildrenComplete passes iff the spec has at least one deliverable slice
+	// and every slice is in a terminal stage. A childless spec is false, never
+	// vacuously true, so composing it under `any:` beside a delivery gate can
+	// only ever relax an initiative — never an ordinary spec.
+	ChildrenComplete *bool `yaml:"children_complete,omitempty"`
+
+	Duration   string          `yaml:"duration,omitempty"`
+	LinkExists *LinkExistsGate `yaml:"link_exists,omitempty"`
 
 	// Expression gate
 	Expr    string `yaml:"expr,omitempty"`
@@ -335,6 +342,8 @@ func (g GateConfig) Type() string {
 		return "prs_approved"
 	case g.ReviewApproved != nil:
 		return "review_approved"
+	case g.ChildrenComplete != nil:
+		return "children_complete"
 	case g.Duration != "":
 		return "duration"
 	case g.LinkExists != nil:
@@ -372,6 +381,8 @@ func (g GateConfig) Value() string {
 	case g.PRStackExists != nil:
 		return "true"
 	case g.PRsApproved != nil:
+		return "true"
+	case g.ChildrenComplete != nil:
 		return "true"
 	case g.Duration != "":
 		return g.Duration

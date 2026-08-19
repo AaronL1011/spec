@@ -168,7 +168,7 @@ func (ix *Indexer) indexOne(ctx context.Context, path string) (bool, error) {
 		Author:    meta.Author,
 		Assignees: meta.Assignees,
 		Cycle:     meta.Cycle,
-		EpicKey:   meta.EpicKey,
+		PMKey:     meta.PMKey,
 		Archived:  isArchivePath(ix.rc, path),
 		Sections:  make([]store.SearchSection, 0, len(sections)),
 	}

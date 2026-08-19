@@ -9,6 +9,7 @@ import (
 	"github.com/aaronl1011/spec/internal/adapter"
 	"github.com/aaronl1011/spec/internal/config"
 	gitpkg "github.com/aaronl1011/spec/internal/git"
+	"github.com/aaronl1011/spec/internal/hierarchy"
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/spf13/cobra"
 )
@@ -27,6 +28,7 @@ notifications when integrations are enabled.`,
 
 func init() {
 	newCmd.Flags().String("title", "", "spec title (required)")
+	newCmd.Flags().String("parent", "", "scaffold this spec as a deliverable slice of an initiative spec")
 	rootCmd.AddCommand(newCmd)
 }
 
@@ -35,6 +37,8 @@ func runNew(cmd *cobra.Command, args []string) error {
 	if title == "" {
 		return fmt.Errorf("--title is required — e.g., spec new --title \"Auth refactor\"")
 	}
+	parentFlag, _ := cmd.Flags().GetString("parent")
+	parentID := normalizeSpecID(parentFlag)
 
 	rc, err := resolveConfig()
 	if err != nil {
@@ -50,6 +54,19 @@ func runNew(cmd *cobra.Command, args []string) error {
 	repoDir, err := gitpkg.EnsureSpecsRepo(ctx(), &rc.Team.SpecsRepo)
 	if err != nil {
 		return fmt.Errorf("syncing specs repo: %w", err)
+	}
+
+	// Refuse an ineligible initiative before claiming an ID: a claim is
+	// irreversible (the counter ref only moves forward), so a refusal after it
+	// would burn a spec number for nothing.
+	if parentID != "" {
+		graph, err := loadHierarchyIn(specsDir(repoDir), rc)
+		if err != nil {
+			return err
+		}
+		if err := hierarchy.CanParent(graph, parentID, rc.Pipeline()); err != nil {
+			return err
+		}
 	}
 
 	// Claim an authoritative ID before writing (SPEC-018 two-phase
@@ -79,6 +96,20 @@ func runNew(cmd *cobra.Command, args []string) error {
 			return "", fmt.Errorf("writing spec: %w", err)
 		}
 
+		// The parent link is stamped after scaffolding rather than threaded
+		// through the template, so a team's custom template needs no change to
+		// support hierarchy.
+		if parentID != "" {
+			meta, err := readSpecMeta(specPath)
+			if err != nil {
+				return "", err
+			}
+			meta.Parent = parentID
+			if err := markdown.WriteMeta(specPath, meta); err != nil {
+				return "", err
+			}
+		}
+
 		// Ensure templates directory exists
 		templatesDir := filepath.Join(repoPath, "templates")
 		_ = os.MkdirAll(templatesDir, 0o755) // Best-effort directory creation
@@ -93,11 +124,12 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Find-or-create the PM epic if configured (idempotent, crash-safe).
+	// Find-or-create the PM object if configured (idempotent, crash-safe). A
+	// slice becomes a task under its initiative's epic; anything else an epic.
 	if rc.HasIntegration("pm") {
 		sm := pmSpecMeta(rc, specID, title, &markdownMeta{Status: "draft"})
-		if epicKey := ensureEpic(rc, reg, specID, sm); epicKey != "" {
-			fmt.Printf("Linked PM epic: %s\n", epicKey)
+		if pmKey := ensurePMObject(rc, reg, specID, sm, parentID); pmKey != "" {
+			fmt.Printf("Linked PM issue: %s\n", pmKey)
 		}
 	}
 
@@ -115,6 +147,9 @@ func runNew(cmd *cobra.Command, args []string) error {
 	fmt.Printf("✓ Created %s — %s\n", specID, title)
 	fmt.Printf("  Location: %s/%s.md\n", filepath.Join(repoDir, gitpkg.SpecsSubDir), specID)
 	fmt.Printf("  Status: draft\n")
+	if parentID != "" {
+		fmt.Printf("  Parent: %s\n", parentID)
+	}
 	if len(assignees) > 0 {
 		fmt.Printf("  Assignee: %s (you)\n", assignees[0])
 	}

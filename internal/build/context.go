@@ -26,6 +26,12 @@ type BuildContext struct {
 	// SkillPaths is the deduplicated union of skill paths across all DAG nodes,
 	// passed to skill-capable agents as the set the orchestrator may dispatch.
 	SkillPaths []string
+	// InheritedContext is the read-only initiative block for a spec that is a
+	// deliverable slice: its parent's TL;DR, problem statement and proposed
+	// solution. Empty for a standalone spec. It is the payoff of the whole
+	// hierarchy feature — vision written once and inherited by every slice,
+	// rather than copy-pasted into five specs that then drift apart.
+	InheritedContext string
 }
 
 // PRStep represents one node in the §7.3 PR stack plan. A plan is a DAG: each
@@ -263,16 +269,20 @@ func splitPartTitle(s string) (repo, desc string) {
 }
 
 // AssembleContext builds the full context payload for an agent.
-func AssembleContext(specPath string, session *SessionState, conventions string) (*BuildContext, error) {
+//
+// inherited is the initiative block for a deliverable slice, resolved by the
+// caller (which owns the specs-repo layout) and empty for a standalone spec.
+func AssembleContext(specPath string, session *SessionState, conventions, inherited string) (*BuildContext, error) {
 	specContent, err := os.ReadFile(specPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading spec: %w", err)
 	}
 
 	ctx := &BuildContext{
-		SpecPath:    specPath,
-		SpecContent: string(specContent),
-		Conventions: conventions,
+		SpecPath:         specPath,
+		SpecContent:      string(specContent),
+		Conventions:      conventions,
+		InheritedContext: inherited,
 	}
 
 	if session != nil && session.CurrentStep > 0 && session.CurrentStep <= len(session.Steps) {
@@ -301,6 +311,14 @@ func WriteContextFile(ctx *BuildContext, outputPath string) error {
 	sb.WriteString("This spec is built as a DAG of nodes (see §7.3 PR Stack Plan). ")
 	sb.WriteString("MCP-capable agents should read spec://current/dag and drive it with the node tools; ")
 	sb.WriteString("the sections below are the consolidated fallback for agents without MCP.\n\n")
+
+	// Initiative context, before the spec: an agent should read why the work
+	// exists before reading what to build. The block carries its own read-only
+	// delimiters, so its scope is stated where it is read.
+	if strings.TrimSpace(ctx.InheritedContext) != "" {
+		sb.WriteString(ctx.InheritedContext)
+		sb.WriteString("\n")
+	}
 
 	// Full spec
 	sb.WriteString("## Spec\n\n")

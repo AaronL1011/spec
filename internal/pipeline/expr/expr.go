@@ -34,6 +34,24 @@ type Context struct {
 
 	// Alerts contains alert statistics
 	Alerts AlertsContext `expr:"alerts"`
+
+	// Children contains the deliverable-slice rollup for an initiative spec.
+	// All zero for a spec that has no children, which is every spec that is not
+	// an initiative.
+	Children ChildrenContext `expr:"children"`
+}
+
+// ChildrenContext contains the rollup over a spec's deliverable slices.
+//
+// Total is 0 for a spec with no children, so `children.total > 0 and
+// children.open == 0` is the honest way to ask "is this initiative finished?"
+// in an expression. Asking only `children.open == 0` is vacuously true for
+// every ordinary spec.
+type ChildrenContext struct {
+	Total    int `expr:"total"`
+	Complete int `expr:"complete"`
+	Open     int `expr:"open"`
+	Blocked  int `expr:"blocked"`
 }
 
 // SpecContext contains spec metadata for expressions.

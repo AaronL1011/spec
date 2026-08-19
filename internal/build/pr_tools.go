@@ -151,7 +151,7 @@ func (s *MCPServer) toolLinkPRs(args json.RawMessage) (*MCPToolResult, error) {
 // composePRTitle builds a draft-PR title for a node when the caller did not
 // supply an explicit one. spec-cli applies the node repo's pr_title convention,
 // filling the slots it owns deterministically: {type} (caller-supplied conv.
-// commit type), {epic} (the spec's epic_key), and {desc} (the caller's summary,
+// commit type), {epic} (the spec's pm_key), and {desc} (the caller's summary,
 // or the node description). With no convention configured it falls back to a
 // stable default so a build without registry conventions still names PRs
 // sensibly. The template's meaning lives in the repo's registry, not here, so
@@ -165,15 +165,15 @@ func (s *MCPServer) composePRTitle(node PRStep, typ, summary string) string {
 	if err != nil || repoPath == "" {
 		repoPath = s.session.WorkDir
 	}
-	if title := renderPRTitle(conventionsForRepo(repoPath).PRTitle, strings.TrimSpace(typ), s.epicKey(), desc); title != "" {
+	if title := renderPRTitle(conventionsForRepo(repoPath).PRTitle, strings.TrimSpace(typ), s.pmKey(), desc); title != "" {
 		return title
 	}
 	return fmt.Sprintf("%s %s: %s", s.session.SpecID, node.NodeID(), node.Description)
 }
 
-// epicKey returns the spec's epic_key for the {epic} convention slot, or ""
+// pmKey returns the spec's pm_key for the {epic} convention slot, or ""
 // when the spec has none or cannot be read.
-func (s *MCPServer) epicKey() string {
+func (s *MCPServer) pmKey() string {
 	if s.specPath == "" {
 		return ""
 	}
@@ -181,7 +181,7 @@ func (s *MCPServer) epicKey() string {
 	if err != nil || meta == nil {
 		return ""
 	}
-	return meta.EpicKey
+	return meta.PMKey
 }
 
 // renderPRTitle applies a pr_title convention template, substituting {type},

@@ -6,6 +6,7 @@ import (
 
 	"github.com/aaronl1011/spec/internal/config"
 	"github.com/aaronl1011/spec/internal/markdown"
+	"github.com/aaronl1011/spec/internal/pipeline/expr"
 )
 
 func TestEvaluateGatesDurationGate(t *testing.T) {
@@ -74,7 +75,7 @@ func TestEvaluateGatesDurationGate(t *testing.T) {
 				},
 			}
 
-			results := EvaluateGates(pipeline, "review", nil, false, false, tt.meta)
+			results := EvaluateGates(pipeline, "review", nil, false, false, tt.meta, expr.ChildrenContext{})
 			if len(results) != 1 {
 				t.Fatalf("expected 1 result, got %d", len(results))
 			}

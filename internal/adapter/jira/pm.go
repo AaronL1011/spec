@@ -59,11 +59,14 @@ type Options struct {
 	TeamID         string
 	EpicIssueType  string
 	StoryIssueType string
-	Fields         map[string]string // logical name -> customfield id
-	Labels         []string
-	Components     []string
-	StatusMap      map[string]string // spec stage -> jira status
-	Timeout        time.Duration
+	// TaskIssueType is the issue type used for a spec that is a deliverable
+	// slice of an initiative. Defaults to "Task".
+	TaskIssueType string
+	Fields        map[string]string // logical name -> customfield id
+	Labels        []string
+	Components    []string
+	StatusMap     map[string]string // spec stage -> jira status
+	Timeout       time.Duration
 }
 
 // Client implements adapter.PMAdapter using the Jira REST API.
@@ -82,6 +85,9 @@ func NewClient(opts Options) *Client {
 	}
 	if opts.StoryIssueType == "" {
 		opts.StoryIssueType = "Story"
+	}
+	if opts.TaskIssueType == "" {
+		opts.TaskIssueType = "Task"
 	}
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -130,6 +136,47 @@ func (c *Client) CreateEpic(ctx context.Context, spec adapter.SpecMeta) (string,
 		}
 	}
 	return key, nil
+}
+
+// CreateTask creates a Task under the parent spec's epic, for a spec that is a
+// deliverable slice of an initiative. It carries the same spec-id marker label
+// as an epic, so FindEpic remains the single idempotency guard regardless of
+// which issue type a spec ended up with.
+//
+// A slice whose initiative has no PM object yet cannot be placed, so it
+// returns ("", nil) rather than creating a loose task: the caller queues the
+// operation and a later `spec sync --pm` retries once the parent exists.
+func (c *Client) CreateTask(ctx context.Context, spec adapter.SpecMeta, parentKey string) (string, error) {
+	if parentKey == "" {
+		return "", nil
+	}
+	fields := c.baseFields(spec.ID, c.opts.TaskIssueType,
+		fmt.Sprintf("[%s] %s", spec.ID, spec.Title), epicDescription(spec), spec.Labels)
+	c.attachToEpic(fields, parentKey)
+
+	key, err := c.createIssue(ctx, fields)
+	if err != nil {
+		return "", err
+	}
+	if spec.URL != "" {
+		if linkErr := c.LinkEpic(ctx, key, spec.ID, spec.URL); linkErr != nil {
+			return key, fmt.Errorf("task %s created but back-link failed: %w", key, linkErr)
+		}
+	}
+	return key, nil
+}
+
+// attachToEpic points a create payload at its epic. Company-managed (classic)
+// projects link via the Epic Link custom field; team-managed and modern
+// projects use the parent field. Prefer the configured Epic Link field when
+// present. Shared by task and story creation so the two can never disagree
+// about how a child is attached.
+func (c *Client) attachToEpic(fields map[string]interface{}, epicKey string) {
+	if epicLink := c.opts.Fields["epic_link"]; epicLink != "" {
+		fields[epicLink] = epicKey
+		return
+	}
+	fields["parent"] = map[string]string{"key": epicKey}
 }
 
 // LinkEpic records a remote link on the issue pointing back to the spec so
@@ -275,6 +322,11 @@ func (c *Client) Validate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// TaskIssueType is deliberately not required here. It is only used when a
+	// spec is a deliverable slice of an initiative, and failing a team's
+	// `spec config check` over a type they may never create would punish them
+	// for a feature they have not adopted. Jira reports a missing type with a
+	// clear error at CreateTask time, where it actually matters.
 	for _, want := range []string{c.opts.EpicIssueType, c.opts.StoryIssueType} {
 		if want == "" || containsFold(types, want) {
 			continue
@@ -377,14 +429,7 @@ func (c *Client) createStory(ctx context.Context, epicKey string, s adapter.Stor
 	fields := c.baseFields(s.StepID, c.opts.StoryIssueType, summary, summary, nil)
 	// Mark the originating step for idempotent reconciliation.
 	fields["labels"] = append(fields["labels"].([]string), specStepLabel(s.StepID))
-	// Associate the story with its epic. Company-managed (classic) projects link
-	// via the Epic Link custom field; team-managed and modern projects use the
-	// parent field. Prefer the configured Epic Link field when present.
-	if epicLink := c.opts.Fields["epic_link"]; epicLink != "" {
-		fields[epicLink] = epicKey
-	} else {
-		fields["parent"] = map[string]string{"key": epicKey}
-	}
+	c.attachToEpic(fields, epicKey)
 	return c.createIssue(ctx, fields)
 }
 

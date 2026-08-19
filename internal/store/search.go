@@ -27,7 +27,7 @@ type SearchSection struct {
 }
 
 // SearchDoc is a fully parsed spec ready for indexing: one row per section.
-// The metadata fields (Author, Assignees, Cycle, EpicKey) are duplicated on
+// The metadata fields (Author, Assignees, Cycle, PMKey) are duplicated on
 // every section row so any section hit carries them and MATCH can find specs
 // by them.
 type SearchDoc struct {
@@ -38,7 +38,7 @@ type SearchDoc struct {
 	Author    string
 	Assignees []string
 	Cycle     string
-	EpicKey   string
+	PMKey     string
 	Archived  bool
 	Sections  []SearchSection
 }
@@ -59,9 +59,9 @@ type SearchRow struct {
 // bm25Weights are the per-column bm25 weights, in the spec_search column
 // order established by migration v6:
 // spec_id, section_slug, section_heading, title, status, body,
-// author, assignees, cycle, epic_key, archived, path.
+// author, assignees, cycle, pm_key, archived, path.
 // A spec-id match ranks highest (it is near-unique), then heading, then
-// title/author/assignees/epic, then body; UNINDEXED columns are 0.
+// title/author/assignees/pm key, then body; UNINDEXED columns are 0.
 var bm25Weights = []any{4.0, 0.0, 3.0, 2.5, 1.0, 1.0, 2.0, 2.0, 1.0, 2.0, 0.0, 0.0}
 
 // snippetColumn is the snippet() column argument: -1 lets FTS5 pick the
@@ -91,13 +91,13 @@ func (db *DB) UpsertSpecSections(ctx context.Context, doc SearchDoc, mtime int64
 
 	insertStmt := `INSERT INTO spec_search
 		(spec_id, section_slug, section_heading, title, status, body,
-		 author, assignees, cycle, epic_key, archived, path)
+		 author, assignees, cycle, pm_key, archived, path)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	assignees := strings.Join(doc.Assignees, " ")
 	for _, sec := range doc.Sections {
 		if _, err := tx.ExecContext(ctx, insertStmt,
 			doc.SpecID, sec.Slug, sec.Heading, doc.Title, doc.Status, sec.Body,
-			doc.Author, assignees, doc.Cycle, doc.EpicKey, archived, doc.Path,
+			doc.Author, assignees, doc.Cycle, doc.PMKey, archived, doc.Path,
 		); err != nil {
 			return fmt.Errorf("inserting spec_search row for %s/%s: %w", doc.SpecID, sec.Slug, err)
 		}

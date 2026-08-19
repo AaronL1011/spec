@@ -28,18 +28,40 @@ func init() {
 // It is a stable scripting/CI contract: field names and types must not change
 // without a deliberate version bump.
 type statusReport struct {
-	ID          string             `json:"id"`
-	Title       string             `json:"title"`
-	Status      string             `json:"status"`
-	Author      string             `json:"author"`
-	Cycle       string             `json:"cycle"`
-	Version     string             `json:"version"`
-	EpicKey     string             `json:"epic_key,omitempty"`
-	Repos       []string           `json:"repos,omitempty"`
-	Source      string             `json:"source,omitempty"`
-	RevertCount int                `json:"revert_count"`
-	Sections    []statusSection    `json:"sections"`
-	Gates       []statusGateResult `json:"gates"`
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Status      string   `json:"status"`
+	Author      string   `json:"author"`
+	Cycle       string   `json:"cycle"`
+	Version     string   `json:"version"`
+	PMKey       string   `json:"pm_key,omitempty"`
+	Repos       []string `json:"repos,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	RevertCount int      `json:"revert_count"`
+
+	// Parent and Children are the spec's place in the initiative hierarchy.
+	// Both are omitempty, so a standalone spec emits exactly the shape it
+	// always did and existing consumers are unaffected.
+	Parent   *statusParent `json:"parent,omitempty"`
+	Children []statusChild `json:"children,omitempty"`
+
+	Sections []statusSection    `json:"sections"`
+	Gates    []statusGateResult `json:"gates"`
+}
+
+// statusParent is the initiative a spec is a deliverable slice of.
+type statusParent struct {
+	ID     string `json:"id"`
+	Title  string `json:"title,omitempty"`
+	Status string `json:"status,omitempty"`
+}
+
+// statusChild is one deliverable slice of an initiative.
+type statusChild struct {
+	ID       string `json:"id"`
+	Title    string `json:"title,omitempty"`
+	Status   string `json:"status,omitempty"`
+	Complete bool   `json:"complete"`
 }
 
 type statusSection struct {
@@ -81,9 +103,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	pl := rc.Pipeline()
+	tree := specHierarchyView(rc, specID, meta.Parent)
+	children := tree.Rollup.ExprContext()
 
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-		return newPrinter(cmd).JSON(buildStatusReport(pl, meta, sections))
+		return newPrinter(cmd).JSON(buildStatusReport(pl, meta, sections, tree))
 	}
 
 	// Header
@@ -92,8 +116,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Author: %s\n", meta.Author)
 	fmt.Printf("Cycle: %s\n", meta.Cycle)
 	fmt.Printf("Version: %s\n", meta.Version)
-	if meta.EpicKey != "" {
-		fmt.Printf("Epic: %s%s\n", meta.EpicKey, pmDriftSuffix(specID))
+	// "PM" rather than "Epic": a deliverable slice's PM object is a task, and
+	// the CLI no longer knows which type the key names.
+	if meta.PMKey != "" {
+		fmt.Printf("PM: %s%s\n", meta.PMKey, pmDriftSuffix(specID))
 	}
 	if len(meta.Repos) > 0 {
 		fmt.Printf("Repos: %s\n", strings.Join(meta.Repos, ", "))
@@ -104,6 +130,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if meta.RevertCount > 0 {
 		fmt.Printf("Reversions: %d\n", meta.RevertCount)
 	}
+	printHierarchy(tree)
 	fmt.Println()
 
 	// Sync freshness/health line (AC-9, AC-19). Best-effort: drains the
@@ -136,7 +163,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	// Gate check for current stage
 	hasPRStack := markdown.IsSectionNonEmpty(sections, "pr_stack_plan")
-	results := pipeline.EvaluateGates(pl, meta.Status, sections, hasPRStack, false, meta)
+	results := pipeline.EvaluateGates(pl, meta.Status, sections, hasPRStack, false, meta, children)
 	if len(results) > 0 {
 		fmt.Println("Gate checks (current stage):")
 		for _, r := range results {
@@ -151,9 +178,30 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// printHierarchy renders a spec's place in the initiative hierarchy: the
+// parent line on a slice, the slice list plus rollup on an initiative. A
+// standalone spec prints nothing, so the pre-hierarchy output is unchanged.
+func printHierarchy(tree hierarchyView) {
+	if tree.Parent != nil {
+		fmt.Printf("Parent: %s", tree.Parent.ID)
+		if tree.Parent.Title != "" {
+			fmt.Printf(" — %s", tree.Parent.Title)
+		}
+		fmt.Println()
+	}
+	if len(tree.Children) == 0 {
+		return
+	}
+	fmt.Printf("Slices: %d/%d complete\n", tree.Rollup.Complete, tree.Rollup.Total)
+	for _, c := range tree.Children {
+		fmt.Printf("  %-10s  %-12s  %s\n", c.ID, c.Status, c.Title)
+	}
+}
+
 // buildStatusReport assembles the machine-readable status shape from the spec
-// metadata, its level-2 sections, and the current-stage gate evaluation.
-func buildStatusReport(pl config.PipelineConfig, meta *markdown.SpecMeta, sections []markdown.Section) statusReport {
+// metadata, its level-2 sections, its hierarchy, and the current-stage gate
+// evaluation.
+func buildStatusReport(pl config.PipelineConfig, meta *markdown.SpecMeta, sections []markdown.Section, tree hierarchyView) statusReport {
 	rep := statusReport{
 		ID:          meta.ID,
 		Title:       meta.Title,
@@ -161,10 +209,21 @@ func buildStatusReport(pl config.PipelineConfig, meta *markdown.SpecMeta, sectio
 		Author:      meta.Author,
 		Cycle:       meta.Cycle,
 		Version:     meta.Version,
-		EpicKey:     meta.EpicKey,
+		PMKey:       meta.PMKey,
 		Repos:       meta.Repos,
 		Source:      meta.Source,
 		RevertCount: meta.RevertCount,
+	}
+	if tree.Parent != nil {
+		rep.Parent = &statusParent{ID: tree.Parent.ID, Title: tree.Parent.Title, Status: tree.Parent.Status}
+	}
+	for _, c := range tree.Children {
+		rep.Children = append(rep.Children, statusChild{
+			ID:       c.ID,
+			Title:    c.Title,
+			Status:   c.Status,
+			Complete: pipeline.IsTerminalStage(pl, c.Status),
+		})
 	}
 	for _, s := range sections {
 		if s.Level != 2 {
@@ -177,7 +236,7 @@ func buildStatusReport(pl config.PipelineConfig, meta *markdown.SpecMeta, sectio
 		})
 	}
 	hasPRStack := markdown.IsSectionNonEmpty(sections, "pr_stack_plan")
-	for _, r := range pipeline.EvaluateGates(pl, meta.Status, sections, hasPRStack, false, meta) {
+	for _, r := range pipeline.EvaluateGates(pl, meta.Status, sections, hasPRStack, false, meta, tree.Rollup.ExprContext()) {
 		rep.Gates = append(rep.Gates, statusGateResult{Gate: r.Gate, Passed: r.Passed, Reason: r.Reason})
 	}
 	return rep

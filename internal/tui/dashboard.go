@@ -57,6 +57,10 @@ type dashboardRow struct {
 	sortTime      time.Time // when the item entered its current state; drives oldest-first ordering
 	staleFraction float64   // eased time-urgency intensity (0..1); 0 = fresh / no window
 	bountied      bool      // spec carries a bounty; marks the glyph + ID in gold
+	// parent is the initiative this spec is a slice of. It marks the row rather
+	// than nesting it: the dashboard is sorted by personal urgency, and
+	// re-parenting the rows would scramble that ordering.
+	parent string
 }
 
 // newDashboard creates a new dashboard view.
@@ -292,6 +296,7 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			detail:   item.Detail,
 			urgency:  "critical",
 			bountied: item.Bounty != nil,
+			parent:   item.Parent,
 			sortTime: item.SortTime,
 		})
 	}
@@ -315,6 +320,7 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			detail:        detail,
 			urgency:       item.Urgency,
 			bountied:      item.Bounty != nil,
+			parent:        item.Parent,
 			sortTime:      item.SortTime,
 			staleFraction: item.StaleFraction,
 		})
@@ -338,6 +344,7 @@ func (m dashboardModel) buildRows() []dashboardRow {
 			detail:        detail,
 			urgency:       item.Urgency,
 			bountied:      item.Bounty != nil,
+			parent:        item.Parent,
 			sortTime:      item.SortTime,
 			staleFraction: item.StaleFraction,
 		})
@@ -463,7 +470,7 @@ func (m dashboardModel) renderRow(row dashboardRow, selected bool, width int) st
 		rest = " " + truncate(row.title, titleMax)
 	} else {
 		// Wide: columnar layout — icon | id (fixed) | title (flex) | detail (right).
-		idStr := fmt.Sprintf("%-11s", row.specID)
+		idStr := fmt.Sprintf("%-11s", row.specID+dashboard.SliceMark(row.parent))
 		detailLen := len(row.detail)
 		titleMax := width - 16 - detailLen // 2 indent + 1 icon + space + 11 id + 2 gap
 		if titleMax < 10 {

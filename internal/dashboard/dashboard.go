@@ -41,6 +41,15 @@ type DashboardItem struct {
 	// urgency colour, so the two signals read at the same time.
 	Bounty *markdown.BountyState `json:"bounty,omitempty"`
 
+	// Parent is the initiative this spec is a deliverable slice of, empty
+	// otherwise. The dashboard sorts by personal urgency, which re-parenting
+	// would scramble, so hierarchy appears here as a marker on an existing row
+	// and a detail line — never as nesting.
+	Parent string `json:"parent,omitempty"`
+
+	// ParentTitle is Parent's title, for the detail pane's "Part of" line.
+	ParentTitle string `json:"parent_title,omitempty"`
+
 	// SortTime is the moment this item entered its current state — stage entry
 	// for specs, PR-open for reviews, intake date for triage. It drives the
 	// oldest-first ordering within each dashboard section. Zero when unknown.
@@ -89,9 +98,12 @@ func Render(data *DashboardData, userName, role, cycle string) {
 			if item.Assignee != "" {
 				stage += "  ·  " + item.Assignee
 			}
-			fmt.Printf("%s %-10s  %-30s  %s\n", icon, item.SpecID, truncStr(item.Title, 30), stage)
+			fmt.Printf("%s %-10s  %-30s  %s\n", icon, item.SpecID+SliceMark(item.Parent), truncStr(item.Title, 30), stage)
 			if item.Detail != "" {
 				fmt.Printf("   %s\n", item.Detail)
+			}
+			if item.Parent != "" {
+				fmt.Printf("   Part of %s%s\n", item.Parent, titleSuffix(item.ParentTitle))
 			}
 		}
 		anyOutput = true
@@ -176,25 +188,32 @@ func Aggregate(ctx context.Context, rc *config.ResolvedConfig, reg *adapter.Regi
 		specs, err := loadSpecs(rc)
 		if err == nil {
 			threadStore := thread.NewSidecarStore(rc.SpecsRepoDir)
+			tree := specTree(rc)
 			for _, s := range specs {
 				view := s.view()
+				parent, parentTitle := parentLabels(tree, s.ID)
 				if s.Status == pipeline.StatusBlocked {
 					if VisibleInBlocked(pl, blockedCfg, view, viewer) {
 						data.Blocked = append(data.Blocked, DashboardItem{
-							SpecID:   s.ID,
-							Title:    s.Title,
-							Bounty:   s.Bounty,
-							SortTime: stageEntryTime(s.StageEnteredAt, s.Updated),
+							SpecID:      s.ID,
+							Title:       s.Title,
+							Bounty:      s.Bounty,
+							Parent:      parent,
+							ParentTitle: parentTitle,
+							SortTime:    stageEntryTime(s.StageEnteredAt, s.Updated),
 						})
 					}
 				} else if VisibleInDo(pl, view, viewer) {
-					frac := StageUrgency(pl, curve, s.Status, s.StageEnteredAt, s.Updated, now)
+					frac := initiativeUrgency(tree, pl, s.ID,
+						StageUrgency(pl, curve, s.Status, s.StageEnteredAt, s.Updated, now))
 					data.Do = append(data.Do, DashboardItem{
 						SpecID:        s.ID,
 						Title:         s.Title,
 						Stage:         s.Status,
 						Assignee:      doAssigneeLabel(pl, s),
 						Bounty:        s.Bounty,
+						Parent:        parent,
+						ParentTitle:   parentTitle,
 						StaleFraction: frac,
 						Urgency:       urgencyLabel(frac),
 						SortTime:      stageEntryTime(s.StageEnteredAt, s.Updated),
@@ -287,6 +306,7 @@ type specInfo struct {
 	StageEnteredAt string
 	Updated        string
 	Bounty         *markdown.BountyState
+	Parent         string
 }
 
 // view projects a specInfo into the resolver's SpecView.
@@ -439,6 +459,7 @@ func loadSpecs(rc *config.ResolvedConfig) ([]specInfo, error) {
 			StageEnteredAt: meta.StageEnteredAt,
 			Updated:        meta.Updated,
 			Bounty:         meta.Bounty,
+			Parent:         meta.Parent,
 		})
 	}
 	return specs, nil

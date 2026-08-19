@@ -11,6 +11,7 @@ import (
 	"github.com/aaronl1011/spec/internal/markdown"
 	"github.com/aaronl1011/spec/internal/pipeline"
 	"github.com/aaronl1011/spec/internal/pipeline/effects"
+	"github.com/aaronl1011/spec/internal/pipeline/expr"
 )
 
 // ErrGatesNotMet is returned by Advance when the target stage's gate
@@ -63,6 +64,9 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 	if err := pipeline.ValidateAdvance(pl, meta.Status, in.TargetStage, d.Role); err != nil {
 		return nil, err
 	}
+	if err := d.checkHierarchy(in.SpecDir, in.SpecID); err != nil {
+		return nil, err
+	}
 
 	// Read sections up front so the next-stage computation can evaluate
 	// skip_when expressions against the spec's current state.
@@ -73,11 +77,12 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 	hasPRStack := markdown.IsSectionNonEmpty(sections, "pr_stack_plan")
 
 	resolved, _ := d.resolvedPipeline()
+	children := d.childrenContext(in.SpecDir, in.SpecID)
 
 	target := in.TargetStage
 	var autoSkipped []string
 	if target == "" {
-		next, skipped, err := nextEffectiveStage(resolved, pl, meta.Status, sections, hasPRStack, meta)
+		next, skipped, err := nextEffectiveStage(resolved, pl, meta.Status, sections, hasPRStack, meta, children)
 		if err != nil {
 			return nil, fmt.Errorf("cannot advance from %q: %w", meta.Status, err)
 		}
@@ -93,7 +98,7 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 		DryRun:        in.DryRun,
 	}
 
-	gateResults := pipeline.EvaluateGates(pl, target, sections, hasPRStack, false, meta)
+	gateResults := pipeline.EvaluateGates(pl, target, sections, hasPRStack, false, meta, children)
 	if !pipeline.AllGatesPassed(gateResults) {
 		res.GateFailures = pipeline.FailedGates(gateResults)
 		return res, ErrGatesNotMet
@@ -103,7 +108,7 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 		res.Skipped = pipeline.SkippedStages(pl, meta.Status, target)
 	}
 
-	execCtx := d.execContext(in.SpecID, meta.Title, res.PreviousStage, target, in.SpecDir, meta.EpicKey, effects.TransitionAdvance, in.DryRun)
+	execCtx := d.execContext(in.SpecID, meta.Title, res.PreviousStage, target, in.SpecDir, meta.PMKey, effects.TransitionAdvance, in.DryRun)
 
 	if in.DryRun {
 		res.Effects = d.previewAdvanceEffects(ctx, resolved, res.PreviousStage, execCtx)
@@ -140,11 +145,11 @@ func Advance(ctx context.Context, d Deps, in AdvanceInput) (*AdvanceResult, erro
 
 	// Reflect the new stage onto the linked PM board status (on by default,
 	// idempotent, queued-on-failure). Independent of any update_pm effect.
-	if outcome := d.syncPMStatus(ctx, in.SpecID, meta.EpicKey, target); outcome != nil {
+	if outcome := d.syncPMStatus(ctx, in.SpecID, meta.PMKey, target); outcome != nil {
 		res.Effects = append(res.Effects, *outcome)
 	}
 	// Reconcile per-step PM stories when story sync is enabled.
-	if outcome := d.syncPMStories(ctx, in.SpecID, in.SpecPath, meta.EpicKey, meta.Steps); outcome != nil {
+	if outcome := d.syncPMStories(ctx, in.SpecID, in.SpecPath, meta.PMKey, meta.Steps); outcome != nil {
 		res.Effects = append(res.Effects, *outcome)
 	}
 
@@ -211,13 +216,13 @@ func (d Deps) previewAdvanceEffects(ctx context.Context, resolved *pipeline.Reso
 // It returns the target stage and the list of stages skipped because their
 // skip_when condition matched. When no resolved pipeline is available it falls
 // back to the plain next-stage computation.
-func nextEffectiveStage(resolved *pipeline.ResolvedPipeline, pl config.PipelineConfig, current string, sections []markdown.Section, hasPRStack bool, meta *markdown.SpecMeta) (string, []string, error) {
+func nextEffectiveStage(resolved *pipeline.ResolvedPipeline, pl config.PipelineConfig, current string, sections []markdown.Section, hasPRStack bool, meta *markdown.SpecMeta, children expr.ChildrenContext) (string, []string, error) {
 	if resolved == nil {
 		next, err := pipeline.NextStage(pl, current, true)
 		return next, nil, err
 	}
 
-	ctx := pipeline.BuildExprContext(sections, hasPRStack, false, meta)
+	ctx := pipeline.BuildExprContext(sections, hasPRStack, false, meta, children)
 	next, ok := pipeline.NextEffectiveStage(resolved, current, ctx)
 	if !ok {
 		return "", nil, fmt.Errorf("no next stage after %q", current)

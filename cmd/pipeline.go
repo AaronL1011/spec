@@ -434,6 +434,8 @@ func runPipelineExport(cmd *cobra.Command, args []string) error {
 					cmd.Println("        - pr_stack_exists: true")
 				case "prs_approved":
 					cmd.Println("        - prs_approved: true")
+				case "children_complete":
+					cmd.Println("        - children_complete: true")
 				case "duration":
 					cmd.Printf("        - duration: %s\n", g.Value())
 				case "expr":
@@ -660,6 +662,9 @@ func gateFromPromptType(gateType string) (config.GateConfig, error) {
 	case "prs_approved":
 		t := true
 		return config.GateConfig{PRsApproved: &t}, nil
+	case "children_complete":
+		t := true
+		return config.GateConfig{ChildrenComplete: &t}, nil
 	case "decisions_resolved":
 		return config.GateConfig{Expr: "decisions.unresolved == 0", Message: "All decisions must be resolved"}, nil
 	case "expr":
@@ -778,6 +783,8 @@ func gateToYAMLMap(g config.GateConfig) map[string]interface{} {
 		gateMap["pr_stack_exists"] = true
 	case g.PRsApproved != nil:
 		gateMap["prs_approved"] = true
+	case g.ChildrenComplete != nil:
+		gateMap["children_complete"] = true
 	case g.Expr != "":
 		gateMap["expr"] = g.Expr
 		if g.Message != "" {

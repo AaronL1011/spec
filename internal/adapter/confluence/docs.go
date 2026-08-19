@@ -889,7 +889,7 @@ func metadataPanel(specID string, meta *markdown.SpecMeta) string {
 		rows = appendMetaRow(rows, "Author", meta.Author)
 		rows = appendMetaRow(rows, "Cycle", meta.Cycle)
 		rows = appendMetaRow(rows, "Version", meta.Version)
-		rows = appendMetaRow(rows, "Epic", meta.EpicKey)
+		rows = appendMetaRow(rows, "PM", meta.PMKey)
 		rows = appendMetaRow(rows, "Repos", strings.Join(meta.Repos, ", "))
 		rows = appendMetaRow(rows, "Updated", meta.Updated)
 	}

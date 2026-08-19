@@ -118,13 +118,15 @@ func (s *SyncerAdapter) Sync(ctx context.Context, direction, specID string) erro
 
 // PMUpdaterAdapter bridges adapter.PMAdapter to the PMUpdater interface.
 type PMUpdaterAdapter struct {
-	PM      adapter.PMAdapter
-	EpicKey string
+	PM adapter.PMAdapter
+	// PMKey is the spec's PM object key. It may name an epic or a task; the
+	// adapter resolves the type from the key.
+	PMKey string
 }
 
 func (p *PMUpdaterAdapter) UpdateStatus(ctx context.Context, status string) error {
-	if p.PM == nil || p.EpicKey == "" {
+	if p.PM == nil || p.PMKey == "" {
 		return nil
 	}
-	return p.PM.UpdateStatus(ctx, p.EpicKey, status)
+	return p.PM.UpdateStatus(ctx, p.PMKey, status)
 }

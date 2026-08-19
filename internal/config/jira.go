@@ -11,6 +11,7 @@ import (
 const (
 	defaultEpicIssueType  = "Epic"
 	defaultStoryIssueType = "Story"
+	defaultTaskIssueType  = "Task"
 	defaultPMTimeout      = 10 * time.Second
 )
 
@@ -34,6 +35,9 @@ type JiraConfig struct {
 
 	EpicIssueType  string
 	StoryIssueType string
+	// TaskIssueType is the issue type for a spec that is a deliverable slice of
+	// an initiative. Defaults to "Task".
+	TaskIssueType string
 
 	// Fields maps logical field names (epic_name, team, sprint, story_points)
 	// to instance-specific custom-field ids (e.g. customfield_10011).
@@ -98,6 +102,7 @@ func (p ProviderConfig) Jira() JiraConfig {
 		TeamID:         p.Get("team_id"),
 		EpicIssueType:  p.Get("epic_issue_type"),
 		StoryIssueType: p.Get("story_issue_type"),
+		TaskIssueType:  p.Get("task_issue_type"),
 		Fields:         rawStringMap(p.raw, "fields"),
 		Labels:         rawStringSlice(p.raw, "labels"),
 		Components:     rawStringSlice(p.raw, "components"),
@@ -110,6 +115,9 @@ func (p ProviderConfig) Jira() JiraConfig {
 	}
 	if j.StoryIssueType == "" {
 		j.StoryIssueType = defaultStoryIssueType
+	}
+	if j.TaskIssueType == "" {
+		j.TaskIssueType = defaultTaskIssueType
 	}
 	if v := p.Get("board_id"); v != "" {
 		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {

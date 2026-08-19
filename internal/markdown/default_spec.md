@@ -5,7 +5,7 @@ status: draft
 version: 0.1.0
 author: <% author %>
 cycle: <% cycle %>
-epic_key: ""
+pm_key: ""
 repos: []
 revert_count: 0
 source: <% source %>
