@@ -9,6 +9,7 @@ const (
 	OpPush       = "push"
 	OpRecover    = "recover"
 	OpQueueFlush = "queue-flush"
+	OpRepair     = "repair"
 )
 
 // Sync outcomes mirrored from the store layer so callers in git don't need to
