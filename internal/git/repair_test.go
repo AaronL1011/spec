@@ -16,25 +16,6 @@ func zeroFile(path string) error {
 	return os.Truncate(path, 0)
 }
 
-// countLooseObjects returns the number of loose object files in the store.
-func countLooseObjects(t *testing.T, dir string) int {
-	t.Helper()
-	objectsDir := filepath.Join(dir, ".git", "objects")
-	var n int
-	_ = filepath.Walk(objectsDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil //nolint:nilerr // best-effort walk; skip unreadable entries
-		}
-		rel, _ := filepath.Rel(objectsDir, path)
-		// loose objects live under two-hex-char subdirs
-		if len(filepath.Dir(rel)) == 2 {
-			n++
-		}
-		return nil
-	})
-	return n
-}
-
 func TestRepairObjectStore_RemovesZeroByteObjectsAndPackTemps(t *testing.T) {
 	local, _ := newTestClone(t)
 	objectsDir := filepath.Join(local, ".git", "objects")
@@ -136,7 +117,6 @@ func TestFetchWithRepair_GenuineFailureIsSurfaced(t *testing.T) {
 	if repaired {
 		t.Error("intact object store must not be reported as repaired")
 	}
-	_ = countLooseObjects // referenced to keep helper compiled for future use
 }
 
 // TestRepairObjectStore_IntactStoreRemovesNothing confirms a healthy clone is
