@@ -88,6 +88,19 @@ func (db *DB) QueuePushResolve(id int64) error {
 	return nil
 }
 
+// QueuePushClear removes every queued entry for a repo regardless of status.
+// Used by a hard reset (`spec nuke`), which discards the local clone whose
+// commits those entries reference — leaving them would strand rows pointing at
+// commits that no longer exist. Returns the number of entries cleared.
+func (db *DB) QueuePushClear(repoKey string) (int, error) {
+	res, err := db.conn.Exec(`DELETE FROM sync_queue WHERE repo_key = ?`, repoKey)
+	if err != nil {
+		return 0, fmt.Errorf("clearing queued pushes for %s: %w", repoKey, err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // QueuePushMark updates a queued entry's status (e.g. needs-resolution).
 func (db *DB) QueuePushMark(id int64, status, detail string) error {
 	_, err := db.conn.Exec(

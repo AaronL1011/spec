@@ -149,8 +149,12 @@ func EnsureSpecsRepo(ctx context.Context, cfg *config.SpecsRepoConfig) (string, 
 
 	// Freshness TTL: skip the network fetch if we fetched recently (AC-5/AC-6).
 	if !fetchFresh(cfg) {
-		if err := Fetch(ctx, dir); err != nil {
+		repaired, err := fetchWithRepair(ctx, dir)
+		if err != nil {
 			return dir, fmt.Errorf("fetching specs repo: %w", redactToken(err))
+		}
+		if repaired {
+			readRecorder.Record(AuditEvent{Op: OpRepair, Surface: readSurface, Trigger: "read", Outcome: OutcomeOK, Detail: "auto-repaired corrupt object store"})
 		}
 		readRecorder.SetLastFetch(repoKey(cfg), time.Now().Unix())
 		readRecorder.Record(AuditEvent{Op: OpFetch, Surface: readSurface, Trigger: "read", Outcome: OutcomeOK})
@@ -299,8 +303,12 @@ func WithSpecsRepoOpts(ctx context.Context, cfg *config.SpecsRepoConfig, opts Sy
 			return "", "", nil, err
 		}
 
-		if err := Fetch(ctx, dir); err != nil {
+		repaired, err := fetchWithRepair(ctx, dir)
+		if err != nil {
 			return "", "", nil, fmt.Errorf("fetching specs repo: %w", redactToken(err))
+		}
+		if repaired {
+			opts.record(OpRepair, OutcomeOK, "auto-repaired corrupt object store")
 		}
 		readRecorder.SetLastFetch(repoKey(cfg), time.Now().Unix())
 		if err := ResetHard(ctx, dir, remoteRef); err != nil {
@@ -376,8 +384,8 @@ func pushWithRecovery(ctx context.Context, cfg *config.SpecsRepoConfig, dir stri
 			return nil
 		}
 
-		// Fetch the new remote state.
-		if err := Fetch(ctx, dir); err != nil {
+		// Fetch the new remote state (auto-repairing a corrupt object store).
+		if _, err := fetchWithRepair(ctx, dir); err != nil {
 			// Offline / transient: queue and drain later.
 			queuePush(ctx, cfg, dir, opts, "offline: "+redactToken(err).Error())
 			return nil
